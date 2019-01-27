@@ -15,6 +15,12 @@
 from __future__ import print_function, absolute_import
 
 if __name__=='pymol.importing':
+
+    # MPP
+    import MDAnalysis
+
+    # FIXME - this needs to be a singleton
+    gmda = {}
     
     import re
     import os
@@ -458,8 +464,44 @@ SEE ALSO
         finally:
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
+
+        # MPP
+        global gmda
+        # if the object name is the same as the previously loaded one,
+        # then reload MDAnalysis together with the trajectory
+        if gmda[oname] != None:
+            current = gmda[oname]
+            current['trajectory'] = filename
+            current['mdanalysis_universe'] = MDAnalysis.Universe(current['topology'], current['trajectory'])
+
         return r
-    
+
+
+    # MPP
+    def rmsd(object, selection="backbone", filename=None):
+        global gmda
+
+        u = gmda[object]['mdanalysis_universe']
+        sel = u.select_atoms("protein")
+
+        import MDAnalysis.analysis.rms
+
+        R = MDAnalysis.analysis.rms.RMSD(sel, sel,
+                                         select=selection,  # superimpose on whole backbone of the whole protein
+                                         filename=filename)
+        R.run()
+
+        import matplotlib.pyplot as plt
+        rmsd = R.rmsd.T  # transpose makes it easier for plotting
+        time = rmsd[1]
+        plt.plot(time, rmsd[2], 'k-', label="all")
+        plt.legend(loc="best")
+        plt.xlabel("time (ps)")
+        plt.ylabel(r"RMSD ($\AA$)")
+        plt.show()
+        return None
+
+
     def _processALN(fname,quiet=1,_self=cmd):
         legal_dict = {}
         seq_dict = {}
@@ -802,6 +844,14 @@ SEE ALSO
 
             if 'contents' in spec.args:
                 kw['contents'] = _self.file_read(filename)
+
+            # MPP - get the name of the object, and the file, and use it to set up the MDAnalysis object
+            global gmda
+            # contain a list of loaded objects / states / names before we know how to extract them ourselves
+            gmda[kw['oname']] = {
+                'mdanalysis_universe': MDAnalysis.Universe(kw['finfo']),
+                'topology': kw['finfo']
+            }
 
             return func(**kw)
         finally:

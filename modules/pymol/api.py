@@ -24,8 +24,10 @@ from .importing import \
       read_pdbstr,        \
       read_xplorstr,      \
       fetch,              \
-      set_session,        \
-      space              
+      set_session, \
+      space, \
+      rmsd
+# MPP ^
 
 #--------------------------------------------------------------------
 from . import creating
