@@ -14,7 +14,7 @@
 
 from __future__ import print_function, absolute_import
 
-if __name__=='pymol.importing':
+if True:
 
     # MPP
     import MDAnalysis
@@ -29,11 +29,9 @@ if __name__=='pymol.importing':
     import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
-    from . import setting
     from . import selector
     from . import colorprinting
-    from .cmd import _cmd,lock,unlock,Shortcut, \
-          _feedback,fb_module,fb_mask, \
+    from .cmd import _cmd, \
           DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error, \
           _load, is_list, space_sc, safe_list_eval, is_string, loadable
     from .constants import _loadable
@@ -43,10 +41,7 @@ if __name__=='pymol.importing':
         raise pymol.IncentiveOnlyException(
                 "'%s' format not supported by this PyMOL build" % format)
 
-    from chempy import io,PseudoFile
-    
-    # TODO remove (keep for now for eventual legacy uses in scripts)
-    loadable_sc = Shortcut(loadable.__dict__.keys()) 
+    from chempy import io
 
     def filename_to_objectname(fname, _self=cmd):
         oname, _, _, _ = filename_to_format(fname)

@@ -90,16 +90,15 @@ def _deferred_init_pymol_internals(_pymol):
     _pymol._scene_dict_sc = Shortcut({})
 
     # 
-if __name__=='pymol.cmd':
+if True:
 
-    import traceback
     import sys
 
     # pymol2.cmd2 exposes a weak reference, this is not possible (and not
     # necessary) on the module level, so we simply make a self reference.
     _weakrefproxy = sys.modules[__name__]
 
-    try:
+    if True:
         
         import re
         from pymol import _cmd
@@ -150,7 +149,7 @@ if __name__=='pymol.cmd':
         def as_pathstr(path):
             # On Windows, always work with unicode file names. On Unix,
             # UTF-8 byte strings seem to be fine, so keep them for now.
-            if isinstance(path, bytes) and sys.platform == 'win32':
+            if isinstance(path, bytes) and pymol.IS_WINDOWS:
                 for encoding in ('utf-8', 'mbcs'):
                     try:
                         return path.decode(encoding)
@@ -216,7 +215,6 @@ if __name__=='pymol.cmd':
         _ray_hash_spawn = internal._ray_hash_spawn
         _ray_spawn = internal._ray_spawn
         _refresh = internal._refresh
-        _sgi_stereo = internal._sgi_stereo
         _special = internal._special
         _validate_color_sc = internal._validate_color_sc
         _cache_get = internal._cache_get
@@ -422,13 +420,3 @@ with a slash (/) forces the interpreter to pass it to Python. See also the
         color_sc = None
 
         raw_image_callback = None
-
-    except:
-        print("Error: unable to initalize the pymol.cmd module")
-        traceback.print_exc()
-        sys.exit(0)
-        
-else:
-    from pymol.cmd import *
-    
-
