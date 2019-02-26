@@ -74,16 +74,6 @@ IS_MACOS = sys.platform.startswith('darwin')
 IS_LINUX = sys.platform.startswith('linux')
 
 if IS_PY3:
-    # legacy string API, still used by Pmw for example
-    import string
-    for attr in ['capitalize', 'count', 'find', 'index', 'lower',
-            'replace', 'rstrip', 'split', 'strip', 'upper', 'zfill']:
-        setattr(string, attr, getattr(str, attr))
-    string.letters      = string.ascii_letters
-    string.lowercase    = string.ascii_lowercase
-    string.join = lambda words, sep=' ': sep.join(words)
-    string.atoi = int
-
     import _thread as thread
 else:
     import thread
@@ -176,9 +166,6 @@ def get_version_message(v=None):
     p = "PyMOL %s " % v[0]
     p += "Incentive Product" if invocation.options.incentive_product else \
          "Open-Source"
-
-    if v[5]:
-        p += ", svn rev %s" % v[5]
 
     return p
 
@@ -567,9 +554,6 @@ setup_environ()
 
 # initialize instance-specific module/object internals
 _init_internals(sys.modules[__name__])
-
-# maximize responsiveness
-sys.setcheckinterval(1)
 
 # get X-window support (machine_get_clipboard)
 if 'DISPLAY' in os.environ:

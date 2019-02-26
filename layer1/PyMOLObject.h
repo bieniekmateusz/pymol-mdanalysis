@@ -118,7 +118,7 @@ void ObjectInit(PyMOLGlobals * G, CObject * I);
 int ObjectCopyHeader(CObject * I, const CObject * src);
 void ObjectPurge(CObject * I);
 void ObjectSetName(CObject * I, const char *name);
-void ObjectMakeValidName(char *name);
+bool ObjectMakeValidName(char *name);
 void ObjectMakeValidName(PyMOLGlobals * G, char *name);
 void ObjectPurgeSettings(CObject * I);
 void ObjectFree(CObject * I);
@@ -144,7 +144,6 @@ int ObjectMotion(CObject * I, int action, int first,
                  int hand, int window, int cycles, int state, int quiet);
 int ObjectGetSpecLevel(CObject * I, int frame);
 void ObjectMotionTrim(CObject *I, int n_frame);
-void ObjectMotionExtend(CObject *I, int n_frame);
 void ObjectDrawViewElem(CObject *I, BlockRect *rect, int frames, CGO *orthoCGO);
 void ObjectStateInit(PyMOLGlobals * G, CObjectState * I);
 void ObjectStateCopy(CObjectState * dst, const CObjectState * src);

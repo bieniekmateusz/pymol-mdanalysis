@@ -2060,7 +2060,7 @@ static PyObject *CmdGetVersion(PyObject * self, PyObject * args)
 #ifdef _PyMOL_BUILD_DATE
       _PyMOL_BUILD_DATE,
       _PYMOL_BUILD_GIT_SHA,
-      _PyMOL_BUILD_SVN_REV
+      0
 #else
       0, "", 0
 #endif
@@ -2394,7 +2394,7 @@ static PyObject *CmdAlign(PyObject * self, PyObject * args)
     if((ok = APIEnterNotModal(G))) {
       ok = ((SelectorGetTmp(G, str2, s2) >= 0) && (SelectorGetTmp(G, str3, s3) >= 0));
       if(ok) {
-        ExecutiveAlign(G, s2, s3,
+        ok = ExecutiveAlign(G, s2, s3,
                        mfile, gap, extend, max_gap,
                        max_skip, cutoff,
                        cycles, quiet, oname, state1, state2,
@@ -4398,7 +4398,7 @@ static PyObject *Cmd_New(PyObject * self, PyObject * args)
         PyMOLGlobals *G = PyMOL_GetGlobals(I);
         if(I) {
 
-          G->P_inst = Calloc(CP_inst, 1);
+          G->P_inst = pymol::calloc<CP_inst>(1);
           G->P_inst->obj = pymol;
           G->P_inst->dict = PyObject_GetAttrString(pymol, "__dict__");
           Py_DECREF(G->P_inst->dict); // borrow reference
@@ -5149,7 +5149,7 @@ static PyObject *CmdFitPairs(PyObject * self, PyObject * args)
       ok = false;
 
     if(ok) {
-      word = Alloc(WordType, ln);
+      word = pymol::malloc<WordType>(ln);
 
       a = 0;
       while(a < ln) {
@@ -6965,26 +6965,6 @@ static PyObject *CmdFullScreen(PyObject * self, PyObject * args)
   return APIResultOk(ok);
 }
 
-static PyObject *CmdUngroup(PyObject * self, PyObject * args)
-{
-  PyMOLGlobals *G = NULL;
-  char *gname, *names;
-  int quiet;
-  int ok = false;
-  ok = PyArg_ParseTuple(args, "Ossi", &self, &gname, &names, &quiet);
-  if(ok) {
-    API_SETUP_PYMOL_GLOBALS;
-    ok = (G != NULL);
-  } else {
-    API_HANDLE_ERROR;
-  }
-  if(ok && (ok = APIEnterNotModal(G))) {
-    /*    ExecutiveGroup(G,gname,names,NULL,quiet,NULL); */
-    APIExit(G);
-  }
-  return APIResultOk(ok);
-}
-
 static PyObject *CmdGroup(PyObject * self, PyObject * args)
 {
   PyMOLGlobals *G = NULL;
@@ -8755,7 +8735,6 @@ static PyMethodDef Cmd_methods[] = {
   {"volume", CmdVolume, METH_VARARGS},
   {"volume_color", CmdVolumeColor, METH_VARARGS},
   {"undo", CmdUndo, METH_VARARGS},
-  {"ungroup", CmdUngroup, METH_VARARGS},
   {"unpick", CmdUnpick, METH_VARARGS},
   {"unset", CmdUnset, METH_VARARGS},
   {"unset_bond", CmdUnsetBond, METH_VARARGS},

@@ -73,16 +73,13 @@ static
 CoordSet *ObjectMoleculeMMDStr2CoordSet(PyMOLGlobals * G, const char *buffer,
                                         AtomInfoType ** atInfoPtr, const char **restart);
 
-void ObjectMoleculeSeleOp(ObjectMolecule * I, int sele, ObjectMoleculeOpRec * op);
-
+static
 void ObjectMoleculeTransformTTTf(ObjectMolecule * I, float *ttt, int state);
 
+static
 int ObjectMoleculeGetAtomGeometry(ObjectMolecule * I, int state, int at);
-void ObjectMoleculeBracketResidue(ObjectMolecule * I, AtomInfoType * ai, int *st,
-                                  int *nd);
 
-void ObjectMoleculeInferAmineGeomFromBonds(ObjectMolecule * I, int state);
-
+static
 void ObjectMoleculeInferHBondFromChem(ObjectMolecule * I);
 
 /*
@@ -112,7 +109,7 @@ void ObjectMoleculeRemoveDuplicateBonds(PyMOLGlobals * G, ObjectMolecule * I) {
   }
 
   // get sorted indices
-  int * sorted = Alloc(int, I->NBond);
+  int * sorted = pymol::malloc<int>(I->NBond);
   UtilSortIndexGlobals(G, I->NBond, I->Bond, sorted,
       (UtilOrderFnGlobals *) BondTypeInOrder);
 
@@ -246,8 +243,8 @@ int ObjectMoleculeSetDiscrete(PyMOLGlobals * G, ObjectMolecule * I, int discrete
   maxnatom = I->NAtom * I->NCSet;
 
   // mapping (for bonds): atom_old -> atom_new
-  ok_assert(1, aostate2an = Alloc(int, I->NAtom));
-  ok_assert(1, bondseen = Calloc(char , I->NBond));
+  ok_assert(1, aostate2an = pymol::malloc<int>(I->NAtom));
+  ok_assert(1, bondseen = pymol::calloc<char >(I->NBond));
 
   // discrete setup
   I->DiscreteFlag = discrete;
@@ -350,7 +347,7 @@ int ObjectMoleculeSetDiscrete(PyMOLGlobals * G, ObjectMolecule * I, int discrete
 
 ok_except1:
   PRINTFB(G, FB_ObjectMolecule, FB_Errors)
-    " ObjectMoleculeSetDiscrete: memory allocation failed\n" ENDFB(G);
+    " %s: memory allocation failed\n", __func__ ENDFB(G);
   return false;
 }
 
@@ -695,7 +692,7 @@ int ObjectMoleculeXferValences(ObjectMolecule * Ia, int sele1, int sele2,
     int max_match = Ia->NAtom + Ia->NBond;
     if(max_match < (Ib->NAtom + Ib->NBond))
       max_match = (Ib->NAtom + Ib->NBond);
-    matched = Calloc(int, max_match * 4);
+    matched = pymol::calloc<int>(max_match * 4);
   }
 
   {
@@ -1012,7 +1009,7 @@ ObjectMolecule *ObjectMoleculeLoadTRJFile(PyMOLGlobals * G, ObjectMolecule * I,
 
   f = pymol_fopen(fname, "rb");
   if(!f) {
-    ErrMessage(G, "ObjectMoleculeLoadTRJFile", "Unable to open file!");
+    ErrMessage(G, __func__, "Unable to open file!");
   } else {
     if(I->CSTmpl) {
       cs = CoordSetCopy(I->CSTmpl);
@@ -1025,7 +1022,7 @@ ObjectMolecule *ObjectMoleculeLoadTRJFile(PyMOLGlobals * G, ObjectMolecule * I,
     }
 
     if(sele0 >= 0) {            /* build array of cross-references */
-      xref = Alloc(int, I->NAtom);
+      xref = pymol::malloc<int>(I->NAtom);
       c = 0;
       for(a = 0; a < I->NAtom; a++) {
         if(SelectorIsMember(G, I->AtomInfo[a].selEntry, sele0)) {
@@ -1062,7 +1059,7 @@ ObjectMolecule *ObjectMoleculeLoadTRJFile(PyMOLGlobals * G, ObjectMolecule * I,
     }
     PRINTFB(G, FB_ObjectMolecule, FB_Blather)
       " ObjMolLoadTRJFile: Loading from \"%s\".\n", fname ENDFB(G);
-    buffer = (char *) mmalloc(BUFSIZE + 1);     /* 1 MB read buffer */
+    buffer = pymol::malloc<char>(BUFSIZE + 1);     /* 1 MB read buffer */
     p = buffer;
     buffer[0] = 0;
     n_read = 0;
@@ -1400,7 +1397,7 @@ ObjectMolecule *ObjectMoleculeLoadRSTFile(PyMOLGlobals * G, ObjectMolecule * I,
 	" ObjMolLoadRSTFile: Loading from \"%s\".\n", fname ENDFB(G);
       p = buffer = FileGetContents(fname, NULL);
       if(!buffer)
-        ok = ErrMessage(G, "ObjectMoleculeLoadRSTFile", "Unable to open file!");
+        ok = ErrMessage(G, __func__, "Unable to open file!");
     }
     if (ok){
       p = nextline(p);
@@ -1893,7 +1890,7 @@ static CoordSet *ObjectMoleculeTOPStr2CoordSet(PyMOLGlobals * G, const char *buf
       p = findflag(G, buffer, "RESIDUE_LABEL", "20a4");
     }
 
-    resn = Alloc(ResName, NRES);
+    resn = pymol::malloc<ResName>(NRES);
 
     b = 0;
     for(a = 0; a < NRES; a++) {
@@ -2398,7 +2395,7 @@ ok_except1:
     if(cset)
       cset->fFree();
     cset = NULL;
-    ErrMessage(G, "ObjectMoleculeTOPStr2CoordSet", "failed");
+    ErrMessage(G, __func__, "failed");
   }
   if(atInfoPtr)
     *atInfoPtr = atInfo;
@@ -2508,10 +2505,10 @@ ObjectMolecule *ObjectMoleculeLoadTOPFile(PyMOLGlobals * G, ObjectMolecule * obj
   buffer = FileGetContents(fname, NULL);
 
   if(!buffer)
-    ErrMessage(G, "ObjectMoleculeLoadTOPFile", "Unable to open file!");
+    ErrMessage(G, __func__, "Unable to open file!");
   else {
     PRINTFB(G, FB_ObjectMolecule, FB_Blather)
-      " ObjectMoleculeLoadTOPFile: Loading from %s.\n", fname ENDFB(G);
+      " %s: Loading from %s.\n", __func__, fname ENDFB(G);
 
     I = ObjectMoleculeReadTOPStr(G, obj, buffer, frame, discrete);
     mfree(buffer);
@@ -2523,7 +2520,7 @@ ObjectMolecule *ObjectMoleculeLoadTOPFile(PyMOLGlobals * G, ObjectMolecule * obj
 void ObjectMoleculeSculptClear(ObjectMolecule * I)
 {
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
-    " ObjectMoleculeSculptClear: entered.\n" ENDFD;
+    " %s: entered.\n", __func__ ENDFD;
 
   if(I->Sculpt)
     SculptFree(I->Sculpt);
@@ -2534,7 +2531,7 @@ void ObjectMoleculeSculptImprint(ObjectMolecule * I, int state, int match_state,
                                  int match_by_segment)
 {
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
-    " ObjectMoleculeUpdateSculpt: entered.\n" ENDFD;
+    " %s: entered.\n", __func__ ENDFD;
 
   if(!I->Sculpt)
     I->Sculpt = SculptNew(I->Obj.G);
@@ -2545,7 +2542,7 @@ float ObjectMoleculeSculptIterate(ObjectMolecule * I, int state, int n_cycle,
                                   float *center)
 {
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
-    " ObjectMoleculeIterateSculpt: entered.\n" ENDFD;
+    " %s: entered.\n", __func__ ENDFD;
   if(I->Sculpt) {
     return SculptIterateObject(I->Sculpt, I, state, n_cycle, center);
   } else
@@ -3446,7 +3443,7 @@ int ObjectMoleculeFuse(ObjectMolecule * I, int index0, ObjectMolecule * src,
     }
 
     if (ok)
-      backup = Alloc(float, cs->NIndex * 3);      /* make untransformed copy of coordinate set */
+      backup = pymol::malloc<float>(cs->NIndex * 3);      /* make untransformed copy of coordinate set */
     CHECKOK(ok, backup);
     if (ok){
       for(a = 0; a < cs->NIndex; a++) {
@@ -4037,10 +4034,10 @@ void ObjectMoleculeCreateSpheroid(ObjectMolecule * I, int average)
 
   nRow = I->NAtom * sp->nDot;
 
-  center = Alloc(float, I->NAtom * 3);
-  count = Alloc(int, I->NAtom);
-  fsum = Alloc(float, nRow);
-  max_sq = Alloc(float, I->NAtom);
+  center = pymol::malloc<float>(I->NAtom * 3);
+  count = pymol::malloc<int>(I->NAtom);
+  fsum = pymol::malloc<float>(nRow);
+  max_sq = pymol::malloc<float>(I->NAtom);
 
   spheroid_smooth = SettingGetGlobal_f(I->Obj.G, cSetting_spheroid_smooth);
   spheroid_fill = SettingGetGlobal_f(I->Obj.G, cSetting_spheroid_fill);
@@ -4063,7 +4060,7 @@ void ObjectMoleculeCreateSpheroid(ObjectMolecule * I, int average)
         " ObjectMolecule: computing spheroid from states %d to %d.\n",
         first + 1, last ENDFB(I->Obj.G);
 
-      spheroid = Alloc(float, nRow);
+      spheroid = pymol::malloc<float>(nRow);
 
       v = center;
       i = count;
@@ -4182,7 +4179,7 @@ void ObjectMoleculeCreateSpheroid(ObjectMolecule * I, int average)
 
       /* now compute surface normals */
 
-      norm = Alloc(float, nRow * 3);
+      norm = pymol::malloc<float>(nRow * 3);
       for(a = 0; a < nRow; a++) {
         zero3f(norm + a * 3);
       }
@@ -4417,7 +4414,7 @@ void ObjectMoleculeSaveUndo(ObjectMolecule * I, int state, int log)
   state = state % I->NCSet;
   cs = I->CSet[state];
   if(cs) {
-    I->UndoCoord[I->UndoIter] = Alloc(float, cs->NIndex * 3);
+    I->UndoCoord[I->UndoIter] = pymol::malloc<float>(cs->NIndex * 3);
     memcpy(I->UndoCoord[I->UndoIter], cs->Coord, sizeof(float) * cs->NIndex * 3);
     I->UndoState[I->UndoIter] = state;
     I->UndoNIndex[I->UndoIter] = cs->NIndex;
@@ -4451,7 +4448,7 @@ void ObjectMoleculeUndo(ObjectMolecule * I, int dir)
   state = state % I->NCSet;
   cs = I->CSet[state];
   if(cs) {
-    I->UndoCoord[I->UndoIter] = Alloc(float, cs->NIndex * 3);
+    I->UndoCoord[I->UndoIter] = pymol::malloc<float>(cs->NIndex * 3);
     memcpy(I->UndoCoord[I->UndoIter], cs->Coord, sizeof(float) * cs->NIndex * 3);
     I->UndoState[I->UndoIter] = state;
     I->UndoNIndex[I->UndoIter] = cs->NIndex;
@@ -4723,7 +4720,7 @@ void ObjectMoleculePurge(ObjectMolecule * I)
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
     " ObjMolPurge-Debug: step 3, old-to-new mapping\n" ENDFD;
 
-  oldToNew = Alloc(int, I->NAtom);
+  oldToNew = pymol::malloc<int>(I->NAtom);
   ai0 = I->AtomInfo;
   ai1 = I->AtomInfo;
   for(a = 0; a < I->NAtom; a++) {
@@ -5049,10 +5046,10 @@ void ObjectMoleculeGuessValences(ObjectMolecule * I, int state, int *flag1, int 
     cs = I->CSet[state];
   }
   if(cs) {
-    obs_atom = Calloc(ObservedInfo, I->NAtom);
-    obs_bond = Calloc(ObservedInfo, I->NBond);
+    obs_atom = pymol::calloc<ObservedInfo>(I->NAtom);
+    obs_bond = pymol::calloc<ObservedInfo>(I->NBond);
   }
-  flag = Calloc(int, I->NAtom);
+  flag = pymol::calloc<int>(I->NAtom);
   if(flag) {
     if(!flag1) {
       int a, *flag_a = flag;
@@ -5789,7 +5786,7 @@ void ObjectMoleculeGuessValences(ObjectMolecule * I, int state, int *flag1, int 
   }
   if (warning1 || warning2){
 	  PRINTFB(I->Obj.G, FB_ObjectMolecule, FB_Blather)
-	    " ObjectMoleculeGuessValences(%d,%d): Unreasonable connectivity in heteroatom,\n  unsuccessful in guessing valences.\n", warning1, warning2
+	    " %s(%d,%d): Unreasonable connectivity in heteroatom,\n  unsuccessful in guessing valences.\n", __func__, warning1, warning2
 	     ENDFB(I->Obj.G);
   }
   FreeP(obs_bond);
@@ -6849,7 +6846,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
   if(atomList && PyList_Check(atomList))
     nAtom = PyList_Size(atomList);
   else
-    ok = ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't get atom list");
+    ok = ErrMessage(G, __func__, "can't get atom list");
 
   if(ok) {
     coord = VLAlloc(float, 3 * nAtom);
@@ -6864,10 +6861,10 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
 
       atom = PyList_GetItem(atomList, a);
       if(!atom)
-        ok = ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't get atom");
+        ok = ErrMessage(G, __func__, "can't get atom");
       crd = PyObject_GetAttrString(atom, "coord");
       if(!crd)
-        ok = ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't get coordinates");
+        ok = ErrMessage(G, __func__, "can't get coordinates");
       else {
         for(c = 0; c < 3; c++) {
           tmp = PySequence_GetItem(crd, c);
@@ -6875,7 +6872,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
             ok = PConvPyObjectToFloat(tmp, f++);
           Py_XDECREF(tmp);
           if(!ok) {
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read coordinates");
+            ErrMessage(G, __func__, "can't read coordinates");
             break;
           }
         }
@@ -6891,7 +6888,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
             if(tmp)
               ok = PConvPyObjectToInt(tmp, &ai->id);
             if(!ok)
-              ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+              ErrMessage(G, __func__,
                          "can't read atom identifier");
             Py_XDECREF(tmp);
           } else {
@@ -6911,7 +6908,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           ai->name = LexIdx(G, tmp_word);
         }
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read name");
+          ErrMessage(G, __func__, "can't read name");
         Py_XDECREF(tmp);
       }
 
@@ -6925,7 +6922,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
             ai->textType = LexIdx(G, temp);
           }
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read text_type");
+            ErrMessage(G, __func__, "can't read text_type");
           Py_XDECREF(tmp);
         }
       }
@@ -6940,7 +6937,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
             ai->custom = LexIdx(G, temp);
           }
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read custom");
+            ErrMessage(G, __func__, "can't read custom");
           Py_XDECREF(tmp);
         }
       }
@@ -6951,7 +6948,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToFloat(tmp, &ai->vdw);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read vdw radius");
+            ErrMessage(G, __func__, "can't read vdw radius");
           Py_XDECREF(tmp);
         } else {
           ai->vdw = 0.0f;
@@ -6963,7 +6960,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToFloat(tmp, &ai->elec_radius);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+            ErrMessage(G, __func__,
                        "can't read elec. radius");
           Py_XDECREF(tmp);
         } else {
@@ -6980,7 +6977,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
             ai->stereo = tmp_char;
           }
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read stereo");
+            ErrMessage(G, __func__, "can't read stereo");
           Py_XDECREF(tmp);
         } else {
           ai->stereo = 0;
@@ -6993,7 +6990,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToInt(tmp, &ai->customType);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+            ErrMessage(G, __func__,
                        "can't read numeric_type");
           Py_XDECREF(tmp);
         } else {
@@ -7007,7 +7004,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToChar(tmp, (char *) &ai->formalCharge);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+            ErrMessage(G, __func__,
                        "can't read formal_charge");
           Py_XDECREF(tmp);
         } else {
@@ -7021,7 +7018,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToFloat(tmp, &ai->partialCharge);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+            ErrMessage(G, __func__,
                        "can't read partial_charge");
           Py_XDECREF(tmp);
         } else {
@@ -7035,7 +7032,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToInt(tmp, (int *) &ai->flags);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read flags");
+            ErrMessage(G, __func__, "can't read flags");
           Py_XDECREF(tmp);
         } else {
           ai->flags = 0;
@@ -7049,7 +7046,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           ok = PConvPyObjectToStrMaxClean(tmp, buf, sizeof(buf) - 1);
         ai->resn = LexIdx(G, buf);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read resn");
+          ErrMessage(G, __func__, "can't read resn");
         Py_XDECREF(tmp);
       }
 
@@ -7059,7 +7056,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           ResIdent tmp_ins_code;
           ok = PConvPyObjectToStrMaxClean(tmp, tmp_ins_code, sizeof(ResIdent) - 1);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read ins_code");
+            ErrMessage(G, __func__, "can't read ins_code");
           else if(tmp_ins_code[0] != '?') {
             ai->setInscode(tmp_ins_code[0]);
           }
@@ -7072,7 +7069,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToInt(tmp, &ai->resv);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read resi_number");
+            ErrMessage(G, __func__, "can't read resi_number");
           Py_XDECREF(tmp);
         }
       }
@@ -7084,7 +7081,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           PConvPyObjectToStrMaxClean(tmp, temp, sizeof(OrthoLineType) - 1);
         ai->segi = LexIdx(G, temp);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read segi");
+          ErrMessage(G, __func__, "can't read segi");
         Py_XDECREF(tmp);
       }
 
@@ -7093,7 +7090,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp)
           ok = PConvPyObjectToFloat(tmp, &ai->b);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read b value");
+          ErrMessage(G, __func__, "can't read b value");
         Py_XDECREF(tmp);
       }
 
@@ -7102,7 +7099,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp) {
           ok = PConvPyObjectToFloat(tmp, &ai->b);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read u value");
+            ErrMessage(G, __func__, "can't read u value");
           else
             ai->b *= (8 * cPI * cPI);   /* B-factor = 8 pi^2 U-factor */
         }
@@ -7127,7 +7124,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp)
           ok = PConvPyObjectToFloat(tmp, &ai->q);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read occupancy");
+          ErrMessage(G, __func__, "can't read occupancy");
         Py_XDECREF(tmp);
       }
 
@@ -7138,7 +7135,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           PConvPyObjectToStrMaxClean(tmp, temp, sizeof(OrthoLineType) - 1);
         ai->chain = LexIdx(G, temp);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read chain");
+          ErrMessage(G, __func__, "can't read chain");
         Py_XDECREF(tmp);
       }
 
@@ -7147,7 +7144,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp)
           ok = PConvPyObjectToInt(tmp, &hetatm);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read hetatm");
+          ErrMessage(G, __func__, "can't read hetatm");
         else {
           ai->hetatm = hetatm;
           if(!PTruthCallStr(atom, "has", "flags")) {
@@ -7163,7 +7160,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp)
           ok = PConvPyObjectToStrMaxClean(tmp, ai->alt, sizeof(Chain) - 1);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+          ErrMessage(G, __func__,
                      "can't read alternate conformation");
         Py_XDECREF(tmp);
       }
@@ -7173,7 +7170,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp)
           ok = PConvPyObjectToStrMaxClean(tmp, ai->elem, sizeof(ElemName) - 1);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read symbol");
+          ErrMessage(G, __func__, "can't read symbol");
         Py_XDECREF(tmp);
       }
 
@@ -7182,7 +7179,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp)
           ok = PConvPyObjectToStrMaxClean(tmp, ai->ssType, sizeof(SSType) - 1);
         if(!ok)
-          ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+          ErrMessage(G, __func__,
                      "can't read secondary structure");
         Py_XDECREF(tmp);
       }
@@ -7212,7 +7209,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           int color_index;
           ok = PConvPyObjectToInt(tmp, &color_index);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad cartoon color info");
+            ErrMessage(G, __func__, "bad cartoon color info");
           else {
             SettingSet(G, cSetting_cartoon_color, color_index, ai);
           }
@@ -7238,7 +7235,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           unsigned int trgb;
           ok = PConvPyObjectToInt(tmp, (signed int *) &trgb);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad cartoon color info");
+            ErrMessage(G, __func__, "bad cartoon color info");
           else {
             char color_name[24];
             sprintf(color_name, "0x%08x", trgb);
@@ -7253,7 +7250,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           unsigned int trgb;
           ok = PConvPyObjectToInt(tmp, (signed int *) &trgb);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad label color info");
+            ErrMessage(G, __func__, "bad label color info");
           else {
             char color_name[24];
             sprintf(color_name, "0x%08x", trgb);
@@ -7268,7 +7265,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           int color_index;
           ok = PConvPyObjectToInt(tmp, &color_index);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad ribbon color info");
+            ErrMessage(G, __func__, "bad ribbon color info");
           else {
             SettingSet(G, cSetting_ribbon_color, color_index, ai);
           }
@@ -7282,7 +7279,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           unsigned int trgb;
           ok = PConvPyObjectToInt(tmp, (signed int *) &trgb);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad cartoon color info");
+            ErrMessage(G, __func__, "bad cartoon color info");
           else {
             char color_name[24];
             sprintf(color_name, "0x%08x", trgb);
@@ -7300,7 +7297,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp) {
           ok = PConvPyObjectToInt(tmp, (signed int *) &vis);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad visibility info");
+            ErrMessage(G, __func__, "bad visibility info");
           else {
             atInfo[a].visRep = vis;
 
@@ -7324,7 +7321,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
         if(tmp) {
           ok = PConvPyObjectToInt(tmp, (signed int *) &trgb);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "bad color info");
+            ErrMessage(G, __func__, "bad color info");
           else {
             char color_name[24];
             sprintf(color_name, "0x%08x", trgb);
@@ -7344,7 +7341,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
     if(bondList && PyList_Check(bondList))
       nBond = PyList_Size(bondList);
     else
-      ok = ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't get bond list");
+      ok = ErrMessage(G, __func__, "can't get bond list");
 
     if(ok) {
       bond = VLACalloc(BondType, nBond);
@@ -7352,18 +7349,18 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
       for(a = 0; a < nBond; a++) {
         bnd = PyList_GetItem(bondList, a);
         if(!bnd)
-          ok = ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't get bond");
+          ok = ErrMessage(G, __func__, "can't get bond");
         index = PyObject_GetAttrString(bnd, "index");
         if(!index)
           ok =
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't get bond indices");
+            ErrMessage(G, __func__, "can't get bond indices");
         else {
           for(c = 0; c < 2; c++) {
             tmp = PyList_GetItem(index, c);
             if(tmp)
               ok = PConvPyObjectToInt(tmp, &ii->index[c]);
             if(!ok) {
-              ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+              ErrMessage(G, __func__,
                          "can't read coordinates");
               break;
             }
@@ -7375,7 +7372,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
           if(tmp)
             ok = PConvPyObjectToInt(tmp, &order);
           if(!ok)
-            ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet", "can't read bond order");
+            ErrMessage(G, __func__, "can't read bond order");
           Py_XDECREF(tmp);
           ii->order = order;
         }
@@ -7423,7 +7420,7 @@ static CoordSet *ObjectMoleculeChemPyModel2CoordSet(PyMOLGlobals * G,
               if(tmp)
                 ok = PConvPyObjectToInt(tmp, &ii->id);
               if(!ok)
-                ErrMessage(G, "ObjectMoleculeChemPyModel2CoordSet",
+                ErrMessage(G, __func__,
                            "can't read bond identifier");
               Py_XDECREF(tmp);
             } else {
@@ -8948,11 +8945,11 @@ ObjectMolecule *ObjectMoleculeReadStr(PyMOLGlobals * G, ObjectMolecule * I,
         if(successCnt > 1) {
           if(successCnt == 2) {
             PRINTFB(G, FB_ObjectMolecule, FB_Actions)
-              " ObjectMoleculeReadStr: read through molecule %d.\n", 1 ENDFB(G);
+              " %s: read through molecule %d.\n", __func__, 1 ENDFB(G);
           }
           if(UtilShouldWePrintQuantity(successCnt)) {
             PRINTFB(G, FB_ObjectMolecule, FB_Actions)
-              " ObjectMoleculeReadStr: read through molecule %d.\n", successCnt ENDFB(G);
+              " %s: read through molecule %d.\n", __func__, successCnt ENDFB(G);
           }
         }
       }
@@ -9181,7 +9178,7 @@ int ObjectMoleculeMerge(ObjectMolecule * I, pymol::vla<AtomInfoType>&& ai,
   if(ok && expansionFlag) {           /* expansion flag means we have introduced at least 1 new atom */
     ok &= ObjectMoleculeConnect(I, &nBond, &bond, I->AtomInfo, cs, bondSearchFlag, -1);
     if(nBond) {
-      index = Alloc(int, nBond);
+      index = pymol::malloc<int>(nBond);
       CHECKOK(ok, index);
       c = 0;
       b = 0;
@@ -9317,7 +9314,7 @@ void ObjectMoleculeSeleOp(ObjectMolecule * I, int sele, ObjectMoleculeOpRec * op
 #ifdef _WEBGL
 #endif
   PRINTFD(G, FB_ObjectMolecule)
-    " ObjectMoleculeSeleOp-DEBUG: sele %d op->code %d\n", sele, op->code ENDFD;
+    " %s-DEBUG: sele %d op->code %d\n", __func__, sele, op->code ENDFD;
   if(sele >= 0) {
     const char *errstr = "Alter";
     /* always run on entry */
@@ -9579,7 +9576,7 @@ void ObjectMoleculeSeleOp(ObjectMolecule * I, int sele, ObjectMoleculeOpRec * op
       }
       break;
     case OMOP_SFIT:            /* state fitting within a single object */
-      vt = Alloc(float, 3 * op->nvv2);  /* temporary (matching) target vertex pointers */
+      vt = pymol::malloc<float>(3 * op->nvv2);  /* temporary (matching) target vertex pointers */
       cnt = 0;
       for(a = 0; a < I->NAtom; a++) {
         s = I->AtomInfo[a].selEntry;
@@ -10816,8 +10813,8 @@ void ObjectMoleculeSeleOp(ObjectMolecule * I, int sele, ObjectMoleculeOpRec * op
         break;
       case OMOP_RevalenceByGuessing:
         {
-          int *flag1 = Calloc(int, I->NAtom);
-          int *flag2 = Calloc(int, I->NAtom);
+          int *flag1 = pymol::calloc<int>(I->NAtom);
+          int *flag2 = pymol::calloc<int>(I->NAtom);
           if(flag1 && flag2) {
             int a;
             int *f1 = flag1;
@@ -11044,7 +11041,7 @@ static void ObjectMoleculeUpdate(ObjectMolecule * I)
           if((a<I->NCSet) && I->CSet[a])
             cnt++;
         {
-          CCoordSetUpdateThreadInfo *thread_info = Alloc(CCoordSetUpdateThreadInfo, cnt);
+          CCoordSetUpdateThreadInfo *thread_info = pymol::malloc<CCoordSetUpdateThreadInfo>(cnt);
           if(thread_info) {
             cnt = 0;
             for(a = start; a < stop; a++) {
@@ -11095,7 +11092,7 @@ void ObjectMoleculeInvalidate(ObjectMolecule * I, int rep, int level, int state)
 {
   int a;
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
-    " ObjectMoleculeInvalidate: entered. rep: %d level: %d\n", rep, level ENDFD;
+    " %s: entered. rep: %d level: %d\n", __func__, rep, level ENDFD;
 
   if(level >= cRepInvVisib) {
     I->RepVisCacheValid = false;
@@ -11113,7 +11110,7 @@ void ObjectMoleculeInvalidate(ObjectMolecule * I, int rep, int level, int state)
     }
   }
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
-    " ObjectMoleculeInvalidate: invalidating representations...\n" ENDFD;
+    " %s: invalidating representations...\n", __func__ ENDFD;
 
   if ( level >= cRepInvColor ) { 
     /* after label, this gets called, so we shouldn't invalidate types b/c PYMOL-317
@@ -11140,7 +11137,7 @@ void ObjectMoleculeInvalidate(ObjectMolecule * I, int rep, int level, int state)
   }
   
   PRINTFD(I->Obj.G, FB_ObjectMolecule)
-    " ObjectMoleculeInvalidate: leaving...\n" ENDFD;
+    " %s: leaving...\n", __func__ ENDFD;
 
 }
 
@@ -11228,8 +11225,8 @@ int ObjectMoleculeMoveAtomLabel(ObjectMolecule * I, int state, int index, float 
 int ObjectMoleculeInitBondPath(ObjectMolecule * I, ObjectMoleculeBPRec * bp)
 {
   int a;
-  bp->dist = Alloc(int, I->NAtom);
-  bp->list = Alloc(int, I->NAtom);
+  bp->dist = pymol::malloc<int>(I->NAtom);
+  bp->list = pymol::malloc<int>(I->NAtom);
   for(a = 0; a < I->NAtom; a++)
     bp->dist[a] = -1;
   bp->n_atom = 0;
@@ -11978,10 +11975,10 @@ ObjectMolecule *ObjectMoleculeReadPDBStr(PyMOLGlobals * G, ObjectMolecule * I,
         if(successCnt > 1) {
           if(successCnt == 2) {
             PRINTFB(G, FB_ObjectMolecule, FB_Actions)
-              " ObjectMolReadPDBStr: read MODEL %d\n", 1 ENDFB(G);
+              " %s: read MODEL %d\n", __func__, 1 ENDFB(G);
           }
           PRINTFB(G, FB_ObjectMolecule, FB_Actions)
-            " ObjectMolReadPDBStr: read MODEL %d\n", successCnt ENDFB(G);
+            " %s: read MODEL %d\n", __func__, successCnt ENDFB(G);
         }
       }
     }
@@ -12271,8 +12268,8 @@ int *AtomInfoGetSortedIndex(PyMOLGlobals * G, ObjectMolecule * obj,
   int a;
   CSetting *setting = NULL;
 
-  ok_assert(1, index = Alloc(int, n + 1));
-  ok_assert(1, (*outdex) = Alloc(int, n + 1));
+  ok_assert(1, index = pymol::malloc<int>(n + 1));
+  ok_assert(1, (*outdex) = pymol::malloc<int>(n + 1));
 
   if(obj && obj->DiscreteFlag) {
     for(a = 0; a < n; a++)

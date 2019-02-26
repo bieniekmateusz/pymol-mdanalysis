@@ -141,15 +141,8 @@ std::pair<int, int> OrthoGetBackgroundSize(const COrtho& ortho){
   }
 }
 
+static
 void OrthoParseCurrentLine(PyMOLGlobals * G);
-
-Block *OrthoFindBlock(PyMOLGlobals * G, int x, int y);
-void OrthoKeyControl(PyMOLGlobals * G, unsigned char k);
-void OrthoKeyAlt(PyMOLGlobals * G, unsigned char k);
-void OrthoKeyCtSh(PyMOLGlobals * G, unsigned char k);
-void OrthoKeyCmmd(PyMOLGlobals * G, unsigned char k);
-
-
 
 #define cBusyWidth 240
 #define cBusyHeight 60
@@ -758,6 +751,7 @@ void OrthoRestorePrompt(PyMOLGlobals * G)
 
 
 /*========================================================================*/
+static
 void OrthoKeyControl(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -773,6 +767,7 @@ void OrthoKeyControl(PyMOLGlobals * G, unsigned char k)
 }
 
 /*========================================================================*/
+static
 void OrthoKeyCmmd(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -788,6 +783,7 @@ void OrthoKeyCmmd(PyMOLGlobals * G, unsigned char k)
 }
 
 /*========================================================================*/
+static
 void OrthoKeyCtSh(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -804,6 +800,7 @@ void OrthoKeyCtSh(PyMOLGlobals * G, unsigned char k)
 
 
 /*========================================================================*/
+static
 void OrthoKeyAlt(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -2309,6 +2306,7 @@ void OrthoReshapeWizard(PyMOLGlobals * G, ov_size wizHeight)
 
 
 /*========================================================================*/
+static
 Block *OrthoFindBlock(PyMOLGlobals * G, int x, int y)
 {
   COrtho *I = G->Ortho;
@@ -2505,7 +2503,7 @@ int OrthoInit(PyMOLGlobals * G, int showSplash)
 {
   COrtho *I = NULL;
 
-  if((I = (G->Ortho = Calloc(COrtho, 1)))) {
+  if((I = (G->Ortho = pymol::calloc<COrtho>(1)))) {
 
     new (&I->deferred)(decltype(I->deferred));
     new (&I->feedback)(decltype(I->feedback));
@@ -2765,9 +2763,9 @@ void OrthoPasteIn(PyMOLGlobals * G, const char *buffer)
     I->InputFlag = true;
 }
 
-#if 0
 /* TODO: Removed. Check in Mobile PyMOL to see if needed - PYMOL-3148*/
 void OrthoSetBackgroundImage(PyMOLGlobals * G, const char *image_data, int width, int height){
+#if 0
   COrtho *I = G->Ortho;
   int buff_total = width * height;  
   short should_update = 0;
@@ -2779,7 +2777,7 @@ void OrthoSetBackgroundImage(PyMOLGlobals * G, const char *image_data, int width
     should_update = 1;
   }
   if (buff_total){
-    I->bgData = Alloc(unsigned char, buff_total*4);
+    I->bgData = pymol::malloc<unsigned char>(buff_total*4);
     I->bgWidth = width;
     I->bgHeight = height;
     memcpy(I->bgData, image_data, buff_total * 4);
@@ -2796,8 +2794,8 @@ void OrthoSetBackgroundImage(PyMOLGlobals * G, const char *image_data, int width
     G->ShaderMgr->Reload_All_Shaders();
     I->bg_texture_needs_update = 1;
   }
-}
 #endif
+}
 
 void OrthoInvalidateDoDraw(PyMOLGlobals * G)
 {

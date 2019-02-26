@@ -48,12 +48,11 @@ Z* -------------------------------------------------------------------
 
 #define clamp(x,l,h) ((x) < (l) ? (l) : (x) > (h) ? (h) : (x))
 
-ObjectVolume *ObjectVolumeNew(PyMOLGlobals * G);
-
+static ObjectVolume *ObjectVolumeNew(PyMOLGlobals * G);
 static void ObjectVolumeFree(ObjectVolume * I);
 static void ObjectVolumeInvalidate(ObjectVolume * I, int rep, int level, int state);
-void ObjectVolumeStateInit(PyMOLGlobals * G, ObjectVolumeState * vs);
-void ObjectVolumeRecomputeExtent(ObjectVolume * I);
+static void ObjectVolumeStateInit(PyMOLGlobals * G, ObjectVolumeState * vs);
+static void ObjectVolumeRecomputeExtent(ObjectVolume * I);
 
 static ObjectVolumeState * ObjectVolumeGetActiveState(ObjectVolume * I) {
   int a;
@@ -480,7 +479,7 @@ static void ObjectVolumeUpdate(ObjectVolume * I)
           };
           vs->RecolorFlag = true;
           vs->RampSize = 3;
-          vs->Ramp = Alloc(float, 5 * vs->RampSize);
+          vs->Ramp = pymol::malloc<float>(5 * vs->RampSize);
           memcpy(vs->Ramp, defaultramp, 5 * vs->RampSize * sizeof(float));
         }
       }
@@ -580,7 +579,9 @@ static void ObjectVolumeUpdate(ObjectVolume * I)
   }
 }
 
+static
 int ObjectVolumeAddSlicePoint(float *p0, float *p1, float *zaxis, float d, float *slice, float *t0, float *t1, float *tex_coords, float *origin);
+static
 void ObjectVolumeDrawSlice(float *points, float *tex_coords, int n_points, float *zaxis);
 
 /*
@@ -606,7 +607,7 @@ static float * ObjectVolumeStateGetColors(PyMOLGlobals * G, ObjectVolumeState * 
   r_min -= stdev * 0.5;
   range += stdev;
 
-  colors = Calloc(float, 4 * count);
+  colors = pymol::calloc<float>(4 * count);
   ok_assert(1, colors);
 
   for (i = 0; i < ovs->RampSize; i++) {
@@ -686,9 +687,9 @@ static size_t createColorTexture(PyMOLGlobals * G, const float *colors, const in
 static size_t createPreintegrationTexture(PyMOLGlobals * G, const float *Table, const int count)
 {
   float factor, tmp1[4];
-  Vector4f *sat = Alloc(Vector4f, count + 1);
+  Vector4f *sat = pymol::malloc<Vector4f>(count + 1);
   int i, sb, sf, lookupindex = 0;
-  GLfloat *lookupImg = Alloc(GLfloat, count * count * 4);
+  GLfloat *lookupImg = pymol::malloc<GLfloat>(count * count * 4);
 
   memset(sat[0], 0, sizeof(sat[0]));
 

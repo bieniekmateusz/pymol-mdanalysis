@@ -280,14 +280,12 @@ int PConvPyIntToInt(PyObject * obj, int *ptr)
   int ok = true;
   if(!obj) {
     ok = false;
-  } else if(!PyInt_Check(obj)) {
-    if(!PyLong_Check(obj)) {
-      ok = false;
-    } else {
-      *ptr = (int) PyLong_AsLongLong(obj);
-    }
-  } else {
+  } else if(PyLong_Check(obj)) {
+    *ptr = (int) PyLong_AsLongLong(obj);
+  } else if(PyInt_Check(obj)) {
     *ptr = PyInt_AsLong(obj);
+  } else {
+    ok = false;
   }
   return (ok);
 }
@@ -333,10 +331,10 @@ int PConvPyObjectToFloat(PyObject * object, float *value)
     result = false;
   else if(PyFloat_Check(object)) {
     (*value) = (float) PyFloat_AsDouble(object);
-  } else if(PyInt_Check(object)) {
-    (*value) = (float) PyInt_AsLong(object);
   } else if(PyLong_Check(object)) {
     (*value) = (float) PyLong_AsLongLong(object);
+  } else if(PyInt_Check(object)) {
+    (*value) = (float) PyInt_AsLong(object);
   } else {
     tmp = PyNumber_Float(object);
     if(tmp) {
@@ -352,12 +350,12 @@ int PConvPyObjectToInt(PyObject * object, int *value)
 {
   int result = true;
   PyObject *tmp;
-  if(!object)
+  if(!object) {
     result = false;
-  else if(PyInt_Check(object)) {
-    (*value) = (int) PyInt_AsLong(object);
   } else if(PyLong_Check(object)) {
     (*value) = (int) PyLong_AsLongLong(object);
+  } else if(PyInt_Check(object)) {
+    (*value) = (int) PyInt_AsLong(object);
   } else {
     tmp = PyNumber_Int(object);
     if(tmp) {
@@ -536,7 +534,7 @@ int PConvPyListToFloatArrayImpl(PyObject * obj, float **f, bool as_vla)
     if (as_vla) {
       (*f) = VLAlloc(float, l);
     } else {
-      (*f) = Alloc(float, l);
+      (*f) = pymol::malloc<float>(l);
     }
 
     auto strval = PyBytes_AsSomeString(obj);
@@ -554,7 +552,7 @@ int PConvPyListToFloatArrayImpl(PyObject * obj, float **f, bool as_vla)
     if (as_vla) {
       (*f) = VLAlloc(float, l);
     } else {
-      (*f) = Alloc(float, l);
+      (*f) = pymol::malloc<float>(l);
     }
 
     ff = (*f);
@@ -650,7 +648,7 @@ int PConvPyListToDoubleArray(PyObject * obj, double **f)
       ok = -1;
     else
       ok = l;
-    (*f) = Alloc(double, l);
+    (*f) = pymol::malloc<double>(l);
     ff = (*f);
     for(a = 0; a < l; a++)
       *(ff++) = PyFloat_AsDouble(PyList_GetItem(obj, a));
@@ -674,7 +672,7 @@ int PConvPyListToIntArrayImpl(PyObject * obj, int **f, bool as_vla)
     if (as_vla) {
       (*f) = VLAlloc(int, l);
     } else {
-      (*f) = Alloc(int, l);
+      (*f) = pymol::malloc<int>(l);
     }
 
     auto strval = PyBytes_AsSomeString(obj);
@@ -692,7 +690,7 @@ int PConvPyListToIntArrayImpl(PyObject * obj, int **f, bool as_vla)
     if (as_vla) {
       (*f) = VLAlloc(int, l);
     } else {
-      (*f) = Alloc(int, l);
+      (*f) = pymol::malloc<int>(l);
     }
 
     ff = (*f);

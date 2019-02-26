@@ -53,6 +53,7 @@ using namespace std;
 const float mat3identity[] = { 1., 0., 0., 0., 1., 0., 0., 0., 1. };
 
 #ifdef _PYMOL_ARB_SHADERS
+static
 GLboolean ProgramStringIsNative(PyMOLGlobals * G,
                                        GLenum target, GLenum format,
                                        const string& shaderstr)
@@ -192,7 +193,7 @@ int CShaderPrg::Link() {
 	ENDFB(G);
       glGetProgramiv(id, GL_INFO_LOG_LENGTH, &infoLogLength);
       if (!glGetError() && infoLogLength>0){
-	char *infoLog = Alloc(char, infoLogLength);
+	char *infoLog = pymol::malloc<char>(infoLogLength);
 	glGetProgramInfoLog(id, infoLogLength, &howLong, infoLog);
 	PRINTFB(G, FB_ShaderMgr, FB_Errors)
 	  "%s\n", infoLog

@@ -235,7 +235,7 @@ PyObject *MainComplete(const char *str)
 
 
 void MainFree(void);
-void MainReshape(int width, int height);
+static void MainReshape(int width, int height);
 static void MainDrawLocked(void);
 static void MainDrag(int x, int y);
 
@@ -262,6 +262,7 @@ struct _CMain {
 
 /* global options */
 
+static
 void MainOnExit(void);
 
 static void MainPushValidContext(PyMOLGlobals * G)
@@ -1024,7 +1025,7 @@ void MainDoReshape(int width, int height)
 static void MainInit(PyMOLGlobals * G)
 {
 
-  CMain *I = (G->Main = Calloc(CMain, 1));
+  CMain *I = (G->Main = pymol::calloc<CMain>(1));
   /* Data structure is zeroed on start...no need for explicit zero inits */
 
   I->DeferReshapeDeferral = 1;

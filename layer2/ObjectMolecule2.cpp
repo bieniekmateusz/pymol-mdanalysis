@@ -416,7 +416,7 @@ int *ObjectMoleculeGetPrioritizedOtherIndexList(ObjectMolecule * I, CoordSet * c
   int a, b;
   int b1, b2, a1, a2, a3;
   OtherRec *o;
-  OtherRec *other = Calloc(OtherRec, cs->NIndex);
+  OtherRec *other = pymol::calloc<OtherRec>(cs->NIndex);
   int *result = NULL;
   int offset;
   int n_alloc = 0;
@@ -454,7 +454,7 @@ int *ObjectMoleculeGetPrioritizedOtherIndexList(ObjectMolecule * I, CoordSet * c
   if (ok){
     n_alloc = 3 * (n_alloc + cs->NIndex);
     o = other;
-    result = Alloc(int, n_alloc);
+    result = pymol::malloc<int>(n_alloc);
     CHECKOK(ok, result);
   }
   if (ok){
@@ -1516,7 +1516,7 @@ int ObjectMoleculeConvertIDsToIndices(ObjectMolecule * I, int *id, int n_id)
       int a, offset;
 
       range = max_id - min_id + 1;
-      lookup = Calloc(int, range);
+      lookup = pymol::calloc<int>(range);
       for(a = 0; a < I->NAtom; a++) {
         offset = I->AtomInfo[a].id - min_id;
         if(!lookup[offset])
@@ -1717,7 +1717,7 @@ static void ObjectMoleculePDBStr2CoordSetPASS1(PyMOLGlobals * G, int *ok,
             p = ntrim(cc, p, 6);      /* get context name */
             if(WordMatchExact(G, "ALIGN", cc, true)) {        /* ALIGN is special */
               if(!m4x->align) {
-                m4x->align = Calloc(M4XAlignType, 1);
+		m4x->align = pymol::calloc<M4XAlignType>(1);
                 CHECKOK(*ok, m4x->align);
                 if (*ok){
                   M4XAlignInit(m4x->align);
@@ -1838,7 +1838,7 @@ static void sshash_free(SSHash *hash) {
 }
 
 static SSHash * sshash_new() {
-  SSHash *hash = Calloc(SSHash, 1);
+  SSHash *hash = pymol::calloc<SSHash>(1);
   ok_assert(1, hash);
   hash->n_ss = 1;
   hash->ss_list = VLAlloc(SSEntry, 50);
@@ -1871,7 +1871,7 @@ static int sshash_register_rec(SSHash * hash,
   for (a = 0, chain = ss_chain1; a < 2; a++, chain = ss_chain2) {
     // allocate new array for chain if necc.
     if(!hash->ss[chain]) {
-      ok_assert(1, hash->ss[chain] = Calloc(int, cResvMask + 1));
+      ok_assert(1, hash->ss[chain] = pymol::calloc<int>(cResvMask + 1));
     }
 
     sst = NULL;
@@ -3002,7 +3002,7 @@ pqr_done:
           maxAt = atInfo[a].id;
       /* build index */
       maxAt++;
-      idx = Alloc(int, maxAt + 1);
+      idx = pymol::malloc<int>(maxAt + 1);
       CHECKOK(ok, idx);
       if (ok){
 	for(a = 0; a < maxAt; a++) {
@@ -3546,7 +3546,7 @@ static int ObjectMoleculeCSetFromPyList(ObjectMolecule * I, PyObject * list)
       if(ok)
         ok = CoordSetFromPyList(I->Obj.G, PyList_GetItem(list, a), &I->CSet[a]);
       PRINTFB(I->Obj.G, FB_ObjectMolecule, FB_Debugging)
-        " ObjectMoleculeCSetFromPyList: ok %d after CoordSet %d\n", ok, a ENDFB(I->Obj.G);
+        " %s: ok %d after CoordSet %d\n", __func__, ok, a ENDFB(I->Obj.G);
 
       if(ok)
         if(I->CSet[a])          /* WLD 030205 */
@@ -3684,7 +3684,7 @@ static int ObjectMoleculeBondFromPyList(ObjectMolecule * I, PyObject * list)
   }
   }
   PRINTFB(G, FB_ObjectMolecule, FB_Debugging)
-    " ObjectMoleculeBondFromPyList: ok %d after restore\n", ok ENDFB(G);
+    " %s: ok %d after restore\n", __func__, ok ENDFB(G);
 
   return (ok);
 }
@@ -3722,7 +3722,7 @@ static PyObject *ObjectMoleculeAtomAsPyList(ObjectMolecule * I)
       totalstlen += lexlen + 1;
     }
     int strinfolen = totalstlen + sizeof(int) * (lexIDs.size() + 1);
-    void *strinfo = Alloc(unsigned char, strinfolen);
+    void *strinfo = pymol::malloc<unsigned char>(strinfolen);
     int *strval = (int*)strinfo;
     *(strval++) = lexIDs.size(); // first write number of strings into binary data string
     char *strpl = (char*)((char*)strinfo + (1 + lexIDs.size()) * sizeof(int));
@@ -3851,7 +3851,7 @@ static int ObjectMoleculeAtomFromPyList(ObjectMolecule * I, PyObject * list)
     }
   }
   PRINTFB(I->Obj.G, FB_ObjectMolecule, FB_Debugging)
-    " ObjectMoleculeAtomFromPyList: ok %d \n", ok ENDFB(I->Obj.G);
+    " %s: ok %d \n", __func__, ok ENDFB(I->Obj.G);
   return (ok);
 }
 
@@ -3960,7 +3960,7 @@ PyObject *ObjectMoleculeAsPyList(ObjectMolecule * I)
       }
     }
 
-    dcs = Alloc(int, I->NAtom);
+    dcs = pymol::malloc<int>(I->NAtom);
 
     for(a = 0; a < I->NAtom; a++) {
       cs = I->DiscreteCSet[a];
@@ -4122,11 +4122,11 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
        * (possibly) supplied CONECT records... */
 
       PRINTFB(G, FB_ObjectMolecule, FB_Blather)
-        " ObjectMoleculeConnect: Searching for bonds amongst %d coordinates.\n",
+        " %s: Searching for bonds amongst %d coordinates.\n", __func__,
         cs->NIndex ENDFB(G);
       if(Feedback(G, FB_ObjectMolecule, FB_Debugging)) {
         for(a = 0; a < cs->NIndex; a++)
-          printf(" ObjectMoleculeConnect: coord %d %8.3f %8.3f %8.3f\n",
+          printf(" %s: coord %d %8.3f %8.3f %8.3f\n", __func__,
                  a, cs->Coord[a * 3], cs->Coord[a * 3 + 1], cs->Coord[a * 3 + 2]);
       }
 
@@ -4137,7 +4137,7 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
       case 2:                  /* distance-based only */  {
           /* distance-based bond location  */
           int violations = 0;
-          int *cnt = Alloc(int, cs->NIndex);
+          int *cnt = pymol::malloc<int>(cs->NIndex);
           int valcnt;
 
 	  CHECKOK(ok, cnt);
@@ -4217,7 +4217,7 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
                               if(violations > (cs->NIndex >> 3)) {
                                 /* if more than 12% of the structure has excessive #'s of bonds... */
                                 PRINTFB(G, FB_ObjectMolecule, FB_Blather)
-                                  " ObjectMoleculeConnect: Assuming chains are discrete...\n"
+                                  " %s: Assuming chains are discrete...\n", __func__
                                   ENDFB(G);
                                 discrete_chains = 1;
                                 repeat = true;
@@ -4254,10 +4254,10 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
         break;
       }
       PRINTFB(G, FB_ObjectMolecule, FB_Blather)
-        " ObjectMoleculeConnect: Found %d bonds.\n", nBond ENDFB(G);
+        " %s: Found %d bonds.\n", __func__, nBond ENDFB(G);
       if(Feedback(G, FB_ObjectMolecule, FB_Debugging)) {
         for(a = 0; a < nBond; a++)
-          printf(" ObjectMoleculeConnect: bond %d ind0 %d ind1 %d\n",
+          printf(" %s: bond %d ind0 %d ind1 %d\n", __func__,
                  a, (*bond)[a].index[0], (*bond)[a].index[1]);
       }
     }
@@ -4270,7 +4270,7 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
     int check_conect_all = false;
     int pdb_conect_all = false;
     PRINTFB(G, FB_ObjectMolecule, FB_Blather)
-      " ObjectMoleculeConnect: incorporating explicit bonds. %d %d\n",
+      " %s: incorporating explicit bonds. %d %d\n", __func__,
       nBond, cs->NTmpBond ENDFB(G);
     if((nBond == 0) && (cs->NTmpBond > 0) &&
        bondSearchMode && (connect_mode == 0) && cs->NIndex) {
@@ -4367,7 +4367,7 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
   }
 
   PRINTFD(G, FB_ObjectMolecule)
-    " ObjectMoleculeConnect: elminating duplicates with %d bonds...\n", nBond ENDFD;
+    " %s: elminating duplicates with %d bonds...\n", __func__, nBond ENDFD;
 
   if(ok && !I->DiscreteFlag) {
     UtilSortInPlace(G, (*bond), nBond, sizeof(BondType), (UtilOrderFn *) BondInOrder);
@@ -4404,7 +4404,7 @@ int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, Atom
   }
 
   PRINTFD(G, FB_ObjectMolecule)
-    " ObjectMoleculeConnect: leaving with %d bonds...\n", nBond ENDFD;
+    " %s: leaving with %d bonds...\n", __func__, nBond ENDFD;
   if (ok)
     *nbond = nBond;
   return ok;

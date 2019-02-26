@@ -696,7 +696,7 @@ int ViewElemSmooth(CViewElem * first, CViewElem * last, int window, int loop)
     window = (int) n;
   delta = (window - 1) / 2;
   if(n && delta) {
-    CViewElem *cpy = Alloc(CViewElem, (n + 2 * delta));
+    CViewElem *cpy = pymol::malloc<CViewElem>((n + 2 * delta));
     CViewElem *src, *dst;
     int a, b, c, cnt;
     memcpy(cpy + delta, first, sizeof(CViewElem) * n);
@@ -1120,11 +1120,11 @@ int ViewElemInterpolate(PyMOLGlobals * G, CViewElem * first, CViewElem * last,
     dump44f(firstR44f, "first");
 
   for(a = 0; a < n; a++) {
-    float fxn = ((float) a + 1) / (n + 1);
-    float fxn_1;
+    double fxn = (a + 1.0) / (n + 1.0);
+    double fxn_1 = 1.0 - fxn;
 
     if(timing_flag) {
-      timing = (first->timing * (1.0F - fxn) + (last->timing * fxn));
+      timing = (first->timing * fxn_1) + (last->timing * fxn);
     }
 
     if(state_flag) { /* states are interpolated linearly by default */

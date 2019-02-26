@@ -986,8 +986,8 @@ static long P_glut_thread_id = -1;
 /* enables us to keep glut out if by chance it grabs the API
  * in the middle of a nested API based operation */
 
+static
 void PCatchInit(void);
-void my_interrupt(int a);
 
 
 /*
@@ -1115,7 +1115,7 @@ void PXDecRef(PyObject * obj)
   Py_XDECREF(obj);
 }
 
-OV_STATIC ov_status CacheCreateEntry(PyObject ** result, PyObject * input)
+static ov_status CacheCreateEntry(PyObject ** result, PyObject * input)
 {
   ov_status status = OV_STATUS_FAILURE;
   if(input && PyTuple_Check(input)) {
@@ -1287,6 +1287,7 @@ void PSleep(PyMOLGlobals * G, int usec)
 static PyObject *PCatchWrite(PyObject * self, PyObject * args);
 static PyObject *PCatch_install(PyObject * self, PyObject * args);
 
+static
 void my_interrupt(int a)
 {
   exit(EXIT_FAILURE);
@@ -1979,7 +1980,7 @@ void PSetupEmbedded(PyMOLGlobals * G, int argc, char **argv)
     char *pymol_path = getenv("PYMOL_PATH");
     if(pymol_path) {
       PyObject *os = PyImport_AddModule("os");  /* borrowed ref */
-      char *buffer = Alloc(char, strlen(pymol_path) + 100);
+      char *buffer = pymol::malloc<char>(strlen(pymol_path) + 100);
       if(os && buffer) {
         PyObject *envir = PyObject_GetAttrString(os, "environ");
         if(envir) {
@@ -2170,7 +2171,7 @@ void PInit(PyMOLGlobals * G, int global_instance)
     ErrFatal(G, "PyMOL", "can't find globals for 'pymol'");
 
   if(global_instance) {         /* if global singleton PyMOL... */
-    G->P_inst = Calloc(CP_inst, 1);
+    G->P_inst = pymol::calloc<CP_inst>(1);
     G->P_inst->obj = P_pymol;
     G->P_inst->dict = P_pymol_dict;
     {

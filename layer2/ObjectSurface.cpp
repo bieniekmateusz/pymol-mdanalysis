@@ -42,11 +42,10 @@ Z* -------------------------------------------------------------------
 #include"ShaderMgr.h"
 #include"CGO.h"
 
-ObjectSurface *ObjectSurfaceNew(PyMOLGlobals * G);
-
+static ObjectSurface *ObjectSurfaceNew(PyMOLGlobals * G);
 static void ObjectSurfaceFree(ObjectSurface * I);
-void ObjectSurfaceStateInit(PyMOLGlobals * G, ObjectSurfaceState * ms);
-void ObjectSurfaceRecomputeExtent(ObjectSurface * I);
+static void ObjectSurfaceStateInit(PyMOLGlobals * G, ObjectSurfaceState * ms);
+static void ObjectSurfaceRecomputeExtent(ObjectSurface * I);
 
 static PyObject *ObjectSurfaceStateAsPyList(ObjectSurfaceState * I)
 {
@@ -385,10 +384,10 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
 
         if(!ms->VC) {
           ms->VCsize = n_vert;
-          ms->VC = Alloc(float, n_vert * 3);
+          ms->VC = pymol::malloc<float>(n_vert * 3);
         }
         if(!ms->RC) {
-          ms->RC = Alloc(int, n_vert);
+          ms->RC = pymol::malloc<int>(n_vert);
         }
         rc = ms->RC;
         vc = ms->VC;
@@ -433,10 +432,10 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
 
         if(!ms->VC) {
           ms->VCsize = n_vert;
-          ms->VC = Alloc(float, n_vert * 3);
+          ms->VC = pymol::malloc<float>(n_vert * 3);
         }
         if(!ms->RC) {
-          ms->RC = Alloc(int, n_vert);
+          ms->RC = pymol::malloc<int>(n_vert);
         }
         rc = ms->RC;
         vc = ms->VC;
