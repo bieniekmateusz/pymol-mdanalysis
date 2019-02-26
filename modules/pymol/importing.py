@@ -16,12 +16,6 @@ from __future__ import print_function, absolute_import
 
 if True:
 
-    # MPP
-    import MDAnalysis
-
-    # FIXME - this needs to be a singleton
-    gmda = {}
-    
     import re
     import os
     import sys
@@ -29,6 +23,7 @@ if True:
     import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
+    from .mdanalysis_manager import MDAnalysisManager, mdaLoad, mdaLoadTraj
     from . import selector
     from . import colorprinting
     from .cmd import _cmd, \
@@ -358,6 +353,7 @@ PYMOL API
         lst.extend(list(arg))
         return _self.load_object(*lst, **kw)
 
+    @mdaLoadTraj
     def load_traj(filename,object='',state=0,format='',interval=1,
                       average=1,start=1,stop=-1,max=-1,selection='all',image=1,
                       shift="[0.0,0.0,0.0]",plugin="",_self=cmd):
@@ -460,23 +456,15 @@ SEE ALSO
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
 
-        # MPP
-        global gmda
-        # if the object name is the same as the previously loaded one,
-        # then reload MDAnalysis together with the trajectory
-        if gmda[oname] != None:
-            current = gmda[oname]
-            current['trajectory'] = filename
-            current['mdanalysis_universe'] = MDAnalysis.Universe(current['topology'], current['trajectory'])
+        kw = {'oname': oname, 'fname': filename}
 
-        return r
+        return r, kw
 
 
     # MPP
     def rmsd(object, selection="backbone", filename=None):
-        global gmda
-
-        u = gmda[object]['mdanalysis_universe']
+        mdsystems = MDAnalysisManager.getMDAnalysisSystems()
+        u = mdsystems[object]['universe']
         sel = u.select_atoms("protein")
 
         import MDAnalysis.analysis.rms
@@ -670,7 +658,7 @@ SEE ALSO
 
         return eval(func.replace(':', '.'), {m.__name__: m}, {})
 
-
+    @mdaLoad
     def load(filename, object='', state=0, format='', finish=1,
              discrete=-1, quiet=1, multiplex=None, zoom=-1, partial=0,
              mimic=1, object_props=None, atom_props=None, _self=cmd):
@@ -840,15 +828,7 @@ SEE ALSO
             if 'contents' in spec.args:
                 kw['contents'] = _self.file_read(filename)
 
-            # MPP - get the name of the object, and the file, and use it to set up the MDAnalysis object
-            global gmda
-            # contain a list of loaded objects / states / names before we know how to extract them ourselves
-            gmda[kw['oname']] = {
-                'mdanalysis_universe': MDAnalysis.Universe(kw['finfo']),
-                'topology': kw['finfo']
-            }
-
-            return func(**kw)
+            return func(**kw), kw
         finally:
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
