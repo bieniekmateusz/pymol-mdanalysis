@@ -456,7 +456,7 @@ SEE ALSO
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
 
-        kw = {'oname': oname, 'fname': filename}
+        kw = {'label': oname, 'trajectory_filename': filename}
 
         return r, kw
 
@@ -464,7 +464,7 @@ SEE ALSO
     # MPP
     def rmsd(object, selection="backbone", filename=None):
         mdsystems = MDAnalysisManager.getMDAnalysisSystems()
-        u = mdsystems[object]['universe']
+        u = mdsystems[object]
         sel = u.select_atoms("protein")
 
         import MDAnalysis.analysis.rms

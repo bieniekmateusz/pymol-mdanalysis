@@ -26,16 +26,11 @@ def mdaLoadTraj(pymolLoadTraj):
         # I suspect that the reply holds information on any error
         # that would occur during loading the trajectory
         reply, metadata = pymolLoadTraj(*args, **kwargs)
+        label = metadata['label']
+        trajectory_filename = metadata['trajectory_filename']
 
         # Load the MDAnalysis part
-        mdsystems = MDAnalysisManager.getMDAnalysisSystems()
-
-        # if the object name is the same as the previously loaded one,
-        # then reload MDAnalysis together with the trajectory
-        if mdsystems[metadata['oname']] != None:
-            current = mdsystems[metadata['oname']]
-            current['trajectory'] = metadata['fname']
-            current['universe'] = MDAnalysis.Universe(current['topology'], current['trajectory'])
+        MDAnalysisManager.loadTraj(label, trajectory_filename)
 
         return reply
     return decorator
@@ -52,17 +47,11 @@ def mdaLoad(pymolLoad):
         # I suspect that the reply holds information on any error
         # that would occur during loading the trajectory
         reply, metadata = pymolLoad(*args, **kwargs)
+        label = metadata['oname']
+        topology_filename = metadata['finfo']
 
-        # Load the MDAnalysis part
-        mdsystems = MDAnalysisManager.getMDAnalysisSystems()
-
-        # get the name of the object, and the file, and use it to set up the MDAnalysis object
-        # contain a list of loaded objects / states / names before we know how to extract them ourselves
-        mdsystems[metadata['oname']] = {
-            'mdanalysis_universe': MDAnalysis.Universe(metadata['finfo']),
-            'topology': metadata['finfo']
-        }
-
+        # Load into MDAnalysis
+        MDAnalysisManager.load(label, topology_filename)
         return reply
     return decorator
 
@@ -73,9 +62,38 @@ class MDAnalysisManager():
     storing the handles to the trajectories.
     """
 
+    # contain a list of loaded objects / states / names before we know how to extract them ourselves
     MDAnalysisSystems = {}
 
     @staticmethod
     def getMDAnalysisSystems():
         return MDAnalysisManager.MDAnalysisSystems
+
+    @staticmethod
+    def load(label, topology_filename):
+        """
+        Loads the topology file
+        :param label: the PyMOL label used in the system, which the user can see and recognize
+        """
+
+        u = MDAnalysis.Universe(topology_filename)
+        MDAnalysisManager.MDAnalysisSystems[label] = u
+
+    @staticmethod
+    def loadTraj(label, trajectory):
+        """
+        Load the trajectory universe into the existing label.
+        fixme: How would this work if the trajectory was the topology? ie the .pdb file.
+        :param label: The name of the
+        :param trajectory:
+        :return:
+        """
+
+        # get the universe for the label
+        u = MDAnalysisManager.MDAnalysisSystems[label]
+        topology_file = u.filename
+
+        # load the topology with its trajectory
+        u_withTraj = MDAnalysis.Universe(topology_file, trajectory)
+        MDAnalysisManager.MDAnalysisSystems[label] = u_withTraj
 
