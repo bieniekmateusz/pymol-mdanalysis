@@ -12,6 +12,17 @@
 #-*
 #Z* -------------------------------------------------------------------
 
+"""
+ - FIXME: Thomas: when trajectory is not loaded from a trajectory file, but e.g. with a
+    script which adds frames, or by loading a set of PDB files into the
+    same object, or by copying an object within PyMOL.
+ - TODO: PyMOL and MDAnalysis: create an issue on mdanalysis git hub and ask if you can add frames
+    to the universe. This would come in handy in PyMOL.
+ - TODO: MDAnalysis: "trajectory.filenames" should always be a list that contains the
+    loaded trajectories. Let's create an issue and ensure a consistent behaviour.
+
+"""
+
 import MDAnalysis
 
 
@@ -39,12 +50,12 @@ class MDAnalysisManager():
         MDAnalysisManager.MDAnalysisSystems[label] = u
 
     @staticmethod
-    def loadTraj(label, trajectory):
+    def loadTraj(label, trajectory_filename):
         """
         Load the trajectory universe into the existing label.
         fixme: How would this work if the trajectory was the topology? ie the .pdb file.
         :param label: The name of the
-        :param trajectory:
+        :param trajectory_filename:
         :return:
         """
 
@@ -53,6 +64,6 @@ class MDAnalysisManager():
         topology_file = u.filename
 
         # load the topology with its trajectory
-        u_withTraj = MDAnalysis.Universe(topology_file, trajectory)
+        u_withTraj = MDAnalysis.Universe(topology_file, trajectory_filename)
         MDAnalysisManager.MDAnalysisSystems[label] = u_withTraj
 
