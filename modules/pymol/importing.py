@@ -23,7 +23,7 @@ if True:
     import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
-    from .mdanalysis_manager import MDAnalysisManager, mdaLoad, mdaLoadTraj
+    from .mdanalysis_manager import MDAnalysisManager
     from . import selector
     from . import colorprinting
     from .cmd import _cmd, \
@@ -353,7 +353,7 @@ PYMOL API
         lst.extend(list(arg))
         return _self.load_object(*lst, **kw)
 
-    @mdaLoadTraj
+
     def load_traj(filename,object='',state=0,format='',interval=1,
                       average=1,start=1,stop=-1,max=-1,selection='all',image=1,
                       shift="[0.0,0.0,0.0]",plugin="",_self=cmd):
@@ -456,9 +456,9 @@ SEE ALSO
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
 
-        kw = {'label': oname, 'trajectory_filename': filename}
+        MDAnalysisManager.loadTraj(oname, filename)
 
-        return r, kw
+        return r
 
 
     # MPP
@@ -658,7 +658,7 @@ SEE ALSO
 
         return eval(func.replace(':', '.'), {m.__name__: m}, {})
 
-    @mdaLoad
+
     def load(filename, object='', state=0, format='', finish=1,
              discrete=-1, quiet=1, multiplex=None, zoom=-1, partial=0,
              mimic=1, object_props=None, atom_props=None, _self=cmd):
@@ -828,7 +828,10 @@ SEE ALSO
             if 'contents' in spec.args:
                 kw['contents'] = _self.file_read(filename)
 
-            return func(**kw), kw
+            # update MDAnalysis
+            MDAnalysisManager.load(kw['oname'], kw['finfo'])
+
+            return func(**kw)
         finally:
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
