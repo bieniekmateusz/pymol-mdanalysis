@@ -443,20 +443,21 @@ SEE ALSO
                 if not len(oname): # safety
                     oname = 'obj01'
 
-            if ftype>=0 or plugin:
+            pymol_owns_its_data = False
+            if (ftype>=0 or plugin) and pymol_owns_its_data:
                 r = _cmd.load_traj(_self._COb,str(oname),fname,int(state)-1,int(ftype),
                                          int(interval),int(average),int(start),
                                          int(stop),int(max),str(selection),
                                          int(image),
                                          float(shift[0]),float(shift[1]),
                                          float(shift[2]),str(plugin))
+            elif not pymol_owns_its_data:
+                MDAnalysisManager.loadTraj(oname, filename)
             else:
                 raise pymol.CmdException("unknown format '%s'" % format)
         finally:
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
-
-        MDAnalysisManager.loadTraj(oname, filename)
 
         return r
 
