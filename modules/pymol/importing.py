@@ -23,7 +23,7 @@ if True:
     import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
-    from .mdanalysis_manager import MDAnalysisManager
+    from .mdanalysis_manager import MDAnalysisManager, MEMORY_MODE
     from . import selector
     from . import colorprinting
     from .cmd import _cmd, \
@@ -443,16 +443,18 @@ SEE ALSO
                 if not len(oname): # safety
                     oname = 'obj01'
 
-            pymol_owns_its_data = False
-            if (ftype>=0 or plugin) and pymol_owns_its_data:
+            if MDAnalysisManager.MODE == MEMORY_MODE.MDANALYSIS:
+                MDAnalysisManager.loadTraj(oname, filename)
+                # None means that the trajectory was loaded successfully
+                return None
+            if (ftype>=0 or plugin) and MDAnalysisManager.MODE == MEMORY_MODE.PYMOL:
                 r = _cmd.load_traj(_self._COb,str(oname),fname,int(state)-1,int(ftype),
                                          int(interval),int(average),int(start),
                                          int(stop),int(max),str(selection),
                                          int(image),
                                          float(shift[0]),float(shift[1]),
                                          float(shift[2]),str(plugin))
-            elif not pymol_owns_its_data:
-                MDAnalysisManager.loadTraj(oname, filename)
+
             else:
                 raise pymol.CmdException("unknown format '%s'" % format)
         finally:
