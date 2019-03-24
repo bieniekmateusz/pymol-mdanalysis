@@ -88,14 +88,12 @@ class MDAnalysisManager():
 
         # get the universe for the label
         u = MDAnalysisManager.MDAnalysisSystems[label]
-        topology_file = u.filename
 
         # load the topology with its trajectory
-        u_withTraj = MDAnalysis.Universe(topology_file, trajectory_filename)
-        MDAnalysisManager.MDAnalysisSystems[label] = u_withTraj
+        u.load_new(trajectory_filename)
 
         # set up frame slider (PyMOL movie panel)
-        cmd.mset('1x{}'.format(u_withTraj.trajectory.n_frames))
+        cmd.mset('1x{}'.format(u.trajectory.n_frames))
 
         if MDAnalysisManager.MODE == MEMORY_MODE.MDANALYSIS:
             MDAnalysisManager.renderWithMDAnalysis(label)
