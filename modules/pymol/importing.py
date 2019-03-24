@@ -24,6 +24,7 @@ if True:
     import pymol
     cmd = sys.modules["pymol.cmd"]
     from .mdanalysis_manager import MDAnalysisManager, MEMORY_MODE
+
     from . import selector
     from . import colorprinting
     from .cmd import _cmd, \
@@ -464,27 +465,65 @@ SEE ALSO
         return r
 
 
+    # def mda_load_traj(filename, object='', interval=1, start=1, stop=-1,selection='all',_self=cmd):
+    #     filename = unquote(filename)
+    #
+    #     noext, ext, format_guessed, zipped = filename_to_format(filename)
+    #
+    #     # get object name
+    #     oname = object.strip()
+    #     if not oname:
+    #         oname = _guess_trajectory_object(noext, _self)
+    #         if not len(oname):  # safety
+    #             oname = 'obj01'
+    #
+    #
+    #     MDAnalysisManager.loadTraj(oname, filename)
+    #
+    #     # None means that the trajectory was loaded successfully
+    #     return None
+
+
     # MPP
     def rmsd(object, selection="backbone", filename=None):
+        import MDAnalysis.analysis.rms
+
         mdsystems = MDAnalysisManager.getMDAnalysisSystems()
         u = mdsystems[object]
         sel = u.select_atoms("protein")
-
-        import MDAnalysis.analysis.rms
-
         R = MDAnalysis.analysis.rms.RMSD(sel, sel,
                                          select=selection,  # superimpose on whole backbone of the whole protein
                                          filename=filename)
         R.run()
 
         import matplotlib.pyplot as plt
+        import numpy as np
+        fig, ax = plt.subplots()
+        plt.sca(ax)
+
         rmsd = R.rmsd.T  # transpose makes it easier for plotting
-        time = rmsd[1]
-        plt.plot(time, rmsd[2], 'k-', label="all")
+        time = rmsd[1] / 1000 # to ns
+        plt.plot(time, rmsd[2], 'o--', label="all")
         plt.legend(loc="best")
         plt.xlabel("time (ps)")
         plt.ylabel(r"RMSD ($\AA$)")
+
+        def onclick(event):
+            print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
+                  ('double' if event.dblclick else 'single', event.button,
+                   event.x, event.y, event.xdata, event.ydata))
+            # find the nearest point in the euclidean space
+            x_data = time
+            y_data = rmsd[2]
+            dist = np.sqrt(np.square(event.xdata - x_data) + np.square(event.ydata - y_data))
+            closest_x_point = x_data[dist == np.min(dist)]
+            # update the frame on the screen
+            cmd.frame(closest_x_point)
+
+
+        fig.canvas.mpl_connect('button_press_event', onclick)
         plt.show()
+
         return None
 
 
