@@ -41,6 +41,7 @@ if True:
     from . import parsing
     from . import colorprinting
     from .cmd import _feedback,fb_module,fb_mask,exp_path
+    from .mdanalysis_manager import MDAnalysisManager
 
     QuietException = parsing.QuietException
     CmdException = pymol.CmdException
@@ -167,7 +168,17 @@ if True:
             finally:
                 self.nest -= 1
 
+
         def _parse(self, s, secure):
+            # MDAnalysis: check if this is the MDAnalysis callback
+            if s.startswith(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK):
+                callback_name = s.split('.')[0]
+                frame_number = int(s.split('.')[1])
+                callback, label = MDAnalysisManager.callbacks[callback_name]
+                callback(frame_number, label)
+                return
+
+            # Previous Code
             layer = self.layer[self.nest]
             self.result = None
 # report any uncaught errors...
