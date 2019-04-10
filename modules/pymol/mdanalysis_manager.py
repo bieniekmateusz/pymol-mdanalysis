@@ -28,34 +28,21 @@ from enum import Enum
 from . import cmd
 
 
-class MEMORY_MODE(Enum):
-    """
-    Decides whether PYMOL should load/store the trajectory data.
-    MDAnalysis does not load the trajectory into memory and fetches the frames it needs at any time.
-
-    PYMOL mode is added for testing purposes. However, in the long term MDAnalysis should take over this function.
-
-    If PYMOL is used, MDAnalysis will still load the metadata, but it won't be used for rendering the molecules.
-    """
-    MDANALYSIS = 1  # MDAnalysis takes over loading of trajectories. PyMOL stores only metadata.
-    PYMOL = 2       # PyMOL reads the trajectories into RAM using its own settings.
-
 class MDAnalysisManager():
     """
-    Stores all data related to MDAnalysis code. This most often means
-    storing the handles to the trajectories.
+    Stores all meta-data related to MDAnalysis code, like handles to the trajectories.
 
     TODO To Think About:
      - what if there is more trajectories which have their own callbacks?
     """
+    # decides whether to use MDAnalysis for rendering, so PyMOL will not load the trajectory
+    MDA_RENDER = True
 
     # contain a list of loaded objects / states / names before we know how to extract them ourselves
     MDAnalysisSystems = {}
-    MODE = MEMORY_MODE.MDANALYSIS
 
-    # A list of callbacks that are related to MDAnalysis
+    # A list of callbacks for rendering
     callbacks = {}
-
     # constants
     MDA_FRAME_CHANGED_CALLBACK = "MDA_FRAME_CHANGED_CALLBACK"
 
@@ -95,7 +82,7 @@ class MDAnalysisManager():
         # set up frame slider (PyMOL movie panel)
         cmd.mset('1x{}'.format(u.trajectory.n_frames))
 
-        if MDAnalysisManager.MODE == MEMORY_MODE.MDANALYSIS:
+        if MDAnalysisManager.MDA_RENDER:
             MDAnalysisManager.renderWithMDAnalysis(label)
 
 

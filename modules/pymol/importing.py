@@ -23,7 +23,7 @@ if True:
     import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
-    from .mdanalysis_manager import MDAnalysisManager, MEMORY_MODE
+    from .mdanalysis_manager import MDAnalysisManager
 
     from . import selector
     from . import colorprinting
@@ -444,11 +444,11 @@ SEE ALSO
                 if not len(oname): # safety
                     oname = 'obj01'
 
-            if MDAnalysisManager.MODE == MEMORY_MODE.MDANALYSIS:
+            if MDAnalysisManager.MDA_RENDER == True:
                 MDAnalysisManager.loadTraj(oname, filename)
                 # None means that the trajectory was loaded successfully
                 return None
-            if (ftype>=0 or plugin) and MDAnalysisManager.MODE == MEMORY_MODE.PYMOL:
+            if (ftype>=0 or plugin) and MDAnalysisManager.MDA_RENDER == False:
                 r = _cmd.load_traj(_self._COb,str(oname),fname,int(state)-1,int(ftype),
                                          int(interval),int(average),int(start),
                                          int(stop),int(max),str(selection),
@@ -485,17 +485,20 @@ SEE ALSO
 
 
     # MPP
-    def rmsd(object, selection="backbone", filename=None):
+    def rmsd(object, selection="backbone"):
         import MDAnalysis.analysis.rms
+
 
         mdsystems = MDAnalysisManager.getMDAnalysisSystems()
         u = mdsystems[object]
         sel = u.select_atoms("protein")
         R = MDAnalysis.analysis.rms.RMSD(sel, sel,
-                                         select=selection,  # superimpose on whole backbone of the whole protein
-                                         filename=filename)
+                                         # superimpose on whole backbone of the whole protein
+                                         select=selection,
+                                         )
         R.run()
 
+        # fixme: Set a template for graphing and allow the user to adjust it for each graph.
         import matplotlib.pyplot as plt
         import numpy as np
         fig, ax = plt.subplots()
@@ -509,12 +512,16 @@ SEE ALSO
         plt.ylabel(r"RMSD ($\AA$)")
 
         def onclick(event):
-            print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
-                  ('double' if event.dblclick else 'single', event.button,
-                   event.x, event.y, event.xdata, event.ydata))
+            # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
+            #       ('double' if event.dblclick else 'single', event.button,
+            #        event.x, event.y, event.xdata, event.ydata))
+
+            # if the click happened outside of the graph area
+            if not type(event.xdata) is np.float64:
+                return
+
             # find the nearest point in the euclidean space
-            x_data = time
-            y_data = rmsd[2]
+            x_data, y_data = time, rmsd[2]
             dist = np.sqrt(np.square(event.xdata - x_data) + np.square(event.ydata - y_data))
             closest_x_point = x_data[dist == np.min(dist)]
             # update the frame on the screen
