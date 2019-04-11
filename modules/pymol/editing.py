@@ -408,6 +408,9 @@ PYMOL API
             _self.lock(_self)
             r = _cmd.set_name(_self._COb,str(old_name),
                                     str(new_name))
+            # MDAnalysis Update The Object Name
+            from .mdanalysis_manager import MDAnalysisManager
+            MDAnalysisManager.updateLabel(old_name, new_name)
         finally:
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException            

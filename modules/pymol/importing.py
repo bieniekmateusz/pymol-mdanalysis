@@ -488,7 +488,6 @@ SEE ALSO
     def rmsd(object, selection="backbone"):
         import MDAnalysis.analysis.rms
 
-
         mdsystems = MDAnalysisManager.getMDAnalysisSystems()
         u = mdsystems[object]
         sel = u.select_atoms("protein")
@@ -507,7 +506,7 @@ SEE ALSO
         rmsd = R.rmsd.T  # transpose makes it easier for plotting
         time = rmsd[1] / 1000 # to ns
         plt.plot(time, rmsd[2], 'o--', label="all")
-        plt.legend(loc="best")
+        plt.legend(loc="best").draggable()
         plt.xlabel("time (ps)")
         plt.ylabel(r"RMSD ($\AA$)")
 

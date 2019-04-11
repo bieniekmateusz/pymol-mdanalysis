@@ -53,6 +53,12 @@ class MDAnalysisManager():
 
 
     @staticmethod
+    def updateLabel(old, new):
+        MDAnalysisManager.MDAnalysisSystems[new] = MDAnalysisManager.MDAnalysisSystems[old]
+        del MDAnalysisManager.MDAnalysisSystems[old]
+
+
+    @staticmethod
     def load(label, topology_filename):
         """
         Loads the topology file
@@ -80,6 +86,7 @@ class MDAnalysisManager():
         u.load_new(trajectory_filename)
 
         # set up frame slider (PyMOL movie panel)
+        # fixme - what if there are two separate simulations? separate sliders? focus?
         cmd.mset('1x{}'.format(u.trajectory.n_frames))
 
         if MDAnalysisManager.MDA_RENDER:
@@ -89,13 +96,15 @@ class MDAnalysisManager():
     @staticmethod
     def renderWithMDAnalysis(label):
 
-        def fetch_frame_coordinates(frame, label):
+        def fetch_frame_coordinates(frame):
             '''
-            Updates coordinates in state 1 from universe frame
+            Updates coordinates to the selected frame in each universe.
+            fixme - should update them only for the selected universe?
             :param frame: 1-based frame index
             '''
-            universe = MDAnalysisManager.MDAnalysisSystems[label]
-            cmd.load_coordset(universe.trajectory[int(frame) - 1].positions, label, 1)
+            for universe_label in MDAnalysisManager.MDAnalysisSystems.keys():
+                universe = MDAnalysisManager.MDAnalysisSystems[universe_label]
+                cmd.load_coordset(universe.trajectory[int(frame) - 1].positions, universe_label, 1)
 
         # MDAnalysis universe
         universe = MDAnalysisManager.MDAnalysisSystems[label]
@@ -107,6 +116,6 @@ class MDAnalysisManager():
         cmd.feedback('disable', 'executive', 'actions')
 
         # set the per-frame call to update coordinates in state 1 ("in place")
-        MDAnalysisManager.callbacks[MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK] = [fetch_frame_coordinates, label]
+        MDAnalysisManager.callbacks[MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK] = fetch_frame_coordinates
         for frame in range(1, universe.trajectory.n_frames + 1):
             cmd.mdo(frame, '{}.{}'.format(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK, frame))

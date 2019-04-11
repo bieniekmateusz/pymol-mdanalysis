@@ -174,8 +174,8 @@ if True:
             if s.startswith(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK):
                 callback_name = s.split('.')[0]
                 frame_number = int(s.split('.')[1])
-                callback, label = MDAnalysisManager.callbacks[callback_name]
-                callback(frame_number, label)
+                callback = MDAnalysisManager.callbacks[callback_name]
+                callback(frame_number)
                 return
 
             # Previous Code
