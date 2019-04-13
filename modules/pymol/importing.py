@@ -493,17 +493,25 @@ SEE ALSO
         R.run()
 
         # fixme: Set a template for graphing and allow the user to adjust it for each graph.
+        import matplotlib
+        matplotlib.use('Qt5Agg')
         import matplotlib.pyplot as plt
+        from matplotlib.widgets import SpanSelector
         import numpy as np
-        fig, ax = plt.subplots()
-        plt.sca(ax)
 
-        rmsd = R.rmsd.T  # transpose makes it easier for plotting
-        time = rmsd[1] / 1000 # to ns
-        plt.plot(time, rmsd[2], 'o--', label="all")
-        plt.legend(loc="best").draggable()
-        plt.xlabel("time (ps)")
-        plt.ylabel(r"RMSD ($\AA$)")
+        # plt.ion()
+
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(211, facecolor='#FFFFCC')
+
+        data = R.rmsd.T  # transpose makes it easier for plotting
+        time = data[1] / 1000 # to ns
+        rmsd = data[2]
+
+        ax.plot(time, rmsd, 'o--', label="all")
+        ax.set_xlabel("time (ps)")
+        ax.set_ylabel(r"RMSD ($\AA$)")
+        ax.legend(loc="best").set_draggable(True)
 
         def onclick(event):
             # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
@@ -514,16 +522,39 @@ SEE ALSO
             if not type(event.xdata) is np.float64:
                 return
 
-            # find the nearest point in the euclidean space
-            x_data, y_data = time, rmsd[2]
-            dist = np.sqrt(np.square(event.xdata - x_data) + np.square(event.ydata - y_data))
-            closest_x_point = x_data[dist == np.min(dist)]
+            # find the nearest point on x line
+            closest_index = np.searchsorted(time, (event.xdata,))
             # update the frame on the screen
-            cmd.frame(closest_x_point)
-
+            cmd.frame(closest_index)
 
         fig.canvas.mpl_connect('button_press_event', onclick)
+
+        ax2 = fig.add_subplot(212)
+        ax2.hist(rmsd)
+
+        def onselect(xmin, xmax):
+            print(xmin, xmax)
+            # update the data
+            indmin, indmax = np.searchsorted(time, (xmin, xmax))
+            indmax = min(len(time) - 1, indmax)
+            print(indmin, indmax)
+            print(rmsd[indmin:indmax])
+
+            ax2.cla()
+            ax2.hist(rmsd[indmin:indmax])
+
+        # FIXME - Find a better way than a global variable
+        # We have to ensure the object survives when the method is left.
+        # Otherwise the class.methods will not be available.
+        # See weak references and the Note in https://matplotlib.org/users/event_handling.html
+        global G_MATPLOTLIB_CALLBACK_SPAN
+        G_MATPLOTLIB_CALLBACK_SPAN = SpanSelector(ax, onselect, 'horizontal', useblit=True,
+                            rectprops=dict(alpha=0.5, facecolor='red'),
+                            button=1)
+
         plt.show()
+
+        print('end')
 
         return None
 
