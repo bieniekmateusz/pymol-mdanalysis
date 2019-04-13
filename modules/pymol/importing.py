@@ -461,13 +461,12 @@ SEE ALSO
         return r
 
 
-    def mda_load_traj(filename, object='', interval=1, start=1, stop=-1,selection='all',_self=cmd):
+    def mda_load_traj(filename, label=None, interval=1, start=1, stop=-1,selection='all',_self=cmd):
         filename = unquote(filename)
 
         noext, ext, format_guessed, zipped = filename_to_format(filename)
 
         # get object name
-        label = object.strip()
         if not label:
             label = _guess_trajectory_object(noext, _self)
             if not len(label):  # safety
@@ -879,11 +878,12 @@ SEE ALSO
         return r
 
 
-    def mda_load(filename):
+    def mda_load(filename, label=None):
         # Load with PyMOL the same file
         cmd.load(filename)
         # Get the label used for the simulation
-        label = cmd.get_object_list()[-1]
+        if not label:
+            label = cmd.get_object_list()[-1]
         # Otherwise the Atom Names are rearranged (which would break everything)
         cmd.set('retain_order', 1, label)
         # Load with MDAnalysis too
