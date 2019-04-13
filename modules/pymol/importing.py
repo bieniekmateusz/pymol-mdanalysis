@@ -444,11 +444,7 @@ SEE ALSO
                 if not len(oname): # safety
                     oname = 'obj01'
 
-            if MDAnalysisManager.MDA_RENDER == True:
-                MDAnalysisManager.loadTraj(oname, filename)
-                # None means that the trajectory was loaded successfully
-                return None
-            if (ftype>=0 or plugin) and MDAnalysisManager.MDA_RENDER == False:
+            if (ftype>=0 or plugin):
                 r = _cmd.load_traj(_self._COb,str(oname),fname,int(state)-1,int(ftype),
                                          int(interval),int(average),int(start),
                                          int(stop),int(max),str(selection),
@@ -465,27 +461,27 @@ SEE ALSO
         return r
 
 
-    # def mda_load_traj(filename, object='', interval=1, start=1, stop=-1,selection='all',_self=cmd):
-    #     filename = unquote(filename)
-    #
-    #     noext, ext, format_guessed, zipped = filename_to_format(filename)
-    #
-    #     # get object name
-    #     oname = object.strip()
-    #     if not oname:
-    #         oname = _guess_trajectory_object(noext, _self)
-    #         if not len(oname):  # safety
-    #             oname = 'obj01'
-    #
-    #
-    #     MDAnalysisManager.loadTraj(oname, filename)
-    #
-    #     # None means that the trajectory was loaded successfully
-    #     return None
+    def mda_load_traj(filename, object='', interval=1, start=1, stop=-1,selection='all',_self=cmd):
+        filename = unquote(filename)
+
+        noext, ext, format_guessed, zipped = filename_to_format(filename)
+
+        # get object name
+        label = object.strip()
+        if not label:
+            label = _guess_trajectory_object(noext, _self)
+            if not len(label):  # safety
+                label = 'obj01'
+
+        MDAnalysisManager.loadTraj(label, filename)
+
+        # None means that the trajectory was loaded successfully (?)
+        # Based on "load_traj"
+        return None
 
 
     # MPP
-    def rmsd(object, selection="backbone"):
+    def mda_rmsd(object, selection="backbone"):
         import MDAnalysis.analysis.rms
 
         mdsystems = MDAnalysisManager.getMDAnalysisSystems()
@@ -876,14 +872,25 @@ SEE ALSO
             if 'contents' in spec.args:
                 kw['contents'] = _self.file_read(filename)
 
-            # update MDAnalysis
-            MDAnalysisManager.load(kw['oname'], kw['finfo'])
-
             return func(**kw)
         finally:
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
         return r
+
+
+    def mda_load(filename):
+        # Load with PyMOL the same file
+        cmd.load(filename)
+        # Get the label used for the simulation
+        label = cmd.get_object_list()[-1]
+        # Otherwise the Atom Names are rearranged (which would break everything)
+        cmd.set('retain_order', 1, label)
+        # Load with MDAnalysis too
+        MDAnalysisManager.load(label, filename)
+
+        return None
+
 
     def load_pse(filename, partial=0, quiet=1, format='pse', _self=cmd):
         try:

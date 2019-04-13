@@ -20,6 +20,7 @@
     to the universe. This would come in handy in PyMOL.
  - TODO: MDAnalysis: "trajectory.filenames" should always be a list that contains the
     loaded trajectories. Let's create an issue and ensure a consistent behaviour.
+ - TODO: We're in need of IDs for each selection so that the label change would not affect the simulation
 
 """
 
@@ -35,8 +36,6 @@ class MDAnalysisManager():
     TODO To Think About:
      - what if there is more trajectories which have their own callbacks?
     """
-    # decides whether to use MDAnalysis for rendering, so PyMOL will not load the trajectory
-    MDA_RENDER = True
 
     # contain a list of loaded objects / states / names before we know how to extract them ourselves
     MDAnalysisSystems = {}
@@ -89,8 +88,7 @@ class MDAnalysisManager():
         # fixme - what if there are two separate simulations? separate sliders? focus?
         cmd.mset('1x{}'.format(u.trajectory.n_frames))
 
-        if MDAnalysisManager.MDA_RENDER:
-            MDAnalysisManager.renderWithMDAnalysis(label)
+        MDAnalysisManager.renderWithMDAnalysis(label)
 
 
     @staticmethod

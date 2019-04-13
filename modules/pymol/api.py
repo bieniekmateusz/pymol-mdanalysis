@@ -26,7 +26,9 @@ from .importing import \
       fetch,              \
       set_session, \
       space, \
-      rmsd
+      mda_load,\
+      mda_load_traj,\
+      mda_rmsd
 # MPP ^
 
 #--------------------------------------------------------------------
