@@ -910,6 +910,16 @@ SEE ALSO
 
 
     def mda_load(filename, label=None):
+        # fixme - temporary hack: we want the user to use mda_load for only a single frame
+        # otherwise PyMOL will try to read all frames, which could overload the RAM memory
+        import MDAnalysis as mda
+        tmp = mda.Universe(filename)
+        if len(tmp.trajectory) > 1:
+            raise Exception('mda_load has to be used with a single frame topology (it cannot read a trajectory)')
+        # fixme - end of a temporary hack
+
+        cmd.get_unused_name('obj')
+
         # Load with PyMOL the same file
         cmd.load(filename)
         # Get the label used for the simulation
