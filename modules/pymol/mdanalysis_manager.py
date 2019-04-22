@@ -65,7 +65,7 @@ class MDAnalysisManager():
         """
 
         u = MDAnalysis.Universe(topology_filename)
-        MDAnalysisManager.MDAnalysisSystems[label] = u
+        MDAnalysisManager.MDAnalysisSystems[label] = u.atoms
 
 
     @staticmethod
@@ -79,14 +79,14 @@ class MDAnalysisManager():
         """
 
         # get the universe for the label
-        u = MDAnalysisManager.MDAnalysisSystems[label]
+        atom_group = MDAnalysisManager.MDAnalysisSystems[label]
 
         # load the topology with its trajectory
-        u.load_new(trajectory_filename)
+        atom_group.universe.load_new(trajectory_filename)
 
         # set up frame slider (PyMOL movie panel)
         # fixme - what if there are two separate simulations? separate sliders? focus?
-        cmd.mset('1x{}'.format(u.trajectory.n_frames))
+        cmd.mset('1x{}'.format(atom_group.universe.trajectory.n_frames))
 
         MDAnalysisManager.renderWithMDAnalysis(label)
 
@@ -100,12 +100,15 @@ class MDAnalysisManager():
             fixme - should update them only for the selected universe?
             :param frame: 1-based frame index
             '''
-            for universe_label in MDAnalysisManager.MDAnalysisSystems.keys():
-                universe = MDAnalysisManager.MDAnalysisSystems[universe_label]
-                cmd.load_coordset(universe.trajectory[int(frame) - 1].positions, universe_label, 1)
+            for atom_group_label in MDAnalysisManager.MDAnalysisSystems.keys():
+                atom_group = MDAnalysisManager.MDAnalysisSystems[atom_group_label]
+                # MDAnalysis: switch to the requested frame
+                atom_group.universe.trajectory[int(frame) - 1]
+
+                cmd.load_coordset(atom_group.positions, atom_group_label, 1)
 
         # MDAnalysis universe
-        universe = MDAnalysisManager.MDAnalysisSystems[label]
+        atom_group = MDAnalysisManager.MDAnalysisSystems[label]
 
         # This should be the default
         cmd.set('retain_order', 1, label)
@@ -115,5 +118,5 @@ class MDAnalysisManager():
 
         # set the per-frame call to update coordinates in state 1 ("in place")
         MDAnalysisManager.callbacks[MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK] = fetch_frame_coordinates
-        for frame in range(1, universe.trajectory.n_frames + 1):
+        for frame in range(1, atom_group.universe.trajectory.n_frames + 1):
             cmd.mdo(frame, '{}.{}'.format(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK, frame))

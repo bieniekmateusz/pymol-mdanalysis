@@ -933,6 +933,16 @@ SEE ALSO
         return None
 
 
+    def mda_sel(selection, label=None):
+        # apply the selection from MDAnalysis in PyMOL
+        # fixme - is the label not necessary?
+
+        # get the last universe on which the selection should be applied? or do we need the user to tell on which to apply?
+
+        # PyMol index is 1-based
+        return None
+
+
     def load_pse(filename, partial=0, quiet=1, format='pse', _self=cmd):
         try:
             contents = _self.file_read(filename)
