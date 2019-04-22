@@ -484,8 +484,8 @@ SEE ALSO
         import MDAnalysis.analysis.rms
 
         mdsystems = MDAnalysisManager.getMDAnalysisSystems()
-        u = mdsystems[object]
-        sel = u.select_atoms("protein")
+        atom_group = mdsystems[object]
+        sel = atom_group.select_atoms("protein")
         R = MDAnalysis.analysis.rms.RMSD(sel, sel,
                                          # superimpose on whole backbone of the whole protein
                                          select=selection,
