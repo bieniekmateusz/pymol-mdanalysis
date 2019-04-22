@@ -105,8 +105,11 @@ SEE ALSO
                 selection = "("+selection+") or ?"+name # merge if exists
             elif merge==2:
                 selection = "("+selection+") or ??"+name # merge if exists and active
-            #
+
             r = _cmd.select(_self._COb,str(name),str(selection),int(quiet),int(state)-1,str(domain))
+            # fixme - MDAnalysis should know about the new selection made
+            # fixme - using cmd.identify, but this applies the selection again?
+
             enable = int(enable)
             if is_ok(r) and enable>0:
                 _cmd.onoff(_self._COb,str(name),1,0);
