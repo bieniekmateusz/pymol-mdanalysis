@@ -161,7 +161,8 @@ from .selecting import \
       indicate,           \
       select,             \
       select_list,        \
-      pop
+      pop,                \
+      mda_select
 
 #--------------------------------------------------------------------
 from . import exporting

@@ -108,7 +108,7 @@ SEE ALSO
 
             r = _cmd.select(_self._COb,str(name),str(selection),int(quiet),int(state)-1,str(domain))
             # fixme - MDAnalysis should know about the new selection made
-            # fixme - using cmd.identify, but this applies the selection again?
+            # fixme - cmd.identify we can get IDs, but this applies the selection again?
 
             enable = int(enable)
             if is_ok(r) and enable>0:
@@ -119,6 +119,26 @@ SEE ALSO
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException                  
         return r
+
+
+    def mda_select(label, selection, selection_name):
+        # apply on label
+        from .mdanalysis_manager import MDAnalysisManager
+        mdsystems = MDAnalysisManager.getMDAnalysisSystems()
+        main_atom_group = mdsystems[label]
+
+        # the selection selection_name
+        atom_group_sel = main_atom_group.select_atoms(selection)
+        atom_ids = atom_group_sel.ids
+
+        # convert to indexes for PyMOL internals
+        pymol_selection = '+'.join(map(str, atom_ids + 1))
+        # fixme - pymol applies it to every "object", and adds the results,
+        # which is not necessarily what we want
+        cmd.select(selection_name, selection)
+
+        # there is a new atom group
+        mdsystems[selection_name] = atom_group_sel
 
 
     def pop(name, source, enable=-1, quiet=1, _self=cmd):

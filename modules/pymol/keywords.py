@@ -145,10 +145,6 @@ def get_command_keywords(self_cmd=cmd):
         'load_mtz'      : [ self_cmd.load_mtz          , 0 , 0 , ''  , parsing.STRICT ],
         'load_png'      : [ self_cmd.load_png          , 0 , 0 , ''  , parsing.STRICT ],
         'load_traj'     : [ self_cmd.load_traj         , 0 , 0 , ''  , parsing.STRICT ],
-        'mda_rmsd': [self_cmd.mda_rmsd, 0, 0, '', parsing.STRICT],
-        'mda_load': [self_cmd.mda_load, 0, 0, '', parsing.STRICT],
-        'mda_load_traj': [self_cmd.mda_load_traj, 0, 0, '', parsing.STRICT],
-        # MPP
         'log'           : [ self_cmd.log               , 0 , 0 , ''  , parsing.STRICT ],
         'log_close'     : [ self_cmd.log_close         , 0 , 0 , ''  , parsing.STRICT ],
         'log_open'      : [ self_cmd.log_open          , 0 , 0 , ''  , parsing.STRICT ],
@@ -318,6 +314,11 @@ def get_command_keywords(self_cmd=cmd):
         'movie.sweep'   : [ self_cmd.movie.sweep       , 0 , 0 , ''  , parsing.STRICT ],
         'movie.tdroll'  : [ self_cmd.movie.tdroll      , 0 , 0 , ''  , parsing.STRICT ],
         'movie.zoom'    : [ self_cmd.movie.zoom        , 0 , 0 , ''  , parsing.STRICT ],
+        # MDAnalysis
+        'mda_rmsd': [self_cmd.mda_rmsd, 0, 0, '', parsing.STRICT],
+        'mda_load': [self_cmd.mda_load, 0, 0, '', parsing.STRICT],
+        'mda_load_traj': [self_cmd.mda_load_traj, 0, 0, '', parsing.STRICT],
+        'mda_select': [self_cmd.mda_select, 0, 0, '', parsing.STRICT],
         # activate metaphorics extensions
         #   'metaphorics'   : [ self_cmd.metaphorics       , 0 , 0 , ''  , parsing.STRICT ],
         }
