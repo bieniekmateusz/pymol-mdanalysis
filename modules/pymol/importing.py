@@ -461,11 +461,34 @@ SEE ALSO
         return r
 
 
+    def mda_load(filename, label=None):
+        # fixme - temporary hack: we want the user to use mda_load for only a single frame
+        # otherwise PyMOL will try to read all frames, which could overload the RAM memory
+        import MDAnalysis as mda
+        tmp = mda.Universe(filename)
+        if len(tmp.trajectory) > 1:
+            raise Exception('mda_load has to be used with a single frame topology (it cannot read a trajectory)')
+        # fixme - end of a temporary hack
+
+        cmd.get_unused_name('obj')
+
+        # Load with PyMOL the same file
+        cmd.load(filename)
+        # Get the label used for the simulation
+        if not label:
+            label = cmd.get_object_list()[-1]
+        # Otherwise the Atom Names are rearranged (which would break everything)
+        cmd.set('retain_order', 1, label)
+        # Load with MDAnalysis too
+        MDAnalysisManager.load(label, filename)
+
+        return None
+
+
     def mda_load_traj(filename, label=None, interval=1, start=1, stop=-1,selection='all',_self=cmd):
         filename = unquote(filename)
 
         noext, ext, format_guessed, zipped = filename_to_format(filename)
-
         # get object name
         if not label:
             label = _guess_trajectory_object(noext, _self)
@@ -907,30 +930,6 @@ SEE ALSO
             _self.unlock(r,_self)
         if _self._raising(r,_self): raise pymol.CmdException
         return r
-
-
-    def mda_load(filename, label=None):
-        # fixme - temporary hack: we want the user to use mda_load for only a single frame
-        # otherwise PyMOL will try to read all frames, which could overload the RAM memory
-        import MDAnalysis as mda
-        tmp = mda.Universe(filename)
-        if len(tmp.trajectory) > 1:
-            raise Exception('mda_load has to be used with a single frame topology (it cannot read a trajectory)')
-        # fixme - end of a temporary hack
-
-        cmd.get_unused_name('obj')
-
-        # Load with PyMOL the same file
-        cmd.load(filename)
-        # Get the label used for the simulation
-        if not label:
-            label = cmd.get_object_list()[-1]
-        # Otherwise the Atom Names are rearranged (which would break everything)
-        cmd.set('retain_order', 1, label)
-        # Load with MDAnalysis too
-        MDAnalysisManager.load(label, filename)
-
-        return None
 
 
     def load_pse(filename, partial=0, quiet=1, format='pse', _self=cmd):
