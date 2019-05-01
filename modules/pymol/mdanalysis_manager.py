@@ -24,6 +24,7 @@
 
 """
 
+import os
 import MDAnalysis
 from enum import Enum
 from . import cmd
@@ -44,6 +45,10 @@ class MDAnalysisManager():
     callbacks = {}
     # constants
     MDA_FRAME_CHANGED_CALLBACK = "MDA_FRAME_CHANGED_CALLBACK"
+
+    # fixme - should in the configuration file
+    TEMPLATE_DIR = os.path.join(__file__.rsplit('/', maxsplit=1)[0], 'plotting_templates')
+    PLOTS_DIR = os.path.expanduser('~/.pymol/plotting/plots')
 
 
     @staticmethod
@@ -120,3 +125,8 @@ class MDAnalysisManager():
         MDAnalysisManager.callbacks[MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK] = fetch_frame_coordinates
         for frame in range(1, atom_group.universe.trajectory.n_frames + 1):
             cmd.mdo(frame, '{}.{}'.format(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK, frame))
+
+
+# fixme - there is a better place to initialise this, during the installation?
+if not os.path.isdir(MDAnalysisManager.PLOTS_DIR):
+    os.makedirs(MDAnalysisManager.PLOTS_DIR)
