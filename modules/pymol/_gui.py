@@ -9,6 +9,71 @@ import sys
 import os
 import webbrowser
 
+def displaySavedRmsd():
+    from .mdanalysis_manager import MDAnalysisManager
+    import numpy as np
+    import importlib
+    cmd = sys.modules["pymol.cmd"]
+    from matplotlib.widgets import SpanSelector
+
+    data_filename = 'protein_d9fit_500ns_step10ps_ca.dat'
+    pyt = 'protein_d9fit_500ns_step10ps_ca.py'
+    data_filepath = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd', data_filename)
+    # run it with python
+
+    atom_group = MDAnalysisManager.MDAnalysisSystems['p']
+    universe_filename = os.path.splitext(os.path.basename(atom_group.universe.filename))[0]
+
+    data = np.loadtxt(data_filepath)
+
+    rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
+    sys.path.append(rmsd_dir)
+    print('Module name', universe_filename)
+    plotter = importlib.import_module(universe_filename + '_ca')
+    sys.path.remove(rmsd_dir)
+
+    rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
+
+    # attach the interactive features to the functions
+    def onclick(event):
+        # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
+        #       ('double' if event.dblclick else 'single', event.button,
+        #        event.x, event.y, event.xdata, event.ydata))
+
+        # if the click happened outside of the graph area
+        if not type(event.xdata) is np.float64:
+            return
+
+        # find the nearest point on x line
+        closest_index = np.searchsorted(plotter.pymol_x_axis, (event.xdata,))
+        # update the frame on the screen
+        cmd.frame(closest_index)
+
+    plotter.fig.canvas.mpl_connect('button_press_event', onclick)
+
+    def onselect(xmin, xmax):
+        print(xmin, xmax)
+        # update the data
+        indmin, indmax = np.searchsorted(plotter.pymol_x_axis, (xmin, xmax))
+        indmax = min(len(plotter.pymol_x_axis) - 1, indmax)
+        print(indmin, indmax)
+        print(plotter.pymol_y_axis[indmin:indmax])
+
+        plotter.pymol_hist_ax.cla()
+        plotter.pymol_hist_ax.hist(plotter.pymol_y_axis[indmin:indmax])
+
+    # FIXME - Find a better way than a global variable
+    # We have to ensure the object survives when the method is left.
+    # Otherwise the class.methods will not be available.
+    # See weak references and the Note in https://matplotlib.org/users/event_handling.html
+    global G_MATPLOTLIB_CALLBACK_SPAN
+    G_MATPLOTLIB_CALLBACK_SPAN = SpanSelector(plotter.pymol_plot_ax, onselect, 'horizontal', useblit=True,
+                                              rectprops=dict(alpha=0.5, facecolor='red'),
+                                              button=1)
+
+    print(data)
+    pass
+
 class PyMOLDesktopGUI(object):
     '''Superclass for PyMOL Desktop Applications'''
 
@@ -885,6 +950,9 @@ class PyMOLDesktopGUI(object):
                 ('command', 'About PyMOL', self.show_about),
                 ('command', 'Sponsorship Information', lambda: webbrowser.open("http://pymol.org/funding.html")),
                 ('command', 'How to Cite PyMOL', lambda: webbrowser.open("http://pymol.org/citing")),
+            ]),
+            ('menu', 'IPlots', [
+                ('command', 'give me my rmsd', displaySavedRmsd),
             ]),
         ]
 
