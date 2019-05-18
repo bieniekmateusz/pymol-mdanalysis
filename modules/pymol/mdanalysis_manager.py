@@ -50,8 +50,8 @@ class MDAnalysisManager():
     MDA_FRAME_CHANGED_CALLBACK = "MDA_FRAME_CHANGED_CALLBACK"
 
     # fixme - should in the configuration file
-    TEMPLATE_DIR = os.path.join(__file__.rsplit('/', maxsplit=1)[0], 'plotting_templates')
-    PLOTS_DIR = os.path.expanduser('~/.pymol/plotting/plots')
+    TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plotting_templates')
+    PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting', 'plots')
 
 
     @staticmethod
