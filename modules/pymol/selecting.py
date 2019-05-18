@@ -131,6 +131,10 @@ SEE ALSO
         atom_group_sel = main_atom_group.select_atoms(selection)
         atom_ids = atom_group_sel.ids
 
+        # store the selection
+        # fixme - a hacky hidden variable
+        atom_group_sel._pymol_used_selection = selection
+
         # convert to indexes for PyMOL internals
         pymol_selection = '+'.join(map(str, atom_ids + 1))
         # fixme - pymol applies it to every "object", and adds the results,

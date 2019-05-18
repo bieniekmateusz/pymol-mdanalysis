@@ -28,6 +28,7 @@ import os
 import MDAnalysis
 from enum import Enum
 from . import cmd
+import json
 
 
 class MDAnalysisManager():
@@ -39,9 +40,11 @@ class MDAnalysisManager():
     """
 
     # contain a list of loaded objects / states / names before we know how to extract them ourselves
+    # This object is saved along with a session
     MDAnalysisSystems = {}
 
     # A list of callbacks for rendering
+    # This object is saved along with a session
     callbacks = {}
     # constants
     MDA_FRAME_CHANGED_CALLBACK = "MDA_FRAME_CHANGED_CALLBACK"
@@ -49,6 +52,35 @@ class MDAnalysisManager():
     # fixme - should in the configuration file
     TEMPLATE_DIR = os.path.join(__file__.rsplit('/', maxsplit=1)[0], 'plotting_templates')
     PLOTS_DIR = os.path.expanduser('~/.pymol/plotting/plots')
+
+
+    @staticmethod
+    def toJSON():
+        # Save all the important metadata from which the existing functionality can be recovered
+        # Metadata:
+        #  - labels
+        #  - filenames
+        #  - selection string
+
+        metadata = {}
+        for label, atom_group in MDAnalysisManager.MDAnalysisSystems.items():
+            metadata['label'] = label
+            metadata['selection'] = atom_group._pymol_used_selection
+
+            filenames = {}
+            filenames['top_filename'] = atom_group.universe.filename
+            filenames['trajectory'] = atom_group.universe.trajectory.filename
+            metadata['filenames'] = filenames
+
+
+        return json.dumps(metadata)
+
+
+
+    @staticmethod
+    def fromJSON(json):
+        # Reinitialise this class static methods
+        pass
 
 
     @staticmethod
@@ -71,6 +103,9 @@ class MDAnalysisManager():
 
         u = MDAnalysis.Universe(topology_filename)
         MDAnalysisManager.MDAnalysisSystems[label] = u.atoms
+
+        # fixme - a hacky way to store selections for each atom group
+        u.atoms._pymol_used_selection = 'all'
 
 
     @staticmethod
@@ -110,7 +145,9 @@ class MDAnalysisManager():
                 # MDAnalysis: switch to the requested frame
                 atom_group.universe.trajectory[int(frame) - 1]
 
-                cmd.load_coordset(atom_group.positions, atom_group_label, 1)
+                # 0 is for append, 1 we guess means replacing
+                replace = 1
+                cmd.load_coordset(atom_group.positions, atom_group_label, replace)
 
         # MDAnalysis universe
         atom_group = MDAnalysisManager.MDAnalysisSystems[label]

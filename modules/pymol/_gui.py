@@ -9,6 +9,37 @@ import sys
 import os
 import webbrowser
 
+def mda_session_save_as(gui):
+    # use the legacy system to save the typical PyMOL data
+    gui.session_save_as()
+    # the filename created
+    created_file = gui.recent_filenames[0]
+    if not created_file.endswith('.pse'):
+        return
+
+    # get the MDAnalysis metadata
+    from .mdanalysis_manager import MDAnalysisManager
+    json_data = MDAnalysisManager.toJSON()
+
+    # Use json to serialise the data
+    # However, MDAnalysis cannot be serialised right now
+    # fixme - use a sensibly called file for this. The same as the created sessin file?
+    with open(os.path.expanduser('~/.pymol/%s' % (os.path.splitext(created_file)[0] + '.mse')), 'w') as F:
+        F.write(json_data)
+
+    # fixme - somewhere is a function that handles the saving and loading of .pse file
+    # fixme - find it and attach the code there rather than this hack
+
+def mda_file_open(gui):
+    gui.file_open()
+    last_used_file = gui.recent_filenames[0]
+    if not last_used_file.endswith('.pse'):
+        return
+
+    # load the MDAnalysis and update the hooks
+    # todo
+
+
 def displaySavedRmsd():
     from .mdanalysis_manager import MDAnalysisManager
     import numpy as np
@@ -146,12 +177,12 @@ class PyMOLDesktopGUI(object):
                     ('command', 'Ignore .pymolrc and plugins (-k)', lambda: self.new_window(('-k',))),
                 ]),
                 ('separator',),
-                ('command', 'Open...',                      self.file_open),
+                ('command', 'Open...',                      lambda: mda_file_open(self)),
                 ('open_recent_menu',),
                 ('command', 'Get PDB...',                   self.file_fetch_pdb),
                 ('separator',),
                 ('command', 'Save Session',                 self.session_save),
-                ('command', 'Save Session As...',           self.session_save_as),
+                ('command', 'Save Session As...',           lambda: mda_session_save_as(self)),
                 ('separator',),
                 ('command', 'Export Molecule...',             self.file_save),
                 ('command', 'Export Map...',                  self.file_save_map),
