@@ -56,6 +56,10 @@ class MDAnalysisManager():
 
     @staticmethod
     def toJSON():
+        """
+
+        :return: string json
+        """
         # Save all the important metadata from which the existing functionality can be recovered
         # Metadata:
         #  - labels
@@ -63,24 +67,42 @@ class MDAnalysisManager():
         #  - selection string
 
         metadata = {}
+        # list of labels where each points to metadata
         for label, atom_group in MDAnalysisManager.MDAnalysisSystems.items():
-            metadata['label'] = label
-            metadata['selection'] = atom_group._pymol_used_selection
+            metadata[label] = {}
+            metadata[label]['selection'] = atom_group._pymol_used_selection
 
             filenames = {}
             filenames['top_filename'] = atom_group.universe.filename
+            # fixme - note that when multiple trajectories are loaded, it becomes trajectory.filenames
             filenames['trajectory'] = atom_group.universe.trajectory.filename
-            metadata['filenames'] = filenames
-
+            metadata[label]['filenames'] = filenames
 
         return json.dumps(metadata)
 
 
 
     @staticmethod
-    def fromJSON(json):
+    def fromJSON(json_metadata):
+        """
+        Initialise the MDAnalysis labels and metadata
+        :param json_metadata:
+        :return:
+        """
         # Reinitialise this class static methods
-        pass
+        metadata = json.loads(json_metadata)
+        for label, meta in metadata.items():
+            MDAnalysisManager.load(label, meta['filenames']['top_filename'])
+            MDAnalysisManager.select(label, label, meta['selection'])
+
+            # load the trajectory for the filename (if it's there?)
+            if 'trajectory' in meta['filenames']:
+                MDAnalysisManager.loadTraj(label, meta['filenames']['trajectory'])
+                MDAnalysisManager.renderWithMDAnalysis(label)
+            # fixme - handle the multiple trajectory filenames
+
+        print('reloaded')
+
 
 
     @staticmethod
@@ -162,6 +184,13 @@ class MDAnalysisManager():
         MDAnalysisManager.callbacks[MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK] = fetch_frame_coordinates
         for frame in range(1, atom_group.universe.trajectory.n_frames + 1):
             cmd.mdo(frame, '{}.{}'.format(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK, frame))
+
+
+    @staticmethod
+    def select(label, new_label, selection):
+        atom_group = MDAnalysisManager.MDAnalysisSystems[label].select_atoms(selection)
+        MDAnalysisManager.MDAnalysisSystems[new_label] = atom_group
+
 
 
 # fixme - there is a better place to initialise this, during the installation?

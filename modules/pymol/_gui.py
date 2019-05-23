@@ -9,6 +9,8 @@ import sys
 import os
 import webbrowser
 
+from .mdanalysis_manager import MDAnalysisManager
+
 def mda_session_save_as(gui):
     # use the legacy system to save the typical PyMOL data
     gui.session_save_as()
@@ -18,13 +20,13 @@ def mda_session_save_as(gui):
         return
 
     # get the MDAnalysis metadata
-    from .mdanalysis_manager import MDAnalysisManager
     json_data = MDAnalysisManager.toJSON()
 
     # Use json to serialise the data
     # However, MDAnalysis cannot be serialised right now
     # fixme - use a sensibly called file for this. The same as the created sessin file?
-    with open(os.path.expanduser('~/.pymol/%s' % (os.path.splitext(created_file)[0] + '.mse')), 'w') as F:
+    corresponding_filename = os.path.splitext(created_file)[0] + '.mse' # .mse stands for MDAnalysis sessions
+    with open(corresponding_filename, 'w') as F:
         F.write(json_data)
 
     # fixme - somewhere is a function that handles the saving and loading of .pse file
@@ -33,11 +35,19 @@ def mda_session_save_as(gui):
 def mda_file_open(gui):
     gui.file_open()
     last_used_file = gui.recent_filenames[0]
+
+    if last_used_file.endswith('.mse'):
+        print('Error: Please load the corresponding .pse session file instead.')
+        return
+
     if not last_used_file.endswith('.pse'):
         return
 
     # load the MDAnalysis and update the hooks
-    # todo
+    corresponding_mse = os.path.splitext(last_used_file)[0] + '.mse'  # .mse stands for MDAnalysis sessions
+
+    metadata = open(corresponding_mse).read()
+    MDAnalysisManager.fromJSON(metadata)
 
 
 def displaySavedRmsd():
