@@ -24,6 +24,11 @@ if True:
     import pymol
     cmd = sys.modules["pymol.cmd"]
     from .mdanalysis_manager import MDAnalysisManager
+    import MDAnalysis as mda
+    import numpy as np
+    import shutil
+    from matplotlib.widgets import SpanSelector
+    import importlib
 
     from . import selector
     from . import colorprinting
@@ -504,20 +509,30 @@ SEE ALSO
 
     # MPP
     def mda_rmsd(object, selection="backbone"):
-        import MDAnalysis.analysis.rms
-        import numpy as np
-        import sys
-        from shutil import copyfile
-        from matplotlib.widgets import SpanSelector
-        import importlib
+        '''
+     DESCRIPTION
 
-        mdsystems = MDAnalysisManager.getMDAnalysisSystems()
-        atom_group = mdsystems[object]
+         "mda_rmsd" computes RMSD for the label, saves and plots the data.
+
+     USAGE
+
+         mda_rmsd object, [selection]
+
+     PYMOL API
+
+         cmd.mda_rmsd(object, selection='backbone')
+
+     NOTES
+
+         This is a prototype.
+             '''
+
+        atom_group = MDAnalysisManager.getSystem(object)
         sel = atom_group.select_atoms("protein")
-        R = MDAnalysis.analysis.rms.RMSD(sel, sel,
-                                         # superimpose on whole backbone of the whole protein
-                                         select=selection,
-                                         )
+        from MDAnalysis.analysis.rms import RMSD
+        R = RMSD(sel, sel,# superimpose on whole backbone of the whole protein
+                 # select=selection,
+                 )
         R.run()
 
         """
@@ -536,7 +551,7 @@ SEE ALSO
         # copy the plotting file from the templates
         template_rmsd_plotter = os.path.join(MDAnalysisManager.TEMPLATE_DIR, 'rmsd.py')
         plotter_filename = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd/%s_%s.py' % (universe_filename, object))
-        copyfile(template_rmsd_plotter, plotter_filename)
+        shutil.copyfile(template_rmsd_plotter, plotter_filename)
 
         # use the basic template to visualise the results
         rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')

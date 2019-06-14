@@ -106,8 +106,13 @@ class MDAnalysisManager():
 
 
     @staticmethod
-    def getMDAnalysisSystems():
+    def getSystems():
         return MDAnalysisManager.MDAnalysisSystems
+
+
+    @staticmethod
+    def getSystem(label):
+        return MDAnalysisManager.MDAnalysisSystems[label]
 
 
     @staticmethod

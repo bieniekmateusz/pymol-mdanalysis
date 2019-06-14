@@ -124,7 +124,7 @@ SEE ALSO
     def mda_select(label, selection, selection_name):
         # apply on label
         from .mdanalysis_manager import MDAnalysisManager
-        mdsystems = MDAnalysisManager.getMDAnalysisSystems()
+        mdsystems = MDAnalysisManager.getSystems()
         main_atom_group = mdsystems[label]
 
         # the selection selection_name
