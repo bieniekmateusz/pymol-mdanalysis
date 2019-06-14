@@ -117,6 +117,14 @@ class MDAnalysisManager():
 
 
     @staticmethod
+    def exists(label):
+        if label in MDAnalysisManager.MDAnalysisSystems:
+            return True
+
+        return False
+
+
+    @staticmethod
     def load(label, topology_filename):
         """
         Loads the topology file

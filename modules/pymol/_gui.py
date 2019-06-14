@@ -993,7 +993,7 @@ class PyMOLDesktopGUI(object):
                 ('command', 'How to Cite PyMOL', lambda: webbrowser.open("http://pymol.org/citing")),
             ]),
             ('menu', 'IPlots', [
-                ('command', 'give me my rmsd', displaySavedRmsd),
+                ('command', 'RMSD', displaySavedRmsd),
             ]),
         ]
 
