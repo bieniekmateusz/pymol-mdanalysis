@@ -57,23 +57,31 @@ def displaySavedRmsd():
     cmd = sys.modules["pymol.cmd"]
     from matplotlib.widgets import SpanSelector
 
+    # fixme - it has to fetch the right graph when used from the menu
     data_filename = 'protein_d9fit_500ns_step10ps_ca.dat'
     pyt = 'protein_d9fit_500ns_step10ps_ca.py'
+    # fixme - should we have a graph manager that knows all about graphs?
     data_filepath = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd', data_filename)
-    # run it with python
 
+    # run it with python
     atom_group = MDAnalysisManager.MDAnalysisSystems['p']
     universe_filename = os.path.splitext(os.path.basename(atom_group.universe.filename))[0]
 
-    data = np.loadtxt(data_filepath)
-
+    # fixme - we should not do this manually each time, how to functionalise this and where?
     rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
     sys.path.append(rmsd_dir)
-    print('Module name', universe_filename)
-    plotter = importlib.import_module(universe_filename + '_ca')
-    sys.path.remove(rmsd_dir)
+    graph_filename = universe_filename + '_ca'
 
-    rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
+    # check if the graph already has been imported / graphed
+    if graph_filename in sys.modules:
+        # already imported so reload
+        plotter = importlib.reload(sys.modules[graph_filename])
+    else:
+        # fixme - use fuller paths to ensure that we do not run into duplication
+        # for example, append "~/.pymol" and import the file /graphs/rmsd/labelA/xfasdfsda.py instead of
+        # appending ".pymol/graphs/rmsd/labelA/" and importing xfasdfsda.py. This should be label specific.
+        plotter = importlib.import_module(graph_filename)
+    sys.path.remove(rmsd_dir)
 
     # attach the interactive features to the functions
     def onclick(event):
@@ -93,12 +101,12 @@ def displaySavedRmsd():
     plotter.fig.canvas.mpl_connect('button_press_event', onclick)
 
     def onselect(xmin, xmax):
-        print(xmin, xmax)
+        # print(xmin, xmax)
         # update the data
         indmin, indmax = np.searchsorted(plotter.pymol_x_axis, (xmin, xmax))
         indmax = min(len(plotter.pymol_x_axis) - 1, indmax)
-        print(indmin, indmax)
-        print(plotter.pymol_y_axis[indmin:indmax])
+        # print(indmin, indmax)
+        # print(plotter.pymol_y_axis[indmin:indmax])
 
         plotter.pymol_hist_ax.cla()
         plotter.pymol_hist_ax.hist(plotter.pymol_y_axis[indmin:indmax])
@@ -112,8 +120,8 @@ def displaySavedRmsd():
                                               rectprops=dict(alpha=0.5, facecolor='red'),
                                               button=1)
 
-    print(data)
-    pass
+    plotter.plt.show()
+
 
 class PyMOLDesktopGUI(object):
     '''Superclass for PyMOL Desktop Applications'''
