@@ -578,12 +578,12 @@ SEE ALSO
         plotter.fig.canvas.mpl_connect('button_press_event', onclick)
 
         def onselect(xmin, xmax):
-            print(xmin, xmax)
+            #print(xmin, xmax)
             # update the data
             indmin, indmax = np.searchsorted(plotter.pymol_x_axis, (xmin, xmax))
             indmax = min(len(plotter.pymol_x_axis) - 1, indmax)
-            print(indmin, indmax)
-            print(plotter.pymol_y_axis[indmin:indmax])
+            #print(indmin, indmax)
+            #print(plotter.pymol_y_axis[indmin:indmax])
 
             plotter.pymol_hist_ax.cla()
             plotter.pymol_hist_ax.hist(plotter.pymol_y_axis[indmin:indmax])

@@ -176,7 +176,7 @@ if True:
                 frame_number = int(s.split('.')[1])
                 callback = MDAnalysisManager.callbacks[callback_name]
                 callback(frame_number)
-                return
+                return 1  # 1 = ok
 
             # Previous Code
             layer = self.layer[self.nest]
