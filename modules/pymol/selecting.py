@@ -121,28 +121,29 @@ SEE ALSO
         return r
 
 
-    def mda_select(label, selection, selection_name):
+    def mda_select(label, selection, selection_label):
         # apply on label
         from .mdanalysis_manager import MDAnalysisManager
-        mdsystems = MDAnalysisManager.getSystems()
-        main_atom_group = mdsystems[label]
+        main_atom_group = MDAnalysisManager.getSystem(label)
 
         # the selection selection_name
-        atom_group_sel = main_atom_group.select_atoms(selection)
-        atom_ids = atom_group_sel.ids
+        new_group_sel = main_atom_group.select_atoms(selection)
+        atom_ids = new_group_sel.ids
 
         # store the selection
         # fixme - a hacky hidden variable
-        atom_group_sel._pymol_used_selection = selection
+        # consider recovering the selection in a different way. It is just the atom IDs.
+        new_group_sel._pymol_used_selection = selection
 
+        # Compatibility with PyMOL
         # convert to indexes for PyMOL internals
-        pymol_selection = '+'.join(map(str, atom_ids + 1))
+        pymol_selection ='index ' + '+'.join(map(str, atom_ids + 1))
         # fixme - pymol applies it to every "object", and adds the results,
         # which is not necessarily what we want
-        cmd.select(selection_name, selection)
+        cmd.select(selection_label, pymol_selection)
 
         # there is a new atom group
-        mdsystems[selection_name] = atom_group_sel
+        MDAnalysisManager.newLabel(selection_label, new_group_sel)
 
 
     def pop(name, source, enable=-1, quiet=1, _self=cmd):

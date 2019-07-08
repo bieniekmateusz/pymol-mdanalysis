@@ -116,6 +116,11 @@ class MDAnalysisManager():
 
 
     @staticmethod
+    def newLabel(label, atom_group):
+        MDAnalysisManager.MDAnalysisSystems[label] = atom_group
+
+
+    @staticmethod
     def updateLabel(old, new):
         MDAnalysisManager.MDAnalysisSystems[new] = MDAnalysisManager.MDAnalysisSystems[old]
         del MDAnalysisManager.MDAnalysisSystems[old]
