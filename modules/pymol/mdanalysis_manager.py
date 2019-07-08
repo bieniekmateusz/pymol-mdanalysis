@@ -32,6 +32,7 @@ import json
 from . import CmdException
 
 
+
 class MDAnalysisManager():
     """
     Stores all meta-data related to MDAnalysis code, like handles to the trajectories.
@@ -50,7 +51,7 @@ class MDAnalysisManager():
     # constants
     MDA_FRAME_CHANGED_CALLBACK = "MDA_FRAME_CHANGED_CALLBACK"
 
-    # fixme - should in the configuration file
+    # fixme - delete - it's been moved to graph_manager
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plotting_templates')
     PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting', 'plots')
 

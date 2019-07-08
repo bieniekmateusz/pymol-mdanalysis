@@ -27,7 +27,6 @@ if True:
     import MDAnalysis as mda
     import numpy as np
     import shutil
-    from matplotlib.widgets import SpanSelector
     import importlib
 
     from . import selector
@@ -508,94 +507,39 @@ SEE ALSO
 
 
     # MPP
-    def mda_rmsd(object, selection="backbone"):
+    def mda_rmsd(label, selection="backbone"):
         '''
      DESCRIPTION
 
-         "mda_rmsd" computes RMSD for the label, saves and plots the data.
+         "mda_rmsd" computes RMSD for the label, saves and plots the data. If the selection is not provided,
+         all atoms are used for both, the finding and quantification of the RMSD.
 
      USAGE
 
-         mda_rmsd object, [selection]
+         mda_rmsd label, [selection]
 
      PYMOL API
 
-         cmd.mda_rmsd(object, selection='backbone')
+         cmd.mda_rmsd(label)
+         cmd.mda_rmsd(label, selection='backbone')
 
      NOTES
 
-         This is a prototype.
-             '''
+         This is a prototype that relies on MDAnalysis.
+        '''
 
-        atom_group = MDAnalysisManager.getSystem(object)
-        sel = atom_group.select_atoms("protein")
         from MDAnalysis.analysis.rms import RMSD
+        from .mda_graph_manager import GraphManager
+
+        atom_group = MDAnalysisManager.getSystem(label)
+        sel = atom_group.select_atoms(selection)
         R = RMSD(sel, sel,# superimpose on whole backbone of the whole protein
                  # select=selection,
                  )
         R.run()
 
-        """
-        fixme - explain what is happening here
-        """
-        # check if the rmsd directory exists
-        rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
-        if not os.path.isdir(rmsd_dir):
-            os.makedirs(rmsd_dir)
-
-        # save the data in a file
-        universe_filename = os.path.splitext(os.path.basename(atom_group.universe.filename))[0]
-        datafile_name = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd/%s_%s.dat' % (universe_filename, object))
-        np.savetxt(datafile_name, R.rmsd)
-
-        # copy the plotting file from the templates
-        template_rmsd_plotter = os.path.join(MDAnalysisManager.TEMPLATE_DIR, 'rmsd.py')
-        plotter_filename = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd/%s_%s.py' % (universe_filename, object))
-        shutil.copyfile(template_rmsd_plotter, plotter_filename)
-
-        # use the basic template to visualise the results
-        rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
-        sys.path.append(rmsd_dir)
-        # import the saved rmsd plotter
-        plotter = importlib.import_module('%s_%s' % (universe_filename, object))
-        sys.path.remove(rmsd_dir)
-
-        # attach the interactive features to the functions
-        def onclick(event):
-            # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
-            #       ('double' if event.dblclick else 'single', event.button,
-            #        event.x, event.y, event.xdata, event.ydata))
-
-            # if the click happened outside of the graph area
-            if not type(event.xdata) is np.float64:
-                return
-
-            # find the nearest point on x line
-            closest_index = np.searchsorted(plotter.pymol_x_axis, (event.xdata,))
-            # update the frame on the screen
-            cmd.frame(closest_index)
-
-        plotter.fig.canvas.mpl_connect('button_press_event', onclick)
-
-        def onselect(xmin, xmax):
-            #print(xmin, xmax)
-            # update the data
-            indmin, indmax = np.searchsorted(plotter.pymol_x_axis, (xmin, xmax))
-            indmax = min(len(plotter.pymol_x_axis) - 1, indmax)
-            #print(indmin, indmax)
-            #print(plotter.pymol_y_axis[indmin:indmax])
-
-            plotter.pymol_hist_ax.cla()
-            plotter.pymol_hist_ax.hist(plotter.pymol_y_axis[indmin:indmax])
-
-        # FIXME - Find a better way than a global variable
-        # We have to ensure the object survives when the method is left.
-        # Otherwise the class.methods will not be available.
-        # See weak references and the Note in https://matplotlib.org/users/event_handling.html
-        global G_MATPLOTLIB_CALLBACK_SPAN
-        G_MATPLOTLIB_CALLBACK_SPAN = SpanSelector(plotter.pymol_plot_ax, onselect, 'horizontal', useblit=True,
-                            rectprops=dict(alpha=0.5, facecolor='red'),
-                            button=1)
+        universe_filename = GraphManager.save_graph(label, 'rmsd', atom_group, R)
+        GraphManager.plot_graph(label, 'rmsd', universe_filename)
 
         return None
 
