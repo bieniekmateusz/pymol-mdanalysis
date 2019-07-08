@@ -29,6 +29,7 @@ import MDAnalysis
 from enum import Enum
 from . import cmd
 import json
+from . import CmdException
 
 
 class MDAnalysisManager():
@@ -187,7 +188,16 @@ class MDAnalysisManager():
 
                 # 0 is for append, 1 we guess means replacing
                 replace = 1
-                cmd.load_coordset(atom_group.positions, atom_group_label, replace)
+                try:
+                    cmd.load_coordset(atom_group.positions, atom_group_label, replace)
+                except CmdException as exception:
+                    # check if this is the LoadCoords-Error. PyMOL cannot apply load_coordset to a selection.
+                    # A full object is needed (ie "Extract to object" feature)
+                    # unfortunately the exception here cannot be recognized, because it contains no specific information
+                    # which is why I squash all errors
+                    # fixme - switch to using always objects instead of selections?
+                    print('Swallowed an exception - hopefully only LoadCoords-Error exception.')
+                    pass
 
         # MDAnalysis universe
         atom_group = MDAnalysisManager.MDAnalysisSystems[label]
