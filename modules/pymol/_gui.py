@@ -11,6 +11,9 @@ import webbrowser
 
 from .mdanalysis_manager import MDAnalysisManager
 
+# TODO PYMOL NEXT: Make sure that you save ._pymol_used_selection in the session file .mse
+# But first ensure that the mdanaylysis_manager explicitly holds the ._pymol_used_selection which currently
+# is hidden inside of the MDAnalysis atom groups
 def mda_session_save_as(gui):
     # use the legacy system to save the typical PyMOL data
     gui.session_save_as()
@@ -51,76 +54,22 @@ def mda_file_open(gui):
 
 
 def displaySavedRmsd():
+    from .mda_graph_manager import GraphManager
     from .mdanalysis_manager import MDAnalysisManager
-    import numpy as np
-    import importlib
-    cmd = sys.modules["pymol.cmd"]
-    from matplotlib.widgets import SpanSelector
 
-    # fixme - it has to fetch the right graph when used from the menu
-    data_filename = 'protein_d9fit_500ns_step10ps_ca.dat'
-    pyt = 'protein_d9fit_500ns_step10ps_ca.py'
-    # fixme - should we have a graph manager that knows all about graphs?
-    data_filepath = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd', data_filename)
+    sys0 = MDAnalysisManager.getSystems()['ca']
 
-    # run it with python
-    atom_group = MDAnalysisManager.MDAnalysisSystems['p']
-    universe_filename = os.path.splitext(os.path.basename(atom_group.universe.filename))[0]
+    GraphManager.plot_graph(sys0, 'rmsd')
 
-    # fixme - we should not do this manually each time, how to functionalise this and where?
-    rmsd_dir = os.path.join(MDAnalysisManager.PLOTS_DIR, 'rmsd')
-    sys.path.append(rmsd_dir)
-    graph_filename = universe_filename + '_ca'
-
-    # check if the graph already has been imported / graphed
-    if graph_filename in sys.modules:
-        # already imported so reload
-        plotter = importlib.reload(sys.modules[graph_filename])
-    else:
-        # fixme - use fuller paths to ensure that we do not run into duplication
-        # for example, append "~/.pymol" and import the file /graphs/rmsd/labelA/xfasdfsda.py instead of
-        # appending ".pymol/graphs/rmsd/labelA/" and importing xfasdfsda.py. This should be label specific.
-        plotter = importlib.import_module(graph_filename)
-    sys.path.remove(rmsd_dir)
-
-    # attach the interactive features to the functions
-    def onclick(event):
-        # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
-        #       ('double' if event.dblclick else 'single', event.button,
-        #        event.x, event.y, event.xdata, event.ydata))
-
-        # if the click happened outside of the graph area
-        if not type(event.xdata) is np.float64:
-            return
-
-        # find the nearest point on x line
-        closest_index = np.searchsorted(plotter.pymol_x_axis, (event.xdata,))
-        # update the frame on the screen
-        cmd.frame(closest_index)
-
-    plotter.fig.canvas.mpl_connect('button_press_event', onclick)
-
-    def onselect(xmin, xmax):
-        # print(xmin, xmax)
-        # update the data
-        indmin, indmax = np.searchsorted(plotter.pymol_x_axis, (xmin, xmax))
-        indmax = min(len(plotter.pymol_x_axis) - 1, indmax)
-        # print(indmin, indmax)
-        # print(plotter.pymol_y_axis[indmin:indmax])
-
-        plotter.pymol_hist_ax.cla()
-        plotter.pymol_hist_ax.hist(plotter.pymol_y_axis[indmin:indmax])
-
-    # FIXME - Find a better way than a global variable
-    # We have to ensure the object survives when the method is left.
-    # Otherwise the class.methods will not be available.
-    # See weak references and the Note in https://matplotlib.org/users/event_handling.html
-    global G_MATPLOTLIB_CALLBACK_SPAN
-    G_MATPLOTLIB_CALLBACK_SPAN = SpanSelector(plotter.pymol_plot_ax, onselect, 'horizontal', useblit=True,
-                                              rectprops=dict(alpha=0.5, facecolor='red'),
-                                              button=1)
-
-    plotter.plt.show()
+    # # check if the graph already has been imported / graphed
+    # if graph_filename in sys.modules:
+    #     # already imported so reload
+    #     plotter = importlib.reload(sys.modules[graph_filename])
+    # else:
+    #     # fixme - use fuller paths to ensure that we do not run into duplication
+    #     # for example, append "~/.pymol" and import the file /graphs/rmsd/labelA/xfasdfsda.py instead of
+    #     # appending ".pymol/graphs/rmsd/labelA/" and importing xfasdfsda.py. This should be label specific.
+    #     plotter = importlib.import_module(graph_filename)
 
 
 class PyMOLDesktopGUI(object):

@@ -538,7 +538,7 @@ SEE ALSO
                  )
         R.run()
 
-        universe_filename = GraphManager.save_graph('rmsd', atom_group, R.rmsd)
+        GraphManager.save_graph(atom_group, R.rmsd, 'rmsd')
         GraphManager.plot_graph(atom_group, 'rmsd')
 
         return None

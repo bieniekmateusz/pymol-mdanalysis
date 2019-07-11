@@ -93,7 +93,7 @@ class GraphManager():
 
 
     @staticmethod
-    def save_graph(category, atom_group, rmsd_data):
+    def save_graph(atom_group, rmsd_data, category):
         """
 
         :param label: PyMOL label
