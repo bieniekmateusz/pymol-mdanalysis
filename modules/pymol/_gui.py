@@ -64,21 +64,7 @@ def mda_file_open(gui):
 
 def displaySavedRmsd():
     from .mda_graph_manager import GraphManager
-    from .mdanalysis_manager import MDAnalysisManager
-
-    sys0 = MDAnalysisManager.getSystems()['ca']
-
     GraphManager.plot_graph('ca', 'rmsd')
-
-    # # check if the graph already has been imported / graphed
-    # if graph_filename in sys.modules:
-    #     # already imported so reload
-    #     plotter = importlib.reload(sys.modules[graph_filename])
-    # else:
-    #     # fixme - use fuller paths to ensure that we do not run into duplication
-    #     # for example, append "~/.pymol" and import the file /graphs/rmsd/labelA/xfasdfsda.py instead of
-    #     # appending ".pymol/graphs/rmsd/labelA/" and importing xfasdfsda.py. This should be label specific.
-    #     plotter = importlib.import_module(graph_filename)
 
 
 class PyMOLDesktopGUI(object):
