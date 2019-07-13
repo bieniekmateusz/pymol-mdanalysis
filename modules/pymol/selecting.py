@@ -132,7 +132,13 @@ SEE ALSO
 
         # Compatibility with PyMOL
         # convert to indexes for PyMOL internals
-        pymol_selection ='index ' + '+'.join(map(str, atom_ids + 1))
+        def get_consecutive_index_ranges(atoms_ids):
+            # This is the accepted PyMOL format: "index 2100-2200 + index 2300-2400"
+            import more_itertools as mit
+            grouped = [list(group) for group in mit.consecutive_groups(atom_ids)]
+            return ' + '.join(['index %d-%d' % (g[0], g[-1]) for g in grouped])
+
+        pymol_selection = get_consecutive_index_ranges(atom_ids + 1)
         # fixme - pymol applies it to every "object", and adds the results,
         # which is not necessarily what we want
         cmd.select(selection_label, pymol_selection)
