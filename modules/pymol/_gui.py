@@ -10,6 +10,7 @@ import os
 import webbrowser
 
 from .mdanalysis_manager import MDAnalysisManager
+from .mda_graph_manager import GraphManager
 
 
 def mda_session_save_as(gui):
@@ -63,8 +64,6 @@ def mda_file_open(gui):
 
 
 def displaySavedRmsd():
-    from .mda_graph_manager import GraphManager
-
     GraphManager.plot_graph('ca', 'rmsd')
 
 

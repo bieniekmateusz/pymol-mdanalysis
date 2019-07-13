@@ -105,6 +105,12 @@ class GraphManager():
         :return:
         """
 
+        # generate the new graphs in the menus directly
+        def hello():
+            print('I am being called')
+        iplots = cmd.gui.get_qtwindow().menudict['IPlots']
+        iplots.addAction('hello', hello)
+
         atom_group = MDAnalysisManager.getSystem(label)
         selection = MDAnalysisManager.getSelection(label)
 
