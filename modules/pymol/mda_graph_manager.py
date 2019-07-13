@@ -139,8 +139,15 @@ class GraphManager():
 
         sys.path.append(graph_dir)
         # import the saved rmsd plotter
-        plotter = importlib.import_module('graph')
+        module_name = 'graph'
+        # # check if the graph already has been imported / graphed
+        if module_name in sys.modules:
+            # already imported so reload
+            plotter = importlib.reload(sys.modules[module_name])
+        else:
+            plotter = importlib.import_module(module_name)
         sys.path.remove(graph_dir)
+
 
         # attach the interactive features to the functions
         def onclick(event):
