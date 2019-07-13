@@ -59,7 +59,7 @@ def displaySavedRmsd():
 
     sys0 = MDAnalysisManager.getSystems()['ca']
 
-    GraphManager.plot_graph(sys0, 'rmsd')
+    GraphManager.plot_graph('ca', 'rmsd')
 
     # # check if the graph already has been imported / graphed
     # if graph_filename in sys.modules:

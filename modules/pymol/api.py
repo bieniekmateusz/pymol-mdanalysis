@@ -180,7 +180,8 @@ from .exporting import \
       multifilenamegen,   \
       multisave,          \
       png,                \
-      save               
+      save,               \
+      mda_save
 
 #--------------------------------------------------------------------
 from . import editing

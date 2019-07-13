@@ -130,11 +130,6 @@ SEE ALSO
         new_group_sel = main_atom_group.select_atoms(selection)
         atom_ids = new_group_sel.ids
 
-        # store the selection
-        # fixme - a hacky hidden variable
-        # consider recovering the selection in a different way. It is just the atom IDs.
-        new_group_sel._pymol_used_selection = selection
-
         # Compatibility with PyMOL
         # convert to indexes for PyMOL internals
         pymol_selection ='index ' + '+'.join(map(str, atom_ids + 1))
@@ -143,7 +138,7 @@ SEE ALSO
         cmd.select(selection_label, pymol_selection)
 
         # there is a new atom group
-        MDAnalysisManager.newLabel(selection_label, new_group_sel)
+        MDAnalysisManager.newLabel(selection_label, new_group_sel, selection)
 
 
     def pop(name, source, enable=-1, quiet=1, _self=cmd):

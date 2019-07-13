@@ -43,6 +43,8 @@ from . import cmd
 import re
 import hashlib
 
+from .mdanalysis_manager import MDAnalysisManager
+
 
 class GraphManager():
     # fixme - should in the configuration file
@@ -70,7 +72,7 @@ class GraphManager():
 
 
     @staticmethod
-    def get_hash_from_selection(atom_group):
+    def get_hash_from_selection(selection):
         """
         Take all atom IDs and convert them into a string and then extract a hash from it.
         This way, when the label changes, the graphs are not affected.
@@ -79,7 +81,7 @@ class GraphManager():
         :return: A hash created from the IDs
         """
 
-        return hashlib.sha1(atom_group._pymol_used_selection.encode()).hexdigest()
+        return hashlib.sha1(selection.encode()).hexdigest()
 
 
     @staticmethod
@@ -93,7 +95,7 @@ class GraphManager():
 
 
     @staticmethod
-    def save_graph(atom_group, rmsd_data, category):
+    def save_graph(label, rmsd_data, category):
         """
 
         :param label: PyMOL label
@@ -103,9 +105,12 @@ class GraphManager():
         :return:
         """
 
+        atom_group = MDAnalysisManager.getSystem(label)
+        selection = MDAnalysisManager.getSelection(label)
+
         # check if the rmsd directory exists
         filepath_hash = GraphManager.get_hash_from_filepath(atom_group.universe.filename)
-        selection_hash = GraphManager.get_hash_from_selection(atom_group)
+        selection_hash = GraphManager.get_hash_from_selection(selection)
 
         datafile_dir = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash)
         datafile_name = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash, 'graph.dat')
@@ -122,11 +127,14 @@ class GraphManager():
 
 
     @staticmethod
-    def plot_graph(atom_group, category):
+    def plot_graph(label, category):
         # use the basic template to visualise the results
 
+        atom_group = MDAnalysisManager.getSystem(label)
+        selection = MDAnalysisManager.getSelection(label)
+
         filepath_hash = GraphManager.get_hash_from_filepath(atom_group.universe.filename)
-        selection_hash = GraphManager.get_hash_from_selection(atom_group)
+        selection_hash = GraphManager.get_hash_from_selection(selection)
         graph_dir = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash)
 
         sys.path.append(graph_dir)

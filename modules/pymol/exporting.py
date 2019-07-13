@@ -760,6 +760,29 @@ EXAMPLES
             yield fname, osele, ostate
 
 
+    def mda_save(filename):
+        """
+DESCRIPTION
+    Save the session
+
+    Make sure the filename ends with .pse
+        """
+        from .mdanalysis_manager import MDAnalysisManager
+
+        # Save PyMOL session
+        save(filename)
+
+        # Save MDAnalysis session
+        # get the MDAnalysis metadata
+        json_data = MDAnalysisManager.toJSON()
+
+        # MDAnalysis cannot be serialised right now
+        # .mse stands for MDAnalysis sessions
+        corresponding_filename = os.path.splitext(filename)[0] + '.mse'
+        with open(corresponding_filename, 'w') as F:
+            F.write(json_data)
+
+
     def save(filename, selection='(all)', state=-1, format='', ref='',
              ref_state=-1, quiet=1, partial=0,_self=cmd):
         '''
@@ -803,6 +826,8 @@ SEE ALSO
 
     load, get_model
         '''
+        # fixme - improvement - "save as" and "save" gui menu items ideally would use this function,
+        #   to remove code duplication
         quiet = int(quiet)
 
         # preprocess selection

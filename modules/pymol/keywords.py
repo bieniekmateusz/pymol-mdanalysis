@@ -223,6 +223,7 @@ def get_command_keywords(self_cmd=cmd):
         'rms'           : [ self_cmd.rms               , 0 , 0 , ''  , parsing.STRICT ],
         'rms_cur'       : [ self_cmd.rms_cur           , 0 , 0 , ''  , parsing.STRICT ],
         'save'          : [ self_cmd.save              , 0 , 0 , ''  , parsing.SECURE ],
+        'mda_save': [self_cmd.mda_save, 0, 0, '', parsing.SECURE],
         'scene'         : [ self_cmd.scene             , 0 , 0 , ''  , parsing.STRICT ],
         'scene_order'   : [ self_cmd.scene_order       , 0 , 0 , ''  , parsing.STRICT ],
         'sculpt_purge'  : [ self_cmd.sculpt_purge      , 0 , 0 , ''  , parsing.STRICT ],   

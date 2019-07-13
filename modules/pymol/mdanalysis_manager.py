@@ -70,9 +70,12 @@ class MDAnalysisManager():
 
         metadata = {}
         # list of labels where each points to metadata
-        for label, atom_group in MDAnalysisManager.MDAnalysisSystems.items():
+        for label, item in MDAnalysisManager.MDAnalysisSystems.items():
+            atom_group = item['system']
+            selection = item['selection']
+
             metadata[label] = {}
-            metadata[label]['selection'] = atom_group._pymol_used_selection
+            metadata[label]['selection'] = selection
 
             filenames = {}
             filenames['top_filename'] = atom_group.universe.filename
@@ -114,12 +117,23 @@ class MDAnalysisManager():
 
     @staticmethod
     def getSystem(label):
-        return MDAnalysisManager.MDAnalysisSystems[label]
+        return MDAnalysisManager.MDAnalysisSystems[label]['system']
 
 
     @staticmethod
-    def newLabel(label, atom_group):
-        MDAnalysisManager.MDAnalysisSystems[label] = atom_group
+    def getSelection(label):
+        return MDAnalysisManager.MDAnalysisSystems[label]['selection']
+
+
+    @staticmethod
+    def select(label, new_label, selection):
+        atom_group = MDAnalysisManager.MDAnalysisSystems[label]['system'].select_atoms(selection)
+        MDAnalysisManager.MDAnalysisSystems[new_label] = {'system': atom_group, 'selection': selection}
+
+
+    @staticmethod
+    def newLabel(label, atom_group, selection):
+        MDAnalysisManager.MDAnalysisSystems[label] = {'system': atom_group, 'selection': selection}
 
 
     @staticmethod
@@ -144,10 +158,8 @@ class MDAnalysisManager():
         """
 
         u = MDAnalysis.Universe(topology_filename)
-        MDAnalysisManager.MDAnalysisSystems[label] = u.atoms
-
-        # fixme - a hacky way to store selections for each atom group
-        u.atoms._pymol_used_selection = 'all'
+        # selection is the string used for selection of the atom group
+        MDAnalysisManager.MDAnalysisSystems[label] = {'system': u.atoms, 'selection': 'all'}
 
 
     @staticmethod
@@ -161,7 +173,7 @@ class MDAnalysisManager():
         """
 
         # get the universe for the label
-        atom_group = MDAnalysisManager.MDAnalysisSystems[label]
+        atom_group = MDAnalysisManager.MDAnalysisSystems[label]['system']
 
         # load the topology with its trajectory
         atom_group.universe.load_new(trajectory_filename)
@@ -183,7 +195,7 @@ class MDAnalysisManager():
             :param frame: 1-based frame index
             '''
             for atom_group_label in MDAnalysisManager.MDAnalysisSystems.keys():
-                atom_group = MDAnalysisManager.MDAnalysisSystems[atom_group_label]
+                atom_group = MDAnalysisManager.MDAnalysisSystems[atom_group_label]['system']
                 # MDAnalysis: switch to the requested frame
                 atom_group.universe.trajectory[int(frame) - 1]
 
@@ -201,7 +213,7 @@ class MDAnalysisManager():
                     pass
 
         # MDAnalysis universe
-        atom_group = MDAnalysisManager.MDAnalysisSystems[label]
+        atom_group = MDAnalysisManager.MDAnalysisSystems[label]['system']
 
         # This should be the default
         cmd.set('retain_order', 1, label)
@@ -213,12 +225,6 @@ class MDAnalysisManager():
         MDAnalysisManager.callbacks[MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK] = fetch_frame_coordinates
         for frame in range(1, atom_group.universe.trajectory.n_frames + 1):
             cmd.mdo(frame, '{}.{}'.format(MDAnalysisManager.MDA_FRAME_CHANGED_CALLBACK, frame))
-
-
-    @staticmethod
-    def select(label, new_label, selection):
-        atom_group = MDAnalysisManager.MDAnalysisSystems[label].select_atoms(selection)
-        MDAnalysisManager.MDAnalysisSystems[new_label] = atom_group
 
 
 

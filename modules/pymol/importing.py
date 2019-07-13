@@ -466,6 +466,18 @@ SEE ALSO
 
 
     def mda_load(filename, label=None):
+        if filename.endswith('.pse'):
+            # load PyMOL session .pse
+            load(filename)
+
+            # load MDAnalysis session
+            # .mse stands for MDAnalysis sessions
+            corresponding_mse = os.path.splitext(filename)[0] + '.mse'
+            metadata = open(corresponding_mse).read()
+            MDAnalysisManager.fromJSON(metadata)
+            return
+
+
         # fixme - temporary hack: we want the user to use mda_load for only a single frame
         # otherwise PyMOL will try to read all frames, which could overload the RAM memory
         import MDAnalysis as mda
@@ -538,8 +550,8 @@ SEE ALSO
                  )
         R.run()
 
-        GraphManager.save_graph(atom_group, R.rmsd, 'rmsd')
-        GraphManager.plot_graph(atom_group, 'rmsd')
+        GraphManager.save_graph(label, R.rmsd, 'rmsd')
+        GraphManager.plot_graph(label, 'rmsd')
 
         return None
 
