@@ -11,10 +11,15 @@ import webbrowser
 
 from .mdanalysis_manager import MDAnalysisManager
 
-# TODO PYMOL NEXT: Make sure that you save ._pymol_used_selection in the session file .mse
-# But first ensure that the mdanaylysis_manager explicitly holds the ._pymol_used_selection which currently
-# is hidden inside of the MDAnalysis atom groups
+
 def mda_session_save_as(gui):
+    """
+    This highjacks the saving mechanism. It takes over the GUI save_session, only to give it back and retrieve
+    the filename of the saved file. If it is a session .pse, we add our MDAnalysis.
+
+    fixme - This is already done in the file exporting.py with with the command mda_save.
+    This mda_save command should be plugged in instead of this function.
+    """
     # use the legacy system to save the typical PyMOL data
     gui.session_save_as()
     # the filename created
@@ -22,20 +27,25 @@ def mda_session_save_as(gui):
     if not created_file.endswith('.pse'):
         return
 
+    # fixme - this is going to crash if mdanalysis is not installed
+
     # get the MDAnalysis metadata
     json_data = MDAnalysisManager.toJSON()
 
-    # Use json to serialise the data
-    # However, MDAnalysis cannot be serialised right now
-    # fixme - use a sensibly called file for this. The same as the created sessin file?
-    corresponding_filename = os.path.splitext(created_file)[0] + '.mse' # .mse stands for MDAnalysis sessions
+    # Use json to serialise the data - MDAnalysis cannot be serialised right now
+    # .mse stands for MDAnalysis sessions
+    corresponding_filename = os.path.splitext(created_file)[0] + '.mse'
     with open(corresponding_filename, 'w') as F:
         F.write(json_data)
 
-    # fixme - somewhere is a function that handles the saving and loading of .pse file
-    # fixme - find it and attach the code there rather than this hack
 
 def mda_file_open(gui):
+    """
+    We highjack the opening mechanism to load MDAnalysis session along the .pse session.
+
+    fixme - This is already done in the file importing.py with with the command mda_load.
+    This mda_load command should be plugged in instead of this function.
+    """
     gui.file_open()
     last_used_file = gui.recent_filenames[0]
 
@@ -46,9 +56,8 @@ def mda_file_open(gui):
     if not last_used_file.endswith('.pse'):
         return
 
-    # load the MDAnalysis and update the hooks
+    # load the MDAnalysis session
     corresponding_mse = os.path.splitext(last_used_file)[0] + '.mse'  # .mse stands for MDAnalysis sessions
-
     metadata = open(corresponding_mse).read()
     MDAnalysisManager.fromJSON(metadata)
 
