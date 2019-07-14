@@ -475,6 +475,10 @@ SEE ALSO
             corresponding_mse = os.path.splitext(filename)[0] + '.mse'
             metadata = open(corresponding_mse).read()
             MDAnalysisManager.fromJSON(metadata)
+
+            from .mda_graph_manager import GraphManager
+            GraphManager.update_menu()
+
             return
 
 
@@ -550,8 +554,8 @@ SEE ALSO
                  )
         R.run()
 
-        GraphManager.save_graph(label, R.rmsd, 'rmsd')
-        GraphManager.plot_graph(label, 'rmsd')
+        GraphManager.save_graph(label, R.rmsd, GraphManager.GRAPH_TYPES.RMSD.name)
+        GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSD.name)
 
         return None
 

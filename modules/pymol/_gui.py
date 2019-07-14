@@ -10,7 +10,7 @@ import os
 import webbrowser
 
 from .mdanalysis_manager import MDAnalysisManager
-from .mda_graph_manager import GraphManager
+
 
 
 def mda_session_save_as(gui):
@@ -61,10 +61,6 @@ def mda_file_open(gui):
     corresponding_mse = os.path.splitext(last_used_file)[0] + '.mse'  # .mse stands for MDAnalysis sessions
     metadata = open(corresponding_mse).read()
     MDAnalysisManager.fromJSON(metadata)
-
-
-def displaySavedRmsd():
-    GraphManager.plot_graph('ca', 'rmsd')
 
 
 class PyMOLDesktopGUI(object):
@@ -943,9 +939,6 @@ class PyMOLDesktopGUI(object):
                 ('command', 'About PyMOL', self.show_about),
                 ('command', 'Sponsorship Information', lambda: webbrowser.open("http://pymol.org/funding.html")),
                 ('command', 'How to Cite PyMOL', lambda: webbrowser.open("http://pymol.org/citing")),
-            ]),
-            ('menu', 'IPlots', [
-                ('command', 'RMSD', displaySavedRmsd),
             ]),
         ]
 

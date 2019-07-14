@@ -43,7 +43,7 @@ class MDAnalysisManager():
 
     # contain a list of loaded objects / states / names before we know how to extract them ourselves
     # This object is saved along with a session
-    MDAnalysisSystems = {}
+    Systems = {}
 
     # A list of callbacks for rendering
     # This object is saved along with a session
@@ -70,7 +70,7 @@ class MDAnalysisManager():
 
         metadata = {}
         # list of labels where each points to metadata
-        for label, item in MDAnalysisManager.MDAnalysisSystems.items():
+        for label, item in MDAnalysisManager.Systems.items():
             atom_group = item['system']
             selection = item['selection']
 
@@ -112,39 +112,39 @@ class MDAnalysisManager():
 
     @staticmethod
     def getSystems():
-        return MDAnalysisManager.MDAnalysisSystems
+        return MDAnalysisManager.Systems
 
 
     @staticmethod
     def getSystem(label):
-        return MDAnalysisManager.MDAnalysisSystems[label]['system']
+        return MDAnalysisManager.Systems[label]['system']
 
 
     @staticmethod
     def getSelection(label):
-        return MDAnalysisManager.MDAnalysisSystems[label]['selection']
+        return MDAnalysisManager.Systems[label]['selection']
 
 
     @staticmethod
     def select(label, new_label, selection):
-        atom_group = MDAnalysisManager.MDAnalysisSystems[label]['system'].select_atoms(selection)
-        MDAnalysisManager.MDAnalysisSystems[new_label] = {'system': atom_group, 'selection': selection}
+        atom_group = MDAnalysisManager.Systems[label]['system'].select_atoms(selection)
+        MDAnalysisManager.Systems[new_label] = {'system': atom_group, 'selection': selection}
 
 
     @staticmethod
     def newLabel(label, atom_group, selection):
-        MDAnalysisManager.MDAnalysisSystems[label] = {'system': atom_group, 'selection': selection}
+        MDAnalysisManager.Systems[label] = {'system': atom_group, 'selection': selection}
 
 
     @staticmethod
     def updateLabel(old, new):
-        MDAnalysisManager.MDAnalysisSystems[new] = MDAnalysisManager.MDAnalysisSystems[old]
-        del MDAnalysisManager.MDAnalysisSystems[old]
+        MDAnalysisManager.Systems[new] = MDAnalysisManager.Systems[old]
+        del MDAnalysisManager.Systems[old]
 
 
     @staticmethod
     def exists(label):
-        if label in MDAnalysisManager.MDAnalysisSystems:
+        if label in MDAnalysisManager.Systems:
             return True
 
         return False
@@ -159,7 +159,7 @@ class MDAnalysisManager():
 
         u = MDAnalysis.Universe(topology_filename)
         # selection is the string used for selection of the atom group
-        MDAnalysisManager.MDAnalysisSystems[label] = {'system': u.atoms, 'selection': 'all'}
+        MDAnalysisManager.Systems[label] = {'system': u.atoms, 'selection': 'all'}
 
 
     @staticmethod
@@ -173,7 +173,7 @@ class MDAnalysisManager():
         """
 
         # get the universe for the label
-        atom_group = MDAnalysisManager.MDAnalysisSystems[label]['system']
+        atom_group = MDAnalysisManager.Systems[label]['system']
 
         # load the topology with its trajectory
         atom_group.universe.load_new(trajectory_filename)
@@ -194,8 +194,8 @@ class MDAnalysisManager():
             fixme - should update them only for the selected universe?
             :param frame: 1-based frame index
             '''
-            for atom_group_label in MDAnalysisManager.MDAnalysisSystems.keys():
-                atom_group = MDAnalysisManager.MDAnalysisSystems[atom_group_label]['system']
+            for atom_group_label in MDAnalysisManager.Systems.keys():
+                atom_group = MDAnalysisManager.Systems[atom_group_label]['system']
                 # MDAnalysis: switch to the requested frame
                 atom_group.universe.trajectory[int(frame) - 1]
 
@@ -213,7 +213,7 @@ class MDAnalysisManager():
                     pass
 
         # MDAnalysis universe
-        atom_group = MDAnalysisManager.MDAnalysisSystems[label]['system']
+        atom_group = MDAnalysisManager.Systems[label]['system']
 
         # This should be the default
         cmd.set('retain_order', 1, label)

@@ -44,6 +44,7 @@ import re
 import hashlib
 
 from .mdanalysis_manager import MDAnalysisManager
+from enum import Enum, auto
 
 
 class GraphManager():
@@ -52,14 +53,17 @@ class GraphManager():
     PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting')
 
     # these map directly to the directory names in the plotting directory
-    # fixme - convert this into the ENUM type
-    GRAPH_TYPES = {'RMSD', 'RMSF'}
+    class GRAPH_TYPES(Enum):
+        # we ignore the "value" and use only the "name"
+        RMSD = auto(),
+        RMSF = auto()
+
 
     # use the same tree structure: RMSD-HashFilePathFileName-HashSelectedAtoms
     Graphs = {}
 
     @staticmethod
-    def get_hash_from_filepath(full_filepath):
+    def _get_hash_from_filepath(full_filepath):
         """
         Extract the alphanumeric characters from the path and get the hash from the 0-9 a-z A-Z
         :param filename:
@@ -72,7 +76,7 @@ class GraphManager():
 
 
     @staticmethod
-    def get_hash_from_selection(selection):
+    def _get_hash_from_selection(selection):
         """
         Take all atom IDs and convert them into a string and then extract a hash from it.
         This way, when the label changes, the graphs are not affected.
@@ -85,13 +89,84 @@ class GraphManager():
 
 
     @staticmethod
-    def find_graphs(atom_groups):
+    def find_graphs(systems):
         """
+        Use the sha1 hashing to figure out what graphs we have for each label/selection
+        :param systems: The system from MDAnalysis_Manager. They should contain both, 1) atom_groups which provides
+        access to the filename and path, and 2) selection
+        """
+        found_graphs = {}
+        for label, dict in systems.items():
+            atom_group = dict['system']
+            selection = dict['selection']
 
-        :param atom_groups: The atoms
-        :return:
-        """
-        pass
+            # check if the system has a directory for this filepath
+            filepath_hash = GraphManager._get_hash_from_filepath(atom_group.universe.filename)
+            filepath_hash_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash)
+            if not os.path.isdir(filepath_hash_dir):
+                continue
+
+            # check if there is any graph for this selection
+            selection_hash = GraphManager._get_hash_from_selection(selection)
+            selection_hash_dir = os.path.join(filepath_hash_dir, selection_hash)
+            if not os.path.isdir(selection_hash_dir):
+                continue
+
+            for graph_type in GraphManager.GRAPH_TYPES:
+                # check if there is a directory
+                graph_dir = os.path.join(selection_hash_dir, graph_type.name)
+                if not os.path.isdir(graph_dir):
+                    continue
+
+                # there should be the graph.py and other files in the directory
+                # fixme - should be constants not strings
+                graph_py = os.path.join(graph_dir, 'graph.py')
+                graph_dat = os.path.join(graph_dir, 'graph.dat')
+                if not os.path.isfile(graph_py) or not os.path.isfile(graph_dat):
+                    continue
+
+                # add the graphs to the found list
+                if label in found_graphs:
+                    found_graphs[label][graph_type.name] = graph_dir
+                else:
+                    found_graphs[label] = {graph_type.name: graph_dir}
+        return found_graphs
+
+
+    @staticmethod
+    def update_menu():
+        # fixme - the graph_manager should not be responsible for updating Qt GUI
+        found_graphs = GraphManager.find_graphs(MDAnalysisManager.Systems)
+        # generate the new graphs in the menus directly
+        menu_bar = cmd.gui.get_qtwindow().menuWidget()
+
+        # add the menu only if it has not been added before
+        import PyQt5.QtWidgets
+        plots_menu = menu_bar.findChild(PyQt5.QtWidgets.QMenu, name='Plots')
+        if not plots_menu and found_graphs:
+            # create the Plots menu
+            plots_menu = menu_bar.addMenu('Plots')
+            plots_menu.setObjectName('Plots')
+
+        # create a menu plotting action for each existing graph
+        for label, graph_types in found_graphs.items():
+            # create the label menu only if it does not exist
+            label_menu = plots_menu.findChild(PyQt5.QtWidgets.QMenu, name=label)
+            if not label_menu:
+                label_menu = plots_menu.addMenu(label)
+                label_menu.setObjectName(label)
+
+            for graph_type, graph_dir in graph_types.items():
+                # ignore if the graph item already exists in the menu
+                if label_menu.findChild(PyQt5.QtWidgets.QAction, name=graph_type):
+                    continue
+
+                def create_load_graph(label, graph_type):
+                    def load_graph():
+                        GraphManager.plot_graph(label, graph_type)
+                    return load_graph
+                action = label_menu.addAction(graph_type, create_load_graph(label, graph_type))
+                action.setObjectName(graph_type)
 
 
     @staticmethod
@@ -105,21 +180,15 @@ class GraphManager():
         :return:
         """
 
-        # generate the new graphs in the menus directly
-        def hello():
-            print('I am being called')
-        iplots = cmd.gui.get_qtwindow().menudict['IPlots']
-        iplots.addAction('hello', hello)
-
         atom_group = MDAnalysisManager.getSystem(label)
         selection = MDAnalysisManager.getSelection(label)
 
         # check if the rmsd directory exists
-        filepath_hash = GraphManager.get_hash_from_filepath(atom_group.universe.filename)
-        selection_hash = GraphManager.get_hash_from_selection(selection)
+        filepath_hash = GraphManager._get_hash_from_filepath(atom_group.universe.filename)
+        selection_hash = GraphManager._get_hash_from_selection(selection)
 
-        datafile_dir = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash)
-        datafile_name = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash, 'graph.dat')
+        datafile_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
+        datafile_name = os.path.join(datafile_dir, 'graph.dat')
         if not os.path.isdir(datafile_dir):
             os.makedirs(datafile_dir)
 
@@ -128,7 +197,7 @@ class GraphManager():
 
         # copy the plotting file from the templates
         template_rmsd_plotter = os.path.join(GraphManager.TEMPLATE_DIR, '%s.py' % category)
-        plotter_filename = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash, 'graph.py')
+        plotter_filename = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category, 'graph.py')
         shutil.copyfile(template_rmsd_plotter, plotter_filename)
 
 
@@ -139,9 +208,9 @@ class GraphManager():
         atom_group = MDAnalysisManager.getSystem(label)
         selection = MDAnalysisManager.getSelection(label)
 
-        filepath_hash = GraphManager.get_hash_from_filepath(atom_group.universe.filename)
-        selection_hash = GraphManager.get_hash_from_selection(selection)
-        graph_dir = os.path.join(GraphManager.PLOTS_DIR, category, filepath_hash, selection_hash)
+        filepath_hash = GraphManager._get_hash_from_filepath(atom_group.universe.filename)
+        selection_hash = GraphManager._get_hash_from_selection(selection)
+        graph_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
 
         sys.path.append(graph_dir)
         # import the saved rmsd plotter
