@@ -136,6 +136,8 @@ class GraphManager():
     @staticmethod
     def update_menu():
         # fixme - the graph_manager should not be responsible for updating Qt GUI
+        # fixme - ideally, the graph manager would allow the GUI to subscribe for a notification
+        #   so that each time there is a new graph, the GUI can add it to the menu
         found_graphs = GraphManager.find_graphs(MDAnalysisManager.Systems)
         # generate the new graphs in the menus directly
         menu_bar = cmd.gui.get_qtwindow().menuWidget()
@@ -168,6 +170,41 @@ class GraphManager():
                 action = label_menu.addAction(graph_type, create_load_graph(label, graph_type))
                 action.setObjectName(graph_type)
 
+    @staticmethod
+    def _add_menu_item(label, category):
+        """
+        When the user generates a new graph, this function adds it to the GUI menu
+        """
+        menu_bar = cmd.gui.get_qtwindow().menuWidget()
+
+        # add the menu only if it has not been added before
+        import PyQt5.QtWidgets
+        plots_menu = menu_bar.findChild(PyQt5.QtWidgets.QMenu, name='Plots')
+        if not plots_menu:
+            # create the Plots menu
+            plots_menu = menu_bar.addMenu('Plots')
+            plots_menu.setObjectName('Plots')
+
+        # create the label menu only if it does not exist
+        label_menu = plots_menu.findChild(PyQt5.QtWidgets.QMenu, name=label)
+        if not label_menu:
+            label_menu = plots_menu.addMenu(label)
+            label_menu.setObjectName(label)
+
+        # ignore if the graph item already exists in the menu
+        if label_menu.findChild(PyQt5.QtWidgets.QAction, name=category):
+            # fixme - unexpected return
+            return
+
+        def create_load_graph(label, graph_type):
+            def load_graph():
+                GraphManager.plot_graph(label, graph_type)
+
+            return load_graph
+
+        action = label_menu.addAction(category, create_load_graph(label, category))
+        action.setObjectName(category)
+
 
     @staticmethod
     def save_graph(label, rmsd_data, category):
@@ -199,6 +236,9 @@ class GraphManager():
         template_rmsd_plotter = os.path.join(GraphManager.TEMPLATE_DIR, '%s.py' % category)
         plotter_filename = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category, 'graph.py')
         shutil.copyfile(template_rmsd_plotter, plotter_filename)
+
+        # update the GUI menu to give access to the graph
+        GraphManager._add_menu_item(label, category)
 
 
     @staticmethod
