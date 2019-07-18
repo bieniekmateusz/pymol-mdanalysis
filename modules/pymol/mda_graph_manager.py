@@ -142,11 +142,27 @@ class GraphManager():
 
         # create a menu plotting action for each existing graph
         for label, graph_types in found_graphs.items():
-            for graph_type, _ in graph_types.items():
-                GraphManager._add_menu_item(label, graph_type)
+            for graph_type, directory_path in graph_types.items():
+                GraphManager._add_menu_item(label, graph_type, directory_path)
+
+
+    def _open_file(path):
+        # fixme - move this with other non-graph function somehwere else
+        # Publish–subscribe pattern
+        import os
+        import platform
+        import subprocess
+
+        if platform.system() == "Windows":
+            os.startfile(path)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+
 
     @staticmethod
-    def _add_menu_item(label, category):
+    def _add_menu_item(label, category, directory_path):
         """
         When the user generates a new graph, this function adds it to the GUI menu
         """
@@ -167,18 +183,15 @@ class GraphManager():
             label_menu.setObjectName(label)
 
         # ignore if the graph item already exists in the menu
-        if label_menu.findChild(PyQt5.QtWidgets.QAction, name=category):
+        if label_menu.findChild(PyQt5.QtWidgets.QMenu, name=category):
             # fixme - unexpected return
             return
 
-        def create_load_graph(label, graph_type):
-            def load_graph():
-                GraphManager.plot_graph(label, graph_type)
-
-            return load_graph
-
-        action = label_menu.addAction(category, create_load_graph(label, category))
-        action.setObjectName(category)
+        category_menu = label_menu.addMenu(category)
+        # add two actions
+        # one to open the directory and another to open the graph
+        category_menu.addAction('Open Plot', lambda: GraphManager.plot_graph(label, category))
+        category_menu.addAction('Open Directory', lambda: GraphManager._open_file(directory_path))
 
 
     @staticmethod
@@ -213,7 +226,8 @@ class GraphManager():
         shutil.copyfile(template_rmsd_plotter, plotter_filename)
 
         # update the GUI menu to give access to the graph
-        GraphManager._add_menu_item(label, category)
+        directory_path = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
+        GraphManager._add_menu_item(label, category, directory_path)
 
 
     @staticmethod
