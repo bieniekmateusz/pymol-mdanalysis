@@ -76,6 +76,34 @@ class GraphManager():
 
 
     @staticmethod
+    def _get_hash_from_atom_group(atom_group):
+        """
+        Extract the alphanumeric characters from the path and get the hash from the 0-9 a-z A-Z.
+        Instead of using a single filename, use all filepaths in this universe.
+        This includes the attached trajectory(ies). This is because the computed analysis
+        on any trajectory set is unique to the the loaded set of trajectories.
+        :param filename:
+        :return:
+        """
+
+        topology_filepath = atom_group.universe.filename
+        alphanumeric_filepath = re.sub(r'\W+', '', topology_filepath)
+
+        # check if there are any other load trajectories
+        # FIXME - take care of the case when there are multiple trajectories
+        # it will be in:
+        # atom_group.universe.trajectory.filenames which will be a list I think
+        try:
+            trajectory_filepath = atom_group.universe.trajectory.filename
+            alphanumeric_filepath_trajectory = re.sub(r'\W+', '', trajectory_filepath)
+            alphanumeric_filepath += alphanumeric_filepath_trajectory
+        except:
+            pass
+
+        return hashlib.sha1(alphanumeric_filepath.encode()).hexdigest()
+
+
+    @staticmethod
     def _get_hash_from_selection(selection):
         """
         Take all atom IDs and convert them into a string and then extract a hash from it.
@@ -101,7 +129,7 @@ class GraphManager():
             selection = dict['selection']
 
             # check if the system has a directory for this filepath
-            filepath_hash = GraphManager._get_hash_from_filepath(atom_group.universe.filename)
+            filepath_hash = GraphManager._get_hash_from_atom_group(atom_group)
             filepath_hash_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash)
             if not os.path.isdir(filepath_hash_dir):
                 continue
@@ -224,7 +252,7 @@ class GraphManager():
         selection = MDAnalysisManager.getSelection(label)
 
         # check if the rmsd directory exists
-        filepath_hash = GraphManager._get_hash_from_filepath(atom_group.universe.filename)
+        filepath_hash = GraphManager._get_hash_from_atom_group(atom_group)
         selection_hash = GraphManager._get_hash_from_selection(selection)
 
         datafile_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
@@ -252,7 +280,7 @@ class GraphManager():
         atom_group = MDAnalysisManager.getSystem(label)
         selection = MDAnalysisManager.getSelection(label)
 
-        filepath_hash = GraphManager._get_hash_from_filepath(atom_group.universe.filename)
+        filepath_hash = GraphManager._get_hash_from_atom_group(atom_group)
         selection_hash = GraphManager._get_hash_from_selection(selection)
         graph_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
 
