@@ -140,15 +140,30 @@ class GraphManager():
         #   so that each time there is a new graph, the GUI can add it to the menu
         found_graphs = GraphManager.find_graphs(MDAnalysisManager.Systems)
 
+        # add the menu only if it has not been added before
+        menu_bar = cmd.gui.get_qtwindow().menuWidget()
+        import PyQt5.QtWidgets
+        plots_menu = menu_bar.findChild(PyQt5.QtWidgets.QMenu, name='Plots')
+        if not plots_menu:
+            # create the Plots menu
+            plots_menu = menu_bar.addMenu('Plots')
+            plots_menu.setObjectName('Plots')
+
         # create a menu plotting action for each existing graph
         for label, graph_types in found_graphs.items():
             for graph_type, directory_path in graph_types.items():
                 GraphManager._add_menu_item(label, graph_type, directory_path)
 
+        # allow the user to open the directory with the templates and modify them
+        plots_menu.addSeparator()
+        plots_menu.addAction('Open Template Dir',
+                             lambda: GraphManager._open_file(GraphManager.TEMPLATE_DIR))
+
 
     def _open_file(path):
         # fixme - move this with other non-graph function somehwere else
-        # Publish–subscribe pattern
+        # ie Publish–subscribe pattern
+        # Open the directory to the path using the basic window viewer
         import os
         import platform
         import subprocess
