@@ -49,7 +49,8 @@ from enum import Enum, auto
 
 class GraphManager():
     # fixme - should in the configuration file
-    TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plotting_templates')
+    TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                'pymol_path', 'data', 'plotting_templates', 'original')
     PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting')
 
     # these map directly to the directory names in the plotting directory
