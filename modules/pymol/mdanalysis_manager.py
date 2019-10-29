@@ -30,7 +30,45 @@ from enum import Enum
 from . import cmd
 import json
 from . import CmdException
+import sqlite3
 
+class SelectionHistoryManager():
+    # remembers the created labels with the atomic indices for each file (like .bash_history)
+    SELECTION_HISTORY = os.path.join(os.path.expanduser('~'), '.pymol', 'mda_selection_history.db')
+
+    con = sqlite3.connect(SELECTION_HISTORY)
+
+    # connect to the database
+    cursor = con.cursor()
+
+    # create a table for selections if it does not yet exist
+    cursor.execute(
+        """CREATE TABLE IF NOT EXISTS selections(
+            filename text,
+            label text,
+            atom_ids text,
+            PRIMARY KEY (filename, label)
+            )"""
+    )
+    con.commit()
+
+    @staticmethod
+    def addSelection(filename, label, atom_ids):
+        """
+        Adds the selection to the database. If there is already such selection for this
+        filename, overwrite the previous selection.
+        :param filename:
+        :param label:
+        :param atom_ids:
+        :return:
+        """
+
+        SelectionHistoryManager.cursor.execute(
+            """INSERT OR REPLACE INTO selections(filename, label, atom_ids)
+            VALUES(?, ?, ?)
+            """, (filename, label, atom_ids)
+        )
+        SelectionHistoryManager.con.commit()
 
 
 class MDAnalysisManager():
@@ -129,6 +167,33 @@ class MDAnalysisManager():
     def select(label, new_label, selection):
         atom_group = MDAnalysisManager.Systems[label]['system'].select_atoms(selection)
         MDAnalysisManager.Systems[new_label] = {'system': atom_group, 'selection': selection}
+
+        # Compatibility with PyMOL
+        # convert to indexes for PyMOL internals
+        # fixme - this should be moved to some general helper function module
+        def get_consecutive_index_ranges(atom_ids):
+            # This is the accepted PyMOL format: "index 2100-2200 + index 2300-2400"
+            import more_itertools as mit
+            grouped = [list(group) for group in mit.consecutive_groups(atom_ids)]
+            return ' + '.join(['index %d-%d' % (g[0], g[-1]) for g in grouped])
+
+        pymol_selection = get_consecutive_index_ranges(atom_group.ids + 1)
+        cmd.select(new_label, pymol_selection)
+
+        # update the selection history
+        # selections that are too large are not stored / remembered
+        SelectionHistoryManager.addSelection(atom_group.universe.filename, new_label, ' '.join(atom_group.ids.astype(str)))
+        # if len(atom_group) < 5000:
+        #     # update the selection history file
+        #     with open(MDAnalysisManager.SELECTION_HISTORY, 'a') as FHIST:
+        #         # store filepath, label, atomic positions
+        #         output = json.dumps({'fp' : atom_group.universe.filename,
+        #                   'l' : new_label,
+        #                   'a' : ' '.join(atom_group.ids.astype(str))})
+        #         FHIST.write(output + '\n')
+        #         pass
+
+
 
 
     @staticmethod

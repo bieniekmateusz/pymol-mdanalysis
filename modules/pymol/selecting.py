@@ -124,25 +124,7 @@ SEE ALSO
     def mda_select(label, selection, selection_label):
         # apply on label
         from .mdanalysis_manager import MDAnalysisManager
-        main_atom_group = MDAnalysisManager.getSystem(label)
-
-        # the selection selection_name
-        new_group_sel = main_atom_group.select_atoms(selection)
-        atom_ids = new_group_sel.ids
-
-        # Compatibility with PyMOL
-        # convert to indexes for PyMOL internals
-        def get_consecutive_index_ranges(atoms_ids):
-            # This is the accepted PyMOL format: "index 2100-2200 + index 2300-2400"
-            import more_itertools as mit
-            grouped = [list(group) for group in mit.consecutive_groups(atom_ids)]
-            return ' + '.join(['index %d-%d' % (g[0], g[-1]) for g in grouped])
-
-        pymol_selection = get_consecutive_index_ranges(atom_ids + 1)
-        cmd.select(selection_label, pymol_selection)
-
-        # there is a new atom group
-        MDAnalysisManager.newLabel(selection_label, new_group_sel, selection)
+        MDAnalysisManager.select(label, selection_label, selection)
 
 
     def pop(name, source, enable=-1, quiet=1, _self=cmd):
