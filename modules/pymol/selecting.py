@@ -139,8 +139,6 @@ SEE ALSO
             return ' + '.join(['index %d-%d' % (g[0], g[-1]) for g in grouped])
 
         pymol_selection = get_consecutive_index_ranges(atom_ids + 1)
-        # fixme - pymol applies it to every "object", and adds the results,
-        # which is not necessarily what we want
         cmd.select(selection_label, pymol_selection)
 
         # there is a new atom group
