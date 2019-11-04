@@ -23,7 +23,8 @@ if True:
     import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
-    from .mdanalysis_manager import MDAnalysisManager
+    from .mdanalysis_manager import MDAnalysisManager, SelectionHistoryManager
+    from .mda_graph_manager import GraphManager
     import MDAnalysis as mda
     import numpy as np
     import shutil
@@ -476,7 +477,6 @@ SEE ALSO
             metadata = open(corresponding_mse).read()
             MDAnalysisManager.fromJSON(metadata)
 
-            from .mda_graph_manager import GraphManager
             GraphManager.update_menu()
 
             return
@@ -484,7 +484,6 @@ SEE ALSO
 
         # fixme - temporary hack: we want the user to use mda_load for only a single frame
         # otherwise PyMOL will try to read all frames, which could overload the RAM memory
-        import MDAnalysis as mda
         tmp = mda.Universe(filename)
         if len(tmp.trajectory) > 1:
             raise Exception('mda_load has to be used with a single frame topology (it cannot read a trajectory)')
@@ -501,6 +500,23 @@ SEE ALSO
         cmd.set('retain_order', 1, label)
         # Load with MDAnalysis too
         MDAnalysisManager.load(label, filename)
+
+        # check if MDAnalysis selection names are available for this file
+        selections_names = SelectionHistoryManager.getSelectionsLabels(filename)
+        if len(selections_names) != 0:
+            from PyQt5 import uic
+            #window = uic.loadUi("/home/dresio/code/pymol/modules/pmg_qt/forms/selectionhistorymanager.ui")
+
+            window = uic.loadUi("/home/dresio/code/pymol/modules/pmg_qt/forms/historydialog.ui")
+            for selname in selections_names:
+                window.listWidget.addItem(selname)
+            okcanceled = window.exec_()
+            if okcanceled == 1:
+                # get the selected items
+                for item in window.listWidget.selectedItems():
+                    new_label = item.text()
+                    atom_ids = SelectionHistoryManager.getMdaSelection(filename, new_label)
+                    MDAnalysisManager.select(label, new_label, atom_ids)
 
         return None
 

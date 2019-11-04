@@ -70,6 +70,27 @@ class SelectionHistoryManager():
         )
         SelectionHistoryManager.con.commit()
 
+    @staticmethod
+    def getSelectionsLabels(filename):
+        """
+        Retrieves the selection labels associated with a given file.
+        :param filename: universe topology filename
+        :return: list of selction labels
+        """
+
+        SelectionHistoryManager.cursor.execute("SELECT label FROM selections WHERE filename=?", (filename, ))
+
+        labels = SelectionHistoryManager.cursor.fetchall()
+
+        return [label[0] for label in labels]
+
+    @staticmethod
+    def getMdaSelection(filename, label):
+        SelectionHistoryManager.cursor.execute("SELECT atom_ids FROM selections WHERE filename=? and label=? LIMIT 1",
+                                               (filename, label))
+        atom_ids = SelectionHistoryManager.cursor.fetchone()
+        return 'bynum ' + atom_ids[0]
+
 
 class MDAnalysisManager():
     """
