@@ -87,10 +87,21 @@ class SelectionHistoryManager():
     def getMdaSelection(filepath, label):
         hash = SelectionHistoryManager._getHash(filepath)
         SelectionHistoryManager.cursor.execute("SELECT atom_ids FROM selections "
-                                               "WHERE filehash=? and label=? LIMIT 1",
+                                               "WHERE filehash=? and label=?",
                                                (hash, label))
         atom_ids = SelectionHistoryManager.cursor.fetchone()
         return 'bynum ' + atom_ids[0]
+
+
+    @staticmethod
+    def deleteMdaSelection(filepath, label):
+        hash = SelectionHistoryManager._getHash(filepath)
+        SelectionHistoryManager.cursor.execute("DELETE FROM selections "
+                                               "WHERE filehash=? and label=?",
+                                               (hash, label))
+        SelectionHistoryManager.con.commit()
+        return
+
 
     @staticmethod
     def _getHash(filepath):

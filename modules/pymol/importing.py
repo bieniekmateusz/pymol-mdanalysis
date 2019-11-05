@@ -505,11 +505,23 @@ SEE ALSO
         selections_names = SelectionHistoryManager.getSelectionsLabels(filename)
         if len(selections_names) != 0:
             from PyQt5 import uic
-            #window = uic.loadUi("/home/dresio/code/pymol/modules/pmg_qt/forms/selectionhistorymanager.ui")
-
-            window = uic.loadUi("/home/dresio/code/pymol/modules/pmg_qt/forms/historydialog.ui")
+            # fixme - this path should not be done this way
+            window = uic.loadUi("../pmg_qt/forms/historydialog.ui")
             for selname in selections_names:
                 window.listWidget.addItem(selname)
+            def deletePressed(window=window, topfilepath=filename):
+                # extract the row numbers and the selected labels
+                items = [(item.row(), item.data()) for item in window.listWidget.selectedIndexes()]
+                # sort the indexes from the largest to the smallest to remove them correctly
+                items.sort(reverse=True)
+
+                for row_no, sel_text in items:
+                    # remove it from the database
+                    SelectionHistoryManager.deleteMdaSelection(topfilepath, sel_text)
+                    # remove from the view
+                    window.listWidget.takeItem(row_no)
+
+            window.deleteButton.pressed.connect(deletePressed)
             okcanceled = window.exec_()
             if okcanceled == 1:
                 # get the selected items
