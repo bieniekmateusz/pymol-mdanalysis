@@ -26,7 +26,7 @@
 
 import os
 import MDAnalysis
-from enum import Enum
+import hashlib
 from . import cmd
 import json
 from . import CmdException
@@ -44,52 +44,57 @@ class SelectionHistoryManager():
     # create a table for selections if it does not yet exist
     cursor.execute(
         """CREATE TABLE IF NOT EXISTS selections(
-            filename text,
+            filehash text,
             label text,
             atom_ids text,
-            PRIMARY KEY (filename, label)
+            PRIMARY KEY (filehash, label)
             )"""
     )
     con.commit()
 
     @staticmethod
-    def addSelection(filename, label, atom_ids):
+    def addSelection(filepath, label, atom_ids):
         """
         Adds the selection to the database. If there is already such selection for this
         filename, overwrite the previous selection.
-        :param filename:
+        :param filepath:
         :param label:
         :param atom_ids:
         :return:
         """
-
+        hash = SelectionHistoryManager._getHash(filepath)
         SelectionHistoryManager.cursor.execute(
-            """INSERT OR REPLACE INTO selections(filename, label, atom_ids)
+            """INSERT OR REPLACE INTO selections(filehash, label, atom_ids)
             VALUES(?, ?, ?)
-            """, (filename, label, atom_ids)
+            """, (hash, label, atom_ids)
         )
         SelectionHistoryManager.con.commit()
 
     @staticmethod
-    def getSelectionsLabels(filename):
+    def getSelectionsLabels(filepath):
         """
         Retrieves the selection labels associated with a given file.
-        :param filename: universe topology filename
+        :param filepath: universe topology filename
         :return: list of selction labels
         """
-
-        SelectionHistoryManager.cursor.execute("SELECT label FROM selections WHERE filename=?", (filename, ))
-
+        hash = SelectionHistoryManager._getHash(filepath)
+        SelectionHistoryManager.cursor.execute("SELECT label FROM selections "
+                                               "WHERE filehash=?", (hash, ))
         labels = SelectionHistoryManager.cursor.fetchall()
-
         return [label[0] for label in labels]
 
     @staticmethod
-    def getMdaSelection(filename, label):
-        SelectionHistoryManager.cursor.execute("SELECT atom_ids FROM selections WHERE filename=? and label=? LIMIT 1",
-                                               (filename, label))
+    def getMdaSelection(filepath, label):
+        hash = SelectionHistoryManager._getHash(filepath)
+        SelectionHistoryManager.cursor.execute("SELECT atom_ids FROM selections "
+                                               "WHERE filehash=? and label=? LIMIT 1",
+                                               (hash, label))
         atom_ids = SelectionHistoryManager.cursor.fetchone()
         return 'bynum ' + atom_ids[0]
+
+    @staticmethod
+    def _getHash(filepath):
+        return hashlib.md5(open(filepath).read().encode('utf-8')).hexdigest()
 
 
 class MDAnalysisManager():
