@@ -504,11 +504,12 @@ SEE ALSO
         # check if MDAnalysis selection names are available for this file
         selections_names = SelectionHistoryManager.getSelectionsLabels(filename)
         if len(selections_names) != 0:
-            from PyQt5 import uic
+            from PyQt5 import uic, QtWidgets
             # fixme - this path should not be done this way
             window = uic.loadUi("../pmg_qt/forms/historydialog.ui")
             for selname in selections_names:
                 window.listWidget.addItem(selname)
+
             def deletePressed(window=window, topfilepath=filename):
                 # extract the row numbers and the selected labels
                 items = [(item.row(), item.data()) for item in window.listWidget.selectedIndexes()]
@@ -520,15 +521,19 @@ SEE ALSO
                     SelectionHistoryManager.deleteMdaSelection(topfilepath, sel_text)
                     # remove from the view
                     window.listWidget.takeItem(row_no)
-
             window.deleteButton.pressed.connect(deletePressed)
-            okcanceled = window.exec_()
-            if okcanceled == 1:
-                # get the selected items
+
+            def applyPressed(window=window):
+                # recreate the selections from the previous user work
                 for item in window.listWidget.selectedItems():
                     new_label = item.text()
-                    atom_ids = SelectionHistoryManager.getMdaSelection(filename, new_label)
-                    MDAnalysisManager.select(label, new_label, atom_ids)
+                    atom_sel = SelectionHistoryManager.getMdaSelection(filename, new_label)
+                    # reapply the selection with MDAnalysis
+                    MDAnalysisManager.select(label, new_label, atom_sel)
+                window.accept()
+            window.buttonBox.button(QtWidgets.QDialogButtonBox.Apply).pressed.connect(applyPressed)
+
+            window.exec_()
 
         return None
 
