@@ -62,59 +62,6 @@ class GraphManager():
     # use the same tree structure: RMSD-HashFilePathFileName-HashSelectedAtoms
     Graphs = {}
 
-    @staticmethod
-    def _get_hash_from_filepath(full_filepath):
-        """
-        Extract the alphanumeric characters from the path and get the hash from the 0-9 a-z A-Z
-        :param filename:
-        :return:
-        """
-
-        alphanumeric_filepath = re.sub(r'\W+', '', full_filepath)
-
-        return hashlib.sha1(alphanumeric_filepath.encode()).hexdigest()
-
-
-    @staticmethod
-    def _get_hash_from_atom_group(atom_group):
-        """
-        Extract the alphanumeric characters from the path and get the hash from the 0-9 a-z A-Z.
-        Instead of using a single filename, use all filepaths in this universe.
-        This includes the attached trajectory(ies). This is because the computed analysis
-        on any trajectory set is unique to the the loaded set of trajectories.
-        :param filename:
-        :return:
-        """
-
-        topology_filepath = atom_group.universe.filename
-        alphanumeric_filepath = re.sub(r'\W+', '', topology_filepath)
-
-        # check if there are any other load trajectories
-        # FIXME - take care of the case when there are multiple trajectories
-        # it will be in:
-        # atom_group.universe.trajectory.filenames which will be a list I think
-        try:
-            trajectory_filepath = atom_group.universe.trajectory.filename
-            alphanumeric_filepath_trajectory = re.sub(r'\W+', '', trajectory_filepath)
-            alphanumeric_filepath += alphanumeric_filepath_trajectory
-        except:
-            pass
-
-        return hashlib.sha1(alphanumeric_filepath.encode()).hexdigest()
-
-
-    @staticmethod
-    def _get_hash_from_selection(selection):
-        """
-        Take all atom IDs and convert them into a string and then extract a hash from it.
-        This way, when the label changes, the graphs are not affected.
-        It is also reversible: we can find the graph having an atom_group
-        :param atom_group: atom group
-        :return: A hash created from the IDs
-        """
-
-        return hashlib.sha1(selection.encode()).hexdigest()
-
 
     @staticmethod
     def find_graphs(systems):
@@ -248,28 +195,24 @@ class GraphManager():
         :return:
         """
 
-        atom_group = MDAnalysisManager.getSystem(label)
-        selection = MDAnalysisManager.getSelection(label)
-
         # check if the rmsd directory exists
-        filepath_hash = GraphManager._get_hash_from_atom_group(atom_group)
-        selection_hash = GraphManager._get_hash_from_selection(selection)
+        project_name = MDAnalysisManager.SESSION
+        label_dir = label
 
-        datafile_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
-        datafile_name = os.path.join(datafile_dir, 'graph.dat')
-        if not os.path.isdir(datafile_dir):
-            os.makedirs(datafile_dir)
+        datafile_dir = os.path.join(GraphManager.PLOTS_DIR, project_name, label_dir)
+        datafile_name = os.path.join(datafile_dir, '%s.dat' % category)
+        os.makedirs(datafile_dir, exist_ok=True)
 
         # save the data in a file
         numpy.savetxt(datafile_name, rmsd_data)
 
         # copy the plotting file from the templates
         template_rmsd_plotter = os.path.join(GraphManager.TEMPLATE_DIR, '%s.py' % category)
-        plotter_filename = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category, 'graph.py')
+        plotter_filename = os.path.join(GraphManager.PLOTS_DIR, project_name, label_dir, '%s.py' % category)
         shutil.copyfile(template_rmsd_plotter, plotter_filename)
 
         # update the GUI menu to give access to the graph
-        directory_path = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
+        directory_path = os.path.join(GraphManager.PLOTS_DIR, project_name, label_dir)
         GraphManager._add_menu_item(label, category, directory_path)
 
 
@@ -277,16 +220,13 @@ class GraphManager():
     def plot_graph(label, category):
         # use the basic template to visualise the results
 
-        atom_group = MDAnalysisManager.getSystem(label)
-        selection = MDAnalysisManager.getSelection(label)
-
-        filepath_hash = GraphManager._get_hash_from_atom_group(atom_group)
-        selection_hash = GraphManager._get_hash_from_selection(selection)
-        graph_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash, selection_hash, category)
+        project_name = MDAnalysisManager.SESSION
+        label_dir = label
+        graph_dir = os.path.join(GraphManager.PLOTS_DIR, project_name, label_dir)
 
         sys.path.append(graph_dir)
         # import the saved rmsd plotter
-        module_name = 'graph'
+        module_name = category
         # # check if the graph already has been imported / graphed
         if module_name in sys.modules:
             # already imported so reload

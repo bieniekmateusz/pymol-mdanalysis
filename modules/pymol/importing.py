@@ -579,6 +579,13 @@ SEE ALSO
 
         from MDAnalysis.analysis.rms import RMSD
         from .mda_graph_manager import GraphManager
+        #from .mdanalysis_manager import MDAnalysisManager
+
+        if MDAnalysisManager.SESSION is None:
+            print('Error: session not saved. ')
+            print('Please use mda_save to create a session first. ')
+            print('Otherwise the graphs cannot be saved. ')
+            return
 
         atom_group = MDAnalysisManager.getSystem(label)
         sel = atom_group.select_atoms(selection)

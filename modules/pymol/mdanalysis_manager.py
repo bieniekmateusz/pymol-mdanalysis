@@ -130,6 +130,9 @@ class MDAnalysisManager():
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plotting_templates')
     PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting', 'plots')
 
+    SESSION = None
+    SESSION_PATH = None
+
 
     @staticmethod
     def toJSON():
@@ -143,7 +146,7 @@ class MDAnalysisManager():
         #  - filenames
         #  - selection string
 
-        metadata = {}
+        metadata = {'SESSION': MDAnalysisManager.SESSION, 'SESSION_PATH': MDAnalysisManager.SESSION_PATH}
         # list of labels where each points to metadata
         for label, item in MDAnalysisManager.Systems.items():
             atom_group = item['system']
@@ -171,6 +174,8 @@ class MDAnalysisManager():
         """
         # Reinitialise this class static methods
         metadata = json.loads(json_metadata)
+        MDAnalysisManager.SESSION = metadata['SESSION']
+        MDAnalysisManager.SESSION_PATH = metadata['SESSION_PATH']
         for label, meta in metadata.items():
             MDAnalysisManager.load(label, meta['filenames']['top_filename'])
             MDAnalysisManager.select(label, label, meta['selection'])

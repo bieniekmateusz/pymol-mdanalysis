@@ -760,7 +760,7 @@ EXAMPLES
             yield fname, osele, ostate
 
 
-    def mda_save(filename):
+    def mda_save(filename='', force=False):
         """
 DESCRIPTION
     Save the session
@@ -768,6 +768,39 @@ DESCRIPTION
     Make sure the filename ends with .pse
         """
         from .mdanalysis_manager import MDAnalysisManager
+        from .mda_graph_manager import GraphManager
+
+        # if we're updating the current session
+        Updating = False
+        # if a session is already opened, overwrite it
+        if filename == '' and MDAnalysisManager.SESSION is not None:
+            filename = MDAnalysisManager.SESSION_PATH
+            Updating = True
+        # if the user is explicitly saving the sessin to the same filename as the open session
+        elif MDAnalysisManager.SESSION_PATH == filename:
+            Updating = True
+        elif filename == '' and MDAnalysisManager.SESSION is None:
+            print('No session actively opened. Please provide a filename/filepath. ')
+            return
+
+        # check if the session filename was already used
+        # this would mean that the graphs are already generated for this directory
+        session = os.path.splitext(os.path.basename(filename))[0]
+        session_graph_directory = os.path.join(GraphManager.PLOTS_DIR, session)
+        sessionNameUsed = os.path.exists(session_graph_directory)
+        if sessionNameUsed and not force and not Updating:
+            print('This session name has been already used before. ')
+            print('Prove a different session name or use the force=True flag to overwrite the previous session.')
+            print('Force=True will delete all the graphs from the previous session (and other files in the directory)' )
+            print(session_graph_directory)
+            return
+        elif sessionNameUsed and force and not Updating:
+            # remove the previous session graph directory
+            import shutil
+            shutil.rmtree(session_graph_directory)
+
+        # create a directory for the graphs
+        os.makedirs(session_graph_directory, exist_ok=True)
 
         # Save PyMOL session
         save(filename)
@@ -781,6 +814,9 @@ DESCRIPTION
         corresponding_filename = os.path.splitext(filename)[0] + '.mse'
         with open(corresponding_filename, 'w') as F:
             F.write(json_data)
+        # update session name and path
+        MDAnalysisManager.SESSION = session
+        MDAnalysisManager.SESSION_PATH = filename
 
 
     def save(filename, selection='(all)', state=-1, format='', ref='',
