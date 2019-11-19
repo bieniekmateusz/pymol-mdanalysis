@@ -128,7 +128,7 @@ class MDAnalysisManager():
 
     # fixme - delete - it's been moved to graph_manager
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plotting_templates')
-    PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting', 'plots')
+    PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting')
 
     SESSION = None
     SESSION_PATH = None
@@ -146,20 +146,23 @@ class MDAnalysisManager():
         #  - filenames
         #  - selection string
 
-        metadata = {'SESSION': MDAnalysisManager.SESSION, 'SESSION_PATH': MDAnalysisManager.SESSION_PATH}
+        metadata = {'SESSION': MDAnalysisManager.SESSION,
+                    'SESSION_PATH': MDAnalysisManager.SESSION_PATH}
         # list of labels where each points to metadata
+        metadata['labels'] = {}
+        labels = metadata['labels']
         for label, item in MDAnalysisManager.Systems.items():
             atom_group = item['system']
             selection = item['selection']
 
-            metadata[label] = {}
-            metadata[label]['selection'] = selection
+            labels[label] = {}
+            labels[label]['selection'] = selection
 
             filenames = {}
             filenames['top_filename'] = atom_group.universe.filename
             # fixme - note that when multiple trajectories are loaded, it becomes trajectory.filenames
             filenames['trajectory'] = atom_group.universe.trajectory.filename
-            metadata[label]['filenames'] = filenames
+            labels[label]['filenames'] = filenames
 
         return json.dumps(metadata)
 
@@ -176,7 +179,7 @@ class MDAnalysisManager():
         metadata = json.loads(json_metadata)
         MDAnalysisManager.SESSION = metadata['SESSION']
         MDAnalysisManager.SESSION_PATH = metadata['SESSION_PATH']
-        for label, meta in metadata.items():
+        for label, meta in metadata['labels'].items():
             MDAnalysisManager.load(label, meta['filenames']['top_filename'])
             MDAnalysisManager.select(label, label, meta['selection'])
 
@@ -219,8 +222,13 @@ class MDAnalysisManager():
             grouped = [list(group) for group in mit.consecutive_groups(atom_ids)]
             return ' + '.join(['index %d-%d' % (g[0], g[-1]) for g in grouped])
 
-        pymol_selection = get_consecutive_index_ranges(atom_group.ids + 1)
-        cmd.select(new_label, pymol_selection)
+        pymol_selection = get_consecutive_index_ranges(atom_group.ids)
+        try:
+            cmd.select(new_label, pymol_selection)
+        except Exception as exception:
+            print('MDAnalysis encouranted an issue with recreating the selections')
+            if selection != 'all':
+                raise exception
 
         # update the selection history
         # selections that are too large are not stored / remembered

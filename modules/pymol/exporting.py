@@ -776,12 +776,14 @@ DESCRIPTION
         if filename == '' and MDAnalysisManager.SESSION is not None:
             filename = MDAnalysisManager.SESSION_PATH
             Updating = True
-        # if the user is explicitly saving the sessin to the same filename as the open session
+        # if the user is explicitly saving the session to the same filename as the open session
         elif MDAnalysisManager.SESSION_PATH == filename:
             Updating = True
         elif filename == '' and MDAnalysisManager.SESSION is None:
             print('No session actively opened. Please provide a filename/filepath. ')
             return
+
+        # fixme - what if the session already existed and we are now saving as a new session?
 
         # check if the session filename was already used
         # this would mean that the graphs are already generated for this directory
@@ -790,7 +792,7 @@ DESCRIPTION
         sessionNameUsed = os.path.exists(session_graph_directory)
         if sessionNameUsed and not force and not Updating:
             print('This session name has been already used before. ')
-            print('Prove a different session name or use the force=True flag to overwrite the previous session.')
+            print('Provide a different session name or use the force=True flag to overwrite the previous session.')
             print('Force=True will delete all the graphs from the previous session (and other files in the directory)' )
             print(session_graph_directory)
             return

@@ -1,14 +1,14 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
@@ -37,7 +37,7 @@ if True:
           _load, is_list, space_sc, safe_list_eval, is_string, loadable
     from .constants import _loadable
     from pymol.creating import unquote
-    
+
     def incentive_format_not_available_func(format=''):
         raise pymol.IncentiveOnlyException(
                 "'%s' format not supported by this PyMOL build" % format)
@@ -131,7 +131,7 @@ if True:
 
     def set_session(session,partial=0,quiet=1,cache=1,steal=-1,_self=cmd):
         r = DEFAULT_SUCCESS
-        if is_string(session): # string implies compressed session data 
+        if is_string(session): # string implies compressed session data
             import zlib
             session = io.pkl.fromString(zlib.decompress(session))
             if steal<0:
@@ -188,7 +188,7 @@ PYMOL API
     cmd.load_object(type,object,name,state=0,finish=1,discrete=0,quiet=1)
 
     type = one one of the numeric cmd.loadable types
-    object = 
+    object =
     name = object name (string)
     finish = perform (1) or defer (0) post-processing of structure after load
     discrete = treat each state as an independent, unrelated set of atoms
@@ -196,7 +196,7 @@ PYMOL API
         '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             r = _cmd.load_object(_self._COb,str(name),object,int(state)-1,
                                         int(type),int(finish),int(discrete),
                                         int(quiet),int(zoom))
@@ -229,7 +229,7 @@ PYMOL API
 DESCRIPTION
 
     "space" selects a color palette (or color space).
-    
+
 USAGE
 
     space space [, gamma]
@@ -239,7 +239,7 @@ ARGUMENTS
     space = rgb, cmyk, or pymol: {default: rgb}
 
     gamma = floating point gamma transformation
-    
+
 EXAMPLES
 
     space rgb
@@ -254,7 +254,7 @@ NOTES
     expressed in the CMYK space and vice-versa.  And as a result,
     molecular graphics images prepared using RGB often turn out poorly
     when converted to CMYK, with purplish blues or yellowish greens.
-    
+
     "space cmyk" forces PyMOL to restrict its use of the RGB color
     space to subset that can be reliably converted to CMYK using
     common tools such as Adobe Photoshop.  Thus, what you see on the
@@ -271,26 +271,26 @@ NOTES
 PYMOL API
 
     cmd.space(string space, float gamma)
-    
+
 SEE ALSO
 
     color
-    
+
     '''
         r = DEFAULT_ERROR
-        
+
         tables = { 'cmyk' : "$PYMOL_DATA/pymol/cmyk.png",
                    'pymol' : 'pymol',
                    'rgb' : 'rgb',
                    'greyscale': 'greyscale' }
-        
+
         space_auto = space_sc.interpret(space)
         if (space_auto != None) and not is_list(space_auto):
             space = space_auto
 
-        if space=="": 
+        if space=="":
             filename = ""
-        else:         
+        else:
             filename = tables.get(space.lower(),"")
             if filename == "":
                 print("Error: unknown color space '%s'."%space)
@@ -340,8 +340,8 @@ PYMOL API
         _self = kw.get('_self',cmd)
         lst = [loadable.cgo]
         lst.extend(list(arg))
-        if not is_list(lst[1]): 
-           lst[1] = list(lst[1]) 
+        if not is_list(lst[1]):
+           lst[1] = list(lst[1])
         return _self.load_object(*lst, **kw)
 
     def load_model(*arg,**kw):
@@ -417,7 +417,7 @@ SEE ALSO
 
             # preprocess selection
             selection = selector.process(selection)
-            #   
+            #
 
             filename = unquote(filename)
 
@@ -506,7 +506,9 @@ SEE ALSO
         if len(selections_names) != 0:
             from PyQt5 import uic, QtWidgets
             # fixme - this path should not be done this way
-            window = uic.loadUi("../pmg_qt/forms/historydialog.ui")
+            historydialogui_path = os.path.join(os.path.split(os.path.dirname(__file__))[0], 'pmg_qt', 'forms',
+                                                'historydialog.ui')
+            window = uic.loadUi(historydialogui_path)
             for selname in selections_names:
                 window.listWidget.addItem(selname)
 
@@ -651,7 +653,7 @@ SEE ALSO
         for key in seq_order:
             raw_seq = seq_dict[key].replace('-','')
             _self.fab(raw_seq, key, quiet=quiet)
-        
+
     def _processPWG(fname,_self=cmd):
         r = DEFAULT_ERROR
 
@@ -683,7 +685,7 @@ SEE ALSO
                             if len(input)>1:
                                 port = int(input[1].strip())
                                 launch_flag = 1
-                        elif keyword == 'logging': 
+                        elif keyword == 'logging':
                             if len(input)>1:
                                 logging = int(input[1].strip())
                         elif keyword == 'root': # must encode a valid filesystem path to local content
@@ -747,7 +749,7 @@ SEE ALSO
         if is_error(r):
             print("Error: unable to handle PWG file")
         return r
-    
+
     def _magic_check_cor_charmm(filename):
         # http://www.ks.uiuc.edu/Research/vmd/plugins/molfile/corplugin.html
         # assume at least 2 title/comment lines, starting with *
@@ -800,8 +802,8 @@ ARGUMENTS
     the content should be loaded, or 0 for append {default:0}
 
     format = pdb, ccp4, etc. {default: use file extension}): format of
-    data file    
-    
+    data file
+
 EXAMPLES
 
     load 1dn2.pdb
@@ -809,7 +811,7 @@ EXAMPLES
     load file001.pdb, ligand
 
     load http://delsci.com/sample.pdb
-    
+
 NOTES
 
     The file extension is used to determine the format unless the
@@ -835,7 +837,7 @@ PYMOL API
     cmd.load(string filename, string object-name, integer state,
              string format, int finish, int discrete, int quiet,
              int multiplex, int zoom, int partial)
-    
+
 SEE ALSO
 
     save, load_traj, fetch
@@ -988,7 +990,7 @@ DESCRIPTION
 
 USAGE
 
-    load_embedded [ key [, name [, state [, finish [, discrete [, quiet ]]]]]]        
+    load_embedded [ key [, name [, state [, finish [, discrete [, quiet ]]]]]]
 
 EXAMPLE
 
@@ -1006,7 +1008,7 @@ EXAMPLE
 NOTES
 
     This approach only works with text data files.
-    
+
     '''
         if object_props or atom_props:
             print(' Warning: properties are not supported in Open-Source PyMOL')
@@ -1041,7 +1043,7 @@ NOTES
                 raise pymol.CmdException("unknown raw format '%s'", format)
         if _self._raising(r,_self): raise pymol.CmdException
         return r
-        
+
     def read_sdfstr(sdfstr,name,state=0,finish=1,discrete=1,quiet=1,
                     zoom=-1,multiplex=-2,object_props=None,_self=cmd):
         '''
@@ -1124,7 +1126,7 @@ DESCRIPTION
     '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             r = _cmd.load(_self._COb, str(name).strip(), str(content),
                     int(state)-1, loadable.mmodstr, 1, 1, int(quiet), 0,
                     int(zoom))
@@ -1144,7 +1146,7 @@ DESCRIPTION
 
 PYMOL API ONLY
 
-    cmd.read_pdbstr( string pdb-content, string object name 
+    cmd.read_pdbstr( string pdb-content, string object name
         [ ,int state [ ,int finish [ ,int discrete ] ] ] )
 
 NOTES
@@ -1161,7 +1163,7 @@ NOTES
     '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             ftype = loadable.pdbstr
             pdb = contents
             r = _cmd.load(_self._COb,str(oname),pdb,int(state)-1,int(ftype),
@@ -1183,7 +1185,7 @@ DESCRIPTION
 
 PYMOL API ONLY
 
-    cmd.read_mol2str( string mol2-content, string object name 
+    cmd.read_mol2str( string mol2-content, string object name
         [ ,int state [ ,int finish [ ,int discrete ] ] ] )
 
 NOTES
@@ -1200,7 +1202,7 @@ NOTES
     '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             ftype = loadable.mol2str
             oname = str(name).strip()
             r = _cmd.load(_self._COb,str(oname),mol2,int(state)-1,int(ftype),
@@ -1222,7 +1224,7 @@ DESCRIPTION
 
 PYMOL API ONLY
 
-    cmd.read_xplorstr( string xplor-content, string object name 
+    cmd.read_xplorstr( string xplor-content, string object name
         [ ,int state ] )
 
 NOTES
@@ -1232,7 +1234,7 @@ NOTES
     '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             ftype = loadable.xplorstr
             oname = str(name).strip()
             r = _cmd.load(_self._COb,str(oname),xplor,int(state)-1,int(ftype),
@@ -1260,7 +1262,7 @@ PYMOL API
         '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             r = _cmd.finish_object(_self._COb,name)
         finally:
             _self.unlock(r,_self)
@@ -1311,7 +1313,7 @@ PYMOL API
         discrete = bool: make discrete multi-state object
         multiplex = bool: split states into objects (like split_states)
         zoom = int: zoom to new loaded object
-        type = str: fofc, 2fofc, pdb, pdb1, ... 
+        type = str: fofc, 2fofc, pdb, pdb1, ...
         path = str: fetch_path
         file = str or file: file name or open file handle
         '''
@@ -1469,11 +1471,11 @@ PYMOL API
                 _self.remove(r'?%s & ! c. \%s' % (r, chain))
 
         return r
-    
+
     def fetch(code, name='', state=0, finish=1, discrete=-1,
               multiplex=-2, zoom=-1, type='', async_=0, path='',
               file=None, quiet=1, _self=cmd, **kwargs):
-        
+
         '''
 DESCRIPTION
 
@@ -1504,7 +1506,7 @@ PYMOL API
     cmd.fetch(string code, string name, int state, init finish,
               int discrete, int multiplex, int zoom, string type,
               int async, string path, string file, int quiet)
-              
+
 NOTES
 
     When running in interactive mode, the fetch command loads
@@ -1516,7 +1518,7 @@ NOTES
 
     Fetch requires a direct connection to the internet and thus may
     not work behind certain types of network firewalls.
-    
+
         '''
         state, finish, discrete = int(state), int(finish), int(discrete)
         multiplex, zoom = int(multiplex), int(zoom)
@@ -1542,7 +1544,7 @@ NOTES
             finally:
                 _self.unblock_flush(_self)
         return r
-        
+
     def load_coordset(coords, object, state=0, quiet=1, _self=cmd):
         '''
 DESCRIPTION

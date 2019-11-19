@@ -72,39 +72,30 @@ class GraphManager():
         """
         found_graphs = {}
         for label, dict in systems.items():
-            atom_group = dict['system']
-            selection = dict['selection']
-
-            # check if the system has a directory for this filepath
-            filepath_hash = GraphManager._get_hash_from_atom_group(atom_group)
-            filepath_hash_dir = os.path.join(GraphManager.PLOTS_DIR, filepath_hash)
-            if not os.path.isdir(filepath_hash_dir):
+            # check if the session has a directory with plots
+            session_filepath = os.path.join(GraphManager.PLOTS_DIR, MDAnalysisManager.SESSION)
+            if not os.path.isdir(session_filepath):
                 continue
 
             # check if there is any graph for this selection
-            selection_hash = GraphManager._get_hash_from_selection(selection)
-            selection_hash_dir = os.path.join(filepath_hash_dir, selection_hash)
-            if not os.path.isdir(selection_hash_dir):
+
+            label_filepath = os.path.join(session_filepath, label)
+            if not os.path.isdir(label_filepath):
                 continue
 
             for graph_type in GraphManager.GRAPH_TYPES:
-                # check if there is a directory
-                graph_dir = os.path.join(selection_hash_dir, graph_type.name)
-                if not os.path.isdir(graph_dir):
-                    continue
-
-                # there should be the graph.py and other files in the directory
+                # there should be the rmsd.py and rmsd.dat and other files in the directory
                 # fixme - should be constants not strings
-                graph_py = os.path.join(graph_dir, 'graph.py')
-                graph_dat = os.path.join(graph_dir, 'graph.dat')
+                graph_py = os.path.join(label_filepath, graph_type.name.upper() + '.py')
+                graph_dat = os.path.join(label_filepath, graph_type.name.upper() + '.dat')
                 if not os.path.isfile(graph_py) or not os.path.isfile(graph_dat):
                     continue
 
                 # add the graphs to the found list
                 if label in found_graphs:
-                    found_graphs[label][graph_type.name] = graph_dir
+                    found_graphs[label][graph_type.name] = os.path.split(graph_py)[0]
                 else:
-                    found_graphs[label] = {graph_type.name: graph_dir}
+                    found_graphs[label] = {graph_type.name: os.path.split(graph_py)[0]}
         return found_graphs
 
 
