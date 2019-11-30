@@ -558,7 +558,7 @@ SEE ALSO
 
 
     # MPP
-    def mda_rmsd(label, selection="backbone"):
+    def mda_rmsd(label, selection="backbone", pylustrator=False):
         '''
      DESCRIPTION
 
@@ -597,7 +597,7 @@ SEE ALSO
         R.run()
 
         GraphManager.save_graph(label, R.rmsd, GraphManager.GRAPH_TYPES.RMSD.name)
-        GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSD.name)
+        GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSD.name, pylustrator)
 
         return None
 

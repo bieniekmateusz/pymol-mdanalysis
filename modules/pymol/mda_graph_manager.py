@@ -171,7 +171,8 @@ class GraphManager():
         category_menu = label_menu.addMenu(category)
         # add two actions
         # one to open the directory and another to open the graph
-        category_menu.addAction('Open Plot', lambda: GraphManager.plot_graph(label, category))
+        category_menu.addAction('Open', lambda: GraphManager.plot_graph(label, category, False))
+        category_menu.addAction('Open with pylustrator', lambda: GraphManager.plot_graph(label, category, True))
         category_menu.addAction('Open Directory', lambda: GraphManager._open_file(directory_path))
 
 
@@ -208,7 +209,7 @@ class GraphManager():
 
 
     @staticmethod
-    def plot_graph(label, category):
+    def plot_graph(label, category, pylustrator):
         # use the basic template to visualise the results
 
         project_name = MDAnalysisManager.SESSION
@@ -218,16 +219,17 @@ class GraphManager():
         sys.path.append(graph_dir)
         # import the saved rmsd plotter
         module_name = category
+        # prepare plotting variables
         # # check if the graph already has been imported / graphed
         if module_name in sys.modules:
             # already imported so reload
             plotter = importlib.reload(sys.modules[module_name])
         else:
             plotter = importlib.import_module(module_name)
-            # save the plotted graph
-            plotter.plt.savefig(os.path.join(graph_dir, category + '.png'), dpi=300)
+        plot_time, plot_rmsd, plot_rmsd_ax, plot_rmsd_hist_ax, plot_fig = plotter.plot(pylustrator)
+        # save the plotted graph
+        plot_fig.savefig(os.path.join(graph_dir, category + '.png'), dpi=300)
         sys.path.remove(graph_dir)
-
 
         # attach the interactive features to the functions
         def onclick(event):
@@ -240,29 +242,29 @@ class GraphManager():
                 return
 
             # find the nearest point on x line
-            closest_index = numpy.searchsorted(plotter.pymol_x_axis, (event.xdata,))
+            closest_index = numpy.searchsorted(plot_time, (event.xdata,))[0]
             # update the frame on the screen
             cmd.frame(closest_index)
 
-        plotter.fig.canvas.mpl_connect('button_press_event', onclick)
+        plot_fig.canvas.mpl_connect('button_press_event', onclick)
 
         def onselect(xmin, xmax):
             # print(xmin, xmax)
             # update the data
-            indmin, indmax = numpy.searchsorted(plotter.pymol_x_axis, (xmin, xmax))
-            indmax = min(len(plotter.pymol_x_axis) - 1, indmax)
+            indmin, indmax = numpy.searchsorted(plot_time, (xmin, xmax))
+            indmax = min(len(plot_time) - 1, indmax)
             # print(indmin, indmax)
             # print(plotter.pymol_y_axis[indmin:indmax])
 
-            plotter.pymol_hist_ax.cla()
-            plotter.pymol_hist_ax.hist(plotter.pymol_y_axis[indmin:indmax])
+            plot_rmsd_hist_ax.cla()
+            plot_rmsd_hist_ax.hist(plot_rmsd[indmin:indmax])
 
         # FIXME - Find a better way than a global variable
         # We have to ensure the object survives when the method is left.
         # Otherwise the class.methods will not be available.
         # See weak references and the Note in https://matplotlib.org/users/event_handling.html
         global G_MATPLOTLIB_CALLBACK_SPAN
-        G_MATPLOTLIB_CALLBACK_SPAN = SpanSelector(plotter.pymol_plot_ax, onselect, 'horizontal', useblit=True,
+        G_MATPLOTLIB_CALLBACK_SPAN = SpanSelector(plot_rmsd_ax, onselect, 'horizontal', useblit=True,
                                                   rectprops=dict(alpha=0.5, facecolor='red'),
                                                   button=1)
 

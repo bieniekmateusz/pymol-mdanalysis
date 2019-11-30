@@ -3,31 +3,41 @@ matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import sys
+
+def plot(use_pylustrator):
+    # use the pylustrator only if it is asked for
+    if use_pylustrator:
+        # import pylustrator
+        import pylustrator
+        # activate pylustrator
+        pylustrator.start()
+
+    fig = plt.figure(figsize=(8, 6))
+    rmsd_ax = fig.add_subplot(211, facecolor='#FFFFCC')
+
+    # fixme - load from the file saved
+    data = np.loadtxt(os.path.splitext(__file__)[0] + '.dat').T
+    time = data[1] / 1000  # to ns
+    rmsd = data[2]
+
+    rmsd_ax.plot(time, rmsd, 'o--', label="all")
+    rmsd_ax.set_xlabel("time (ps)")
+    rmsd_ax.set_ylabel(r"RMSD ($\AA$)")
+    rmsd_ax.legend(loc="best").set_draggable(True)
+
+    rmsd_hist_ax = fig.add_subplot(212)
+    rmsd_hist_ax.hist(rmsd)
+
+    plt.show()
+
+    return time, rmsd, rmsd_ax, rmsd_hist_ax, fig
 
 
-fig = plt.figure(figsize=(8, 6))
-ax = fig.add_subplot(211, facecolor='#FFFFCC')
-
-# fixme - load from the file saved
-data = np.loadtxt(os.path.splitext(__file__)[0] + '.dat').T
-time = data[1] / 1000 # to ns
-rmsd = data[2]
-
-ax.plot(time, rmsd, 'o--', label="all")
-ax.set_xlabel("time (ps)")
-ax.set_ylabel(r"RMSD ($\AA$)")
-ax.legend(loc="best").set_draggable(True)
-
-
-ax2 = fig.add_subplot(212)
-ax2.hist(rmsd)
-
-
-plt.show()
-
-# PYMOL INTERAL: The following lines ensure that the interactive features in PyMOL work
-pymol_x_axis = time
-pymol_y_axis = rmsd
-pymol_plot_ax = ax
-pymol_hist_ax = ax2
-# -------------------------------------------------------------------------------------
+if __name__ == "__main__":
+    # use the pylustrator only if it is asked for
+    use_pylustrator = False
+    if len(sys.argv) > 1 and sys.argv[1] == 'pylustrator':
+        # now import pylustrator
+        use_pylustrator = True
+    plot(use_pylustrator)
