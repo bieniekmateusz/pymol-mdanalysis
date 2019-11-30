@@ -224,6 +224,8 @@ class GraphManager():
             plotter = importlib.reload(sys.modules[module_name])
         else:
             plotter = importlib.import_module(module_name)
+            # save the plotted graph
+            plotter.plt.savefig(os.path.join(graph_dir, category + '.png'), dpi=300)
         sys.path.remove(graph_dir)
 
 
