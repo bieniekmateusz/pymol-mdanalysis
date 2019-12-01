@@ -209,7 +209,7 @@ class GraphManager():
 
 
     @staticmethod
-    def plot_graph(label, category, pylustrator):
+    def plot_graph(label, category, use_pylustrator):
         # use the basic template to visualise the results
 
         project_name = MDAnalysisManager.SESSION
@@ -226,12 +226,19 @@ class GraphManager():
             plotter = importlib.reload(sys.modules[module_name])
         else:
             plotter = importlib.import_module(module_name)
-        plot_time, plot_rmsd, plot_rmsd_ax, plot_rmsd_hist_ax, plot_fig = plotter.plot(pylustrator)
+        plot_time, plot_rmsd, plot_rmsd_ax, plot_rmsd_hist_ax, plot_fig = plotter.plot(use_pylustrator)
         # save the plotted graph
         plot_fig.savefig(os.path.join(graph_dir, category + '.png'), dpi=300)
         sys.path.remove(graph_dir)
 
-        # attach the interactive features to the functions
+        # if pylustrator is used to modify the plot, the interactive features are turned off
+        if use_pylustrator:
+            return
+
+        # Add interactive features to the plots
+        #
+
+        # when the user clicks on the RMSD plot, the pymol frame will be updated to the chosen time point
         def onclick(event):
             # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
             #       ('double' if event.dblclick else 'single', event.button,
