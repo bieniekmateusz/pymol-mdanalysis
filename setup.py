@@ -457,6 +457,9 @@ distribution = setup ( # Distribution meta-data
     packages = list(package_dir),
     package_data = {'pmg_qt': ['forms/*.ui']},
 
+    # numpy should be optional?
+    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy'],
+
     ext_modules = ext_modules,
     data_files  = data_files,
 )
