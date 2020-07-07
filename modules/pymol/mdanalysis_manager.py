@@ -23,18 +23,24 @@
  - TODO: We're in need of IDs for each selection so that the label change would not affect the simulation
 
 """
-
 import os
-import MDAnalysis
 import hashlib
-from . import cmd
 import json
-from . import CmdException
+
 import sqlite3
+import MDAnalysis
+
+from . import cmd
+from . import CmdException
+
+PYMOL_STORAGE=os.path.join(os.path.expanduser('~'), '.pymol')
+# create a ~/.pymol directory if it does not exist
+if not os.path.isdir(PYMOL_STORAGE):
+    os.makedirs(PYMOL_STORAGE)
 
 class SelectionHistoryManager():
     # remembers the created labels with the atomic indices for each file (like .bash_history)
-    SELECTION_HISTORY = os.path.join(os.path.expanduser('~'), '.pymol', 'mda_selection_history.db')
+    SELECTION_HISTORY = os.path.join(PYMOL_STORAGE, 'mda_selection_history.db')
 
     con = sqlite3.connect(SELECTION_HISTORY)
 
@@ -128,7 +134,7 @@ class MDAnalysisManager():
 
     # fixme - delete - it's been moved to graph_manager
     TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plotting_templates')
-    PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting')
+    PLOTS_DIR = os.path.join(PYMOL_STORAGE, 'plotting')
 
     SESSION = None
     SESSION_PATH = None
