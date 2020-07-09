@@ -30,8 +30,8 @@ import os
 import sys
 import __main__
 
-if __name__ == '__main__':
 
+def start_pymol():
     # PyMOL launched as "python pymol/__init__.py"
     # or via execfile(".../pymol/__init__.py",...) from main
     # or as "python -m pymol.__init__"
@@ -66,6 +66,11 @@ if __name__ == '__main__':
 
     # this should never be reached because PyMOL will exit the process
     raise SystemExit
+
+
+if __name__ == '__main__':
+    start_pymol()
+
 
 IS_PY2 = sys.version_info[0] == 2
 IS_PY3 = sys.version_info[0] == 3

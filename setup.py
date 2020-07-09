@@ -412,6 +412,7 @@ def get_packages(base, parent='', r=None):
     if parent:
         r.append(parent)
     for name in os.listdir(join(base, parent)):
+    	# print('---------------------------')
         if '.' not in name and exists(join(base, parent, name, '__init__.py')):
             get_packages(base, join(parent, name), r)
     return r
@@ -439,10 +440,10 @@ ext_modules += [
 ]
 
 distribution = setup ( # Distribution meta-data
-    cmdclass  = {
-        'build_py': build_py_pymol,
-        'install': install_pymol,
-    },
+    # cmdclass  = {
+    #     'build_py': build_py_pymol,
+    #     'install': install_pymol,
+    # },
     name      = "pymol",
     version   = get_pymol_version(),
     author    = "Schrodinger",
@@ -453,12 +454,20 @@ distribution = setup ( # Distribution meta-data
         "surfaces, and trajectories. It also includes molecular editing, "
         "ray tracing, and movies. Open Source PyMOL is free to everyone!"),
 
+    # replace with the find package
     package_dir = package_dir,
     packages = list(package_dir),
+    # replace with the manifest file
     package_data = {'pmg_qt': ['forms/*.ui']},
 
     # numpy should be optional?
-    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy'],
+    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy', 'wheel'],
+
+    entry_points={
+        'console_scripts': [
+            'pymol = pymol:pymol.start_pymol'
+        ]
+    },
 
     ext_modules = ext_modules,
     data_files  = data_files,
