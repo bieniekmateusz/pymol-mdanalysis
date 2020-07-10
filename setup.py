@@ -439,11 +439,25 @@ ext_modules += [
     ),
 ]
 
+class PostInstallCommand(install):
+    def run(self):
+        install.run(self)
+        # After the installation, create a startmenu shortcut.
+        # get the python entry file
+        import pymol
+        pymol_file = pymol.__file__
+
+        # create a shortcut to the executable file, using the right environment
+        from pyshortcuts import make_shortcut
+        make_shortcut(sys.executable + ' ' + pymol_file, name='PymolMda',
+                      icon='data/pymol/icons/icon2.svg', terminal=False)
+
+
 distribution = setup ( # Distribution meta-data
-    # cmdclass  = {
-    #     'build_py': build_py_pymol,
-    #     'install': install_pymol,
-    # },
+    cmdclass  = {
+        # 'build_py': build_py_pymol,
+        'install': PostInstallCommand,
+    },
     name      = "pymol",
     version   = get_pymol_version(),
     author    = "Schrodinger",
@@ -461,7 +475,7 @@ distribution = setup ( # Distribution meta-data
     package_data = {'pmg_qt': ['forms/*.ui']},
 
     # numpy should be optional?
-    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy', 'wheel'],
+    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy', 'wheel', 'pyshortcuts'],
 
     entry_points={
         'console_scripts': [
