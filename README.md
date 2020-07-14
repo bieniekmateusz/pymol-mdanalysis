@@ -23,11 +23,17 @@ pip install .
 In this case `pip` should refer to conda's pip, which you can check
 with the command `where pip`.
 
+From now on, whenever your conda environment is active, 
+type `pymol` to start the application. 
+
 If you would like to use a startmenu shortcut PymolMda, after
 installation is complete, use the following script:
 ```
 python make_pymol_shortcut.py 
 ```
+
+However, the startmenu shortcut feature only works currently 
+with conda base environment. 
 
 If you have a problem with missing dependencies, 
 check the official instructions: please see [INSTALL](INSTALL) 
