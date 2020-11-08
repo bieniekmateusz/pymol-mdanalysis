@@ -770,6 +770,7 @@ DESCRIPTION
         from .mdanalysis_manager import MDAnalysisManager
         from .mda_graph_manager import GraphManager
 
+        # verify the correctness of the input parameters
         # if we're updating the current session
         Updating = False
         # if a session is already opened, overwrite it
@@ -784,6 +785,10 @@ DESCRIPTION
             return
 
         # fixme - what if the session already existed and we are now saving as a new session?
+
+        # if the session does not have .pse extension, add it
+        if not filename.lower().endswith('.pse'):
+            filename = filename + '.pse'
 
         # check if the session filename was already used
         # this would mean that the graphs are already generated for this directory
