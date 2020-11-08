@@ -182,19 +182,20 @@ def guess_pymol_path():
 
     pymol_path_candidates = [
         # $PYMOL_PATH == <site-packages>/pymol/pymol_path
-        os.path.join(os.path.dirname(init_file), 'pymol_path'),
+        os.path.dirname(init_file),
 
         # $PYMOL_PATH/modules/pymol/__init__.py
         re.sub(r"[\/\\]modules[\/\\]pymol[\/\\]__init__\.py[c]*$", "", init_file),
 
         # /usr/share/pymol
-        os.path.join(sys.prefix, 'share', 'pymol'),
+        os.path.join(sys.prefix, 'bin', 'pymol'),
     ]
 
     for pymol_path in pymol_path_candidates:
         if os.path.isdir(pymol_path):
             return pymol_path
 
+    print('so not found? ')
     return '.'
 
 def setup_environ():
@@ -204,7 +205,7 @@ def setup_environ():
 
     # other PyMOL variables
     if 'PYMOL_DATA' not in os.environ:
-        os.environ['PYMOL_DATA'] = os.path.join(os.environ['PYMOL_PATH'], 'data')
+        os.environ['PYMOL_DATA'] = os.path.join(sys.prefix, 'data')
     if 'PYMOL_SCRIPTS' not in os.environ:
         os.environ['PYMOL_SCRIPTS'] = os.path.join(os.environ['PYMOL_PATH'], 'scripts')
     os.environ['TUT'] = os.path.join(os.environ['PYMOL_DATA'], 'tut')

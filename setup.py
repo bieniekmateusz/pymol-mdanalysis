@@ -6,7 +6,7 @@
 # It may assume that all of PyMOL's external dependencies are
 # pre-installed into the system.
 
-from distutils.core import setup, Extension
+from distutils.core import Extension
 from distutils.util import change_root
 from distutils.errors import *
 from distutils.command.install import install
@@ -14,6 +14,7 @@ from distutils.command.build_py import build_py
 from glob import glob
 import shutil
 import sys, os, re
+from setuptools import setup
 
 # non-empty DEBUG variable turns off optimization and adds -g flag
 DEBUG = bool(os.getenv('DEBUG', ''))
@@ -439,10 +440,13 @@ ext_modules += [
     ),
 ]
 
+datafiles = [(d, [os.path.join(d,f) for f in files])
+    for d, folders, files in os.walk('data')]
+
 distribution = setup ( # Distribution meta-data
     # cmdclass  = {
-        # 'build_py': build_py_pymol,
-        # 'install': PostInstallCommand,
+    #     'build_py': build_py_pymol,
+    #     # 'install': PostInstallCommand,
     # },
     name      = "pymol",
     version   = get_pymol_version(),
@@ -461,7 +465,7 @@ distribution = setup ( # Distribution meta-data
     package_data = {'pmg_qt': ['forms/*.ui']},
 
     # numpy should be optional?
-    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy', 'wheel', 'pyshortcuts'],
+    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy', 'wheel', 'pyshortcuts', 'more_itertools'],
 
     entry_points={
         'console_scripts': [
@@ -470,5 +474,6 @@ distribution = setup ( # Distribution meta-data
     },
 
     ext_modules = ext_modules,
-    data_files  = data_files,
+    data_files  = datafiles, # data_files
+    include_package_data=True
 )
