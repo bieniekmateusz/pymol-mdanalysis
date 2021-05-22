@@ -20,6 +20,8 @@ Z* -------------------------------------------------------------------
 
 #include "os_limits.h"
 #include "os_types.h"
+#include "Picking.h"
+#include "RenderPass.h"
 #include <vector>
 
 #ifndef PI
@@ -32,10 +34,6 @@ typedef unsigned int uint;
 
 #define MAX_VDW 2.5F            /* this has to go */
 
-#ifndef MAXFLOAT
-#define MAXFLOAT FLT_MAX
-#endif
-
 #ifndef R_SMALL4
 #define R_SMALL4 0.0001F
 #endif
@@ -43,27 +41,6 @@ typedef unsigned int uint;
 #ifndef R_SMALL8
 #define R_SMALL8 0.00000001F
 #endif
-
-typedef struct {
-  unsigned int index;           /* atom index.
-                                   NOTE: that first record contains the list count...not pick info */
-  int bond;                     /* bond index, 
-                                   >=0 for bond
-                                   -1 for atom
-                                   -2 for label
-                                   -3 for gadget
-                                   bond - first index in pickVLA defines what pick
-                                   0 - first pass
-                                   1 - second pass
-                                   2 - first pass, reload VBOs with pick colors
-                                   3 - second pass, reload VBOs with pick colors */
-} Pickable;
-
-#define cPickableAtom -1
-#define cPickableLabel -2
-#define cPickableGadget -3
-#define cPickableNoPick -4
-
 
 #define cPuttyTransformNormalizedNonlinear 0
 #define cPuttyTransformRelativeNonlinear   1
@@ -76,23 +53,6 @@ typedef struct {
 #define cPuttyTransformAbsoluteLinear      7
 
 #define cPuttyTransformImpliedRMS          8
-
-typedef struct {
-  void *object;
-  int state;
-  /*  int instance; *//* to come... */
-} PickContext;
-
-typedef struct {
-  Pickable src;
-  PickContext context;
-} Picking;
-
-typedef struct {
-  int mode;
-  int x, y, w, h;
-  Picking *picked;
-} Multipick;
 
 typedef struct LabPosType {
   int mode;
@@ -120,27 +80,30 @@ class CGO;
 #endif
 
 struct RenderInfo {
-  int state;
-  CRay *ray;
-  CGO *alpha_cgo;
-  std::vector<Picking>* pick = nullptr;
-  int pass;
-  int width_scale_flag;
-  float front, back, stereo_front;
-  float fog_start, fog_end;
-  float view_normal[3];
-  float width_scale;
-  float vertex_scale;           /* how large is a screen pixel in model space at the origin */
-  int sampling;                 /* are we supersampling? */
-  int ortho;                    /* orthoscopic projection? */
-  int line_lighting;            /* line lighting */
-  int dynamic_width;
-  float dynamic_width_factor, dynamic_width_min, dynamic_width_max;
-  int texture_font_size;
-  int use_shaders;
-  bool picking_32bit;
-  void (*setUCColorFromIndex)(uchar *color, unsigned int idx);
-  void (*setUCColorToZero)(uchar *color);
+  int state = 0;
+  CRay* ray = nullptr;
+  CGO* alpha_cgo = nullptr;
+  PickColorManager* pick = nullptr;
+  RenderPass pass = RenderPass::Antialias;
+  int width_scale_flag = 0;
+  float front = 0.f;
+  float back = 0.f;
+  float stereo_front = 0.f;
+  float fog_start = 0.f;
+  float fog_end = 0.f;
+  float view_normal[3] = {};
+  float width_scale = 0.f;
+  float vertex_scale =
+      0.f; ///< how large is a screen pixel in model space at the origin
+  int sampling = 1;      ///< are we supersampling?
+  int ortho = 0;         ///< orthoscopic projection?
+  int line_lighting = 0; ///< line lighting
+  int dynamic_width = 0;
+  float dynamic_width_factor = 0.f;
+  float dynamic_width_min = 0.f;
+  float dynamic_width_max = 0.f;
+  int texture_font_size = 0;
+  int use_shaders = 0;
 };
 
 #define MAXLINELEN 1024

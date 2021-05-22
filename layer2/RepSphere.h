@@ -20,14 +20,21 @@ Z* -------------------------------------------------------------------
 #include"Rep.h"
 #include"CoordSet.h"
 
-typedef struct RepSphere {
-  Rep R;
-  bool *LastVisib;
-  int *LastColor;
-  CGO *renderCGO;
-  CGO *primitiveCGO;
-  CGO *spheroidCGO;
-} RepSphere;
+struct RepSphere : Rep {
+  using Rep::Rep;
+
+  ~RepSphere() override;
+
+  cRep_t type() const override { return cRepSphere; }
+  void render(RenderInfo* info) override;
+  bool sameVis() const override;
+
+  bool* LastVisib = nullptr;
+  int* LastColor = nullptr;
+  CGO* renderCGO = nullptr;
+  CGO* primitiveCGO = nullptr;
+  CGO* spheroidCGO = nullptr;
+};
 
 Rep *RepSphereNew(CoordSet * cset, int state);
 void RenderSphereComputeFog(PyMOLGlobals *G, RenderInfo *info, float *fog_info);

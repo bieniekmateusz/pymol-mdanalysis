@@ -12,15 +12,12 @@
 #-*
 #Z* -------------------------------------------------------------------
 
-from __future__ import print_function, absolute_import
-
 if True:
 
     import re
     import os
     import sys
     import copy
-    import traceback
     import pymol
     cmd = sys.modules["pymol.cmd"]
     from .mdanalysis_manager import MDAnalysisManager, SelectionHistoryManager
@@ -33,8 +30,8 @@ if True:
     from . import selector
     from . import colorprinting
     from .cmd import _cmd, \
-          DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error, \
-          _load, is_list, space_sc, safe_list_eval, is_string, loadable
+          DEFAULT_ERROR, DEFAULT_SUCCESS, is_error, \
+          is_list, safe_list_eval, is_string, loadable
     from .constants import _loadable
     from pymol.creating import unquote
 
@@ -44,7 +41,7 @@ if True:
 
     from chempy import io
 
-    def filename_to_objectname(fname, _self=cmd):
+    def filename_to_objectname(fname, *, _self=cmd):
         oname, _, _, _ = filename_to_format(fname)
         return _self.get_legal_name(oname)
 
@@ -76,8 +73,6 @@ if True:
             format = 'psw'
         elif ext in ('mmd', 'out', 'dat',):
             format = 'mmod'
-        elif ext in ('map', 'mrc',):
-            format = 'ccp4'
         elif ext in ('cc2',):
             format = 'cc1'
         elif ext in ('sd',):
@@ -99,23 +94,33 @@ if True:
             format = 'pml'
         elif ext in ('xml',):
             format = 'pdbml'
+        elif ext in ('mmcif',):
+            format = 'cif'
         elif re.match(r'pdb\d+$', ext):
             format = 'pdb'
         elif re.match(r'xyz_\d+$', ext):
             format = 'xyz'
+        elif ext in ('dxbin',):
+            format = 'dx'
         else:
             format = ext
 
         return pre, ext, format, zipped
 
     def check_gromacs_trj_magic(filename):
+        colorprinting.warning('check_gromacs_trj_magic is deprecated')
+        return check_trj_magic(filename)[0] == 'trj'
+
+    def check_trj_magic(filename):
         try:
             magic = open(filename, 'rb').read(4)
             if b'\xc9' in magic and b'\x07' in magic:
-                return True
+                return 'trj', loadable.trj2
+            if magic in (b'CDF\001', b'CDF\002'):
+                return 'netcdf', loadable.plugin
         except IOError as e:
             print('trj magic test failed: ' + str(e))
-        return False
+        return '', loadable.trj
 
     def _guess_trajectory_object(candidate, _self):
         # if candidate does not exist as a molecular object, return last
@@ -125,13 +130,13 @@ if True:
             return onames[-1]
         return candidate
 
-    def auto_zoom(zoom, selection, state=0, _self=cmd):
+    def auto_zoom(zoom, selection, state=0, *, _self=cmd):
         if zoom > 0 or zoom < 0 and _self.get_setting_int("auto_zoom"):
             _self.zoom(selection, state=state)
 
-    def set_session(session,partial=0,quiet=1,cache=1,steal=-1,_self=cmd):
-        r = DEFAULT_SUCCESS
-        if is_string(session): # string implies compressed session data
+    def set_session(session,partial=0,quiet=1,cache=1,steal=-1, *, _self=cmd):
+        # string implies compressed session data
+        if isinstance(session, bytes):
             import zlib
             session = io.pkl.fromString(zlib.decompress(session))
             if steal<0:
@@ -140,43 +145,44 @@ if True:
             steal = 0
         # use the pymol instance to store state, not the code module
         _pymol = _self._pymol
-        for a in _pymol._session_restore_tasks:
-            if a==None:
-                try:
-                    _self.lock(_self)
-                    r = _cmd.set_session(_self._COb,session,int(partial),int(quiet))
-                finally:
-                    _self.unlock(r,_self)
-                try:
-                    if 'session' in session:
-                        if steal:
-                            _pymol.session = session['session']
-                            del session['session']
-                        else:
-                            _pymol.session = copy.deepcopy(session['session'])
-                    else:
-                        _pymol.session = pymol.Session_Storage()
-                    if cache:
-                        if 'cache' in session:
-                            cache = session['cache']
-                            if len(cache):
-                                if steal:
-                                    _pymol._cache = session['cache']
-                                    del session['cache']
-                                else:
-                                    _pymol._cache = copy.deepcopy(session['cache'])
-                except:
-                    traceback.print_exc()
+
+        with _self.lockcm:
+            _cmd.set_session(_self._COb, session, int(partial), int(quiet))
+
+        try:
+            if 'session' not in session:
+                _pymol.session = pymol.Session_Storage()
+            elif steal:
+                _pymol.session = session.pop('session')
             else:
-                if not a(session, _self=_self): # don't stop on errors...try to complete anyway
-                    r = DEFAULT_ERROR
-        if _self.get_movie_locked()>0: # if the movie contains commands...activate security
-            _self.wizard("security")
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
+                _pymol.session = copy.deepcopy(session['session'])
+
+            if cache and session.get('cache'):
+                if steal:
+                    _pymol._cache = session.pop('cache')
+                else:
+                    _pymol._cache = copy.deepcopy(session['cache'])
+
+            error = None
+
+            for a in _pymol._session_restore_tasks:
+                assert a is not None
+                # don't stop on errors...try to complete anyway
+                # TODO _session_save_tasks use `is_error(<return-value>)`
+                # instead of `not <return-value>`
+                if not a(session, _self=_self):
+                    error = f'session-restore-task "{a.__name__}" failed'
+
+        finally:
+            # if the movie contains commands...activate security
+            if _self.get_movie_locked() > 0:
+                _self.wizard("security")
+
+        if error:
+            raise pymol.CmdException(error)
 
     def load_object(type,object,name,state=0,finish=1,discrete=0,
-                         quiet=1,zoom=-1,_self=cmd):
+                         quiet=1,zoom=-1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -188,25 +194,19 @@ PYMOL API
     cmd.load_object(type,object,name,state=0,finish=1,discrete=0,quiet=1)
 
     type = one one of the numeric cmd.loadable types
-    object =
+    object = 
     name = object name (string)
     finish = perform (1) or defer (0) post-processing of structure after load
     discrete = treat each state as an independent, unrelated set of atoms
     quiet = suppress chatter (default is yes)
         '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
+        with _self.lockcm:
             r = _cmd.load_object(_self._COb,str(name),object,int(state)-1,
                                         int(type),int(finish),int(discrete),
                                         int(quiet),int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
-    def load_brick(*arg,**kw):
-        _self = kw.get('_self',cmd)
+    def load_brick(*arg, _self=cmd, **kw):
         '''
     Temporary routine for GAMESS-UK project.
     '''
@@ -214,22 +214,21 @@ PYMOL API
         lst.extend(list(arg))
         return _self.load_object(*lst, **kw)
 
-    def load_map(*arg,**kw):
-        _self = kw.get('_self',cmd)
+    def load_map(*arg, _self=cmd, **kw):
         '''
     Temporary routine for the Phenix project.
     '''
 
-        lst = [loadable.map]
+        lst = [loadable.chempymap]
         lst.extend(list(arg))
         return _self.load_object(*lst, **kw)
 
-    def space(space="", gamma=1.0, quiet=0, _self=cmd):
+    def space(space="", gamma=1.0, quiet=0, *, _self=cmd):
         '''
 DESCRIPTION
 
     "space" selects a color palette (or color space).
-
+    
 USAGE
 
     space space [, gamma]
@@ -239,7 +238,7 @@ ARGUMENTS
     space = rgb, cmyk, or pymol: {default: rgb}
 
     gamma = floating point gamma transformation
-
+    
 EXAMPLES
 
     space rgb
@@ -254,7 +253,7 @@ NOTES
     expressed in the CMYK space and vice-versa.  And as a result,
     molecular graphics images prepared using RGB often turn out poorly
     when converted to CMYK, with purplish blues or yellowish greens.
-
+    
     "space cmyk" forces PyMOL to restrict its use of the RGB color
     space to subset that can be reliably converted to CMYK using
     common tools such as Adobe Photoshop.  Thus, what you see on the
@@ -271,42 +270,24 @@ NOTES
 PYMOL API
 
     cmd.space(string space, float gamma)
-
+    
 SEE ALSO
 
     color
-
+    
     '''
-        r = DEFAULT_ERROR
-
-        tables = { 'cmyk' : "$PYMOL_DATA/pymol/cmyk.png",
-                   'pymol' : 'pymol',
-                   'rgb' : 'rgb',
-                   'greyscale': 'greyscale' }
-
-        space_auto = space_sc.interpret(space)
-        if (space_auto != None) and not is_list(space_auto):
-            space = space_auto
-
-        if space=="":
+        if space == "":
             filename = ""
         else:
-            filename = tables.get(space.lower(),"")
-            if filename == "":
-                print("Error: unknown color space '%s'."%space)
-                filename = None
-        if filename!=None:
-            try:
-                if filename!="":
-                    filename = _self.exp_path(filename)
-                _self.lock(_self)
-                r = _cmd.load_color_table(_self._COb,str(filename),float(gamma),int(quiet))
-            finally:
-                _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
+            space = pymol.constants.space_sc.auto_err(space.lower(), 'space')
+            filename = pymol.constants.space_dict[space]
+            filename = _self.exp_path(filename)
 
-    def load_callback(*arg,**kw):
+        with _self.lockcm:
+            return _cmd.load_color_table(_self._COb, filename, float(gamma),
+                                         int(quiet))
+
+    def load_callback(*arg, _self=cmd):
         '''
 DESCRIPTION
 
@@ -319,12 +300,11 @@ PYMOL API
     cmd.load_callback(object,name,state,finish,discrete)
 
     '''
-        _self = kw.get('_self',cmd)
         lst = [loadable.callback]
         lst.extend(list(arg))
         return _self.load_object(*lst)
 
-    def load_cgo(*arg,**kw):
+    def load_cgo(*arg, _self=cmd, **kw):
         '''
 DESCRIPTION
 
@@ -337,14 +317,13 @@ PYMOL API
     cmd.load_cgo(object,name,state,finish,discrete)
 
     '''
-        _self = kw.get('_self',cmd)
         lst = [loadable.cgo]
         lst.extend(list(arg))
         if not is_list(lst[1]):
            lst[1] = list(lst[1])
         return _self.load_object(*lst, **kw)
 
-    def load_model(*arg,**kw):
+    def load_model(*arg, _self=cmd, **kw):
         '''
 DESCRIPTION
 
@@ -354,15 +333,13 @@ PYMOL API
 
     cmd.load_model(model, object [,state [,finish [,discrete ]]])
         '''
-        _self = kw.get('_self',cmd)
         lst = [loadable.model]
         lst.extend(list(arg))
         return _self.load_object(*lst, **kw)
 
-
-    def load_traj(filename,object='',state=0,format='',interval=1,
+    def load_traj(filename,object='',state=1,format='',interval=1,
                       average=1,start=1,stop=-1,max=-1,selection='all',image=1,
-                      shift="[0.0,0.0,0.0]",plugin="",_self=cmd):
+                      shift="[0.0,0.0,0.0]",plugin="", *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -377,11 +354,37 @@ USAGE
                              [,start [,stop [,max [,selection [,image [,shift
                              ]]]]]]]]]
 
-PYMOL API
+ARGUMENTS
 
-    cmd.load_traj(filename,object='',state=0,format='',interval=1,
-                  average=1,start=1,stop=-1,max=-1,selection='all',image=1,
-                  shift="[0.0,0.0,0.0]")
+    filename = str: path to trajectory file
+
+    object = str: name of the molecular object where the trajectory should be
+    appended as states {default: guess from filename or last object in list}
+
+    state = int: first object state to populate, or 0 to append after
+    last state {default: 1}
+
+    format = str: file format {default: guess from extension}
+
+    interval = int: interval to take frames from file {default: 1}
+
+    average = int: ? (trj only, possibly broken)
+
+    start = int: first frame to load from file {default: 1}
+
+    stop = int: last frame to load from file, or -1 to load all {default: -1}
+
+    max = int: maximum number of states to load, or 0 to load all {default: 0}
+
+    selection = str: atom selection to only load a subset of coordinates
+    {default: all}
+
+    image = 0/1: residue-based period image transformation (trj only)
+
+    shift = float-3: offset for image transformation {default: (0,0,0}
+
+    plugin = str: name of VMD plugin to use {default: guess from magic string
+    of from format}
 
 NOTES
 
@@ -398,9 +401,7 @@ SEE ALSO
 
     load
         '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
+        with _self.lockcm:
             ftype = -1
             state = int(state)
             interval = int(interval)
@@ -432,10 +433,7 @@ SEE ALSO
 
             if not plugin:
                 if format == 'trj':
-                    if check_gromacs_trj_magic(fname):
-                        plugin = "trj"
-                    else:
-                        ftype = loadable.trj
+                    plugin, ftype = check_trj_magic(fname)
                 else:
                     try:
                         ftype = int(format)
@@ -449,160 +447,17 @@ SEE ALSO
                 if not len(oname): # safety
                     oname = 'obj01'
 
-            if (ftype>=0 or plugin):
-                r = _cmd.load_traj(_self._COb,str(oname),fname,int(state)-1,int(ftype),
+            if ftype < 0 and not plugin:
+                raise pymol.CmdException("unknown format '%s'" % format)
+
+            return _cmd.load_traj(_self._COb, str(oname), fname, int(state) - 1, int(ftype),
                                          int(interval),int(average),int(start),
                                          int(stop),int(max),str(selection),
                                          int(image),
                                          float(shift[0]),float(shift[1]),
                                          float(shift[2]),str(plugin))
 
-            else:
-                raise pymol.CmdException("unknown format '%s'" % format)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-
-        return r
-
-
-    def mda_load(filename, label=None):
-        if filename.endswith('.pse'):
-            # load PyMOL session .pse
-            load(filename)
-
-            # load MDAnalysis session
-            # .mse stands for MDAnalysis sessions
-            corresponding_mse = os.path.splitext(filename)[0] + '.mse'
-            metadata = open(corresponding_mse).read()
-            MDAnalysisManager.fromJSON(metadata)
-
-            GraphManager.update_menu()
-
-            return
-
-
-        # fixme - temporary hack: we want the user to use mda_load for only a single frame
-        # otherwise PyMOL will try to read all frames, which could overload the RAM memory
-        tmp = mda.Universe(filename)
-        if len(tmp.trajectory) > 1:
-            raise Exception('mda_load has to be used with a single frame topology (it cannot read a trajectory)')
-        # fixme - end of a temporary hack
-
-        cmd.get_unused_name('obj')
-
-        # Load with PyMOL the same file
-        cmd.load(filename)
-        # Get the label used for the simulation
-        if not label:
-            label = cmd.get_object_list()[-1]
-        # Otherwise the Atom Names are rearranged (which would break everything)
-        cmd.set('retain_order', 1, label)
-        # Load with MDAnalysis too
-        MDAnalysisManager.load(label, filename)
-
-        # check if MDAnalysis selection names are available for this file
-        selections_names = SelectionHistoryManager.getSelectionsLabels(filename)
-        if len(selections_names) != 0:
-            from PyQt5 import uic, QtWidgets
-            # fixme - this path should not be done this way
-            historydialogui_path = os.path.join(os.path.split(os.path.dirname(__file__))[0], 'pmg_qt', 'forms',
-                                                'historydialog.ui')
-            window = uic.loadUi(historydialogui_path)
-            for selname in selections_names:
-                window.listWidget.addItem(selname)
-
-            def deletePressed(window=window, topfilepath=filename):
-                # extract the row numbers and the selected labels
-                items = [(item.row(), item.data()) for item in window.listWidget.selectedIndexes()]
-                # sort the indexes from the largest to the smallest to remove them correctly
-                items.sort(reverse=True)
-
-                for row_no, sel_text in items:
-                    # remove it from the database
-                    SelectionHistoryManager.deleteMdaSelection(topfilepath, sel_text)
-                    # remove from the view
-                    window.listWidget.takeItem(row_no)
-            window.deleteButton.pressed.connect(deletePressed)
-
-            def applyPressed(window=window):
-                # recreate the selections from the previous user work
-                for item in window.listWidget.selectedItems():
-                    new_label = item.text()
-                    atom_sel = SelectionHistoryManager.getMdaSelection(filename, new_label)
-                    # reapply the selection with MDAnalysis
-                    MDAnalysisManager.select(label, new_label, atom_sel)
-                window.accept()
-            window.buttonBox.button(QtWidgets.QDialogButtonBox.Apply).pressed.connect(applyPressed)
-
-            window.exec_()
-
-        return None
-
-
-    def mda_load_traj(filename, label=None, interval=1, start=1, stop=-1,selection='all',_self=cmd):
-        filename = unquote(filename)
-
-        noext, ext, format_guessed, zipped = filename_to_format(filename)
-        # get object name
-        if not label:
-            label = _guess_trajectory_object(noext, _self)
-            if not len(label):  # safety
-                label = 'obj01'
-
-        MDAnalysisManager.loadTraj(label, filename)
-
-        # None means that the trajectory was loaded successfully (?)
-        # Based on "load_traj"
-        return None
-
-
-    # MPP
-    def mda_rmsd(label, selection="backbone", pylustrator=False):
-        '''
-     DESCRIPTION
-
-         "mda_rmsd" computes RMSD for the label, saves and plots the data. If the selection is not provided,
-         all atoms are used for both, the finding and quantification of the RMSD.
-
-     USAGE
-
-         mda_rmsd label, [selection]
-
-     PYMOL API
-
-         cmd.mda_rmsd(label)
-         cmd.mda_rmsd(label, selection='backbone')
-
-     NOTES
-
-         This is a prototype that relies on MDAnalysis.
-        '''
-
-        from MDAnalysis.analysis.rms import RMSD
-        from .mda_graph_manager import GraphManager
-        #from .mdanalysis_manager import MDAnalysisManager
-
-        if MDAnalysisManager.SESSION is None:
-            print('Error: session not saved. ')
-            print('Please use mda_save to create a session first. ')
-            print('Otherwise the graphs cannot be saved. ')
-            return
-
-        atom_group = MDAnalysisManager.getSystem(label)
-        sel = atom_group.select_atoms(selection)
-        R = RMSD(sel, sel,# superimpose on whole backbone of the whole protein
-                 # select=selection,
-                 )
-        R.run()
-
-        GraphManager.save_graph(label, R.rmsd, GraphManager.GRAPH_TYPES.RMSD.name)
-        GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSD.name, pylustrator)
-
-        return None
-
-
-    def _processALN(fname,quiet=1,_self=cmd):
+    def _processALN(fname,quiet=1, *, _self=cmd):
         legal_dict = {}
         seq_dict = {}
         seq_order = []
@@ -626,7 +481,7 @@ SEE ALSO
             raw_seq = seq_dict[key].replace('-','')
             _self.fab(raw_seq, key, quiet=quiet)
 
-    def _processFASTA(fname, oname, quiet=1, _self=cmd):
+    def _processFASTA(fname, oname, quiet=1, *, _self=cmd):
         legal_dict = {}
         seq_dict = {}
         seq_order = []
@@ -651,16 +506,18 @@ SEE ALSO
 
                     seq_dict[key] = seq_dict.get(key,'') + seq
         for key in seq_order:
-            raw_seq = seq_dict[key].replace('-','')
+            raw_seq = seq_dict.get(key, '').replace('-','')
+            if not raw_seq:
+                colorprinting.warning(f'Empty sequence for key "{key}"')
+                continue
             _self.fab(raw_seq, key, quiet=quiet)
 
-    def _processPWG(fname,_self=cmd):
+    def _processPWG(fname, *, _self=cmd):
         r = DEFAULT_ERROR
 
-        if sys.version_info[0] < 3:
-            import urllib
-        else:
-            import urllib.request as urllib
+        import urllib.request as urllib
+
+        import shlex
 
         try:
             from .pymolhttpd import PymolHttpd
@@ -671,6 +528,7 @@ SEE ALSO
             root = None
             port = 0
             wrap_native = 0
+            headers = []
             if '://' in fname:
                 lines = urllib.urlopen(fname).readlines()
             else:
@@ -685,6 +543,11 @@ SEE ALSO
                             if len(input)>1:
                                 port = int(input[1].strip())
                                 launch_flag = 1
+                        elif keyword == 'header':
+                            a = shlex.split(input[1])
+                            if len(a) != 3 or a[0] != 'add' or a[1].endswith(':'):
+                                raise ValueError('header command must be: header add Some-Key "some value"')
+                            headers.append(a[1:])
                         elif keyword == 'logging':
                             if len(input)>1:
                                 logging = int(input[1].strip())
@@ -711,7 +574,7 @@ SEE ALSO
                                         mod.__launch__(_self)
                                         r = DEFAULT_SUCCESS
                                 except:
-                                    traceback.print_exc()
+                                    colorprinting.print_exc()
                                     print("Error: unable to launch web application'%s'."%mode_name)
                         elif keyword == 'report':
                             if len(input)>1:
@@ -726,7 +589,7 @@ SEE ALSO
                         else:
                             print("Error: unrecognized input:  %s"%str(input))
             if launch_flag:
-                server = PymolHttpd(port,root,logging,wrap_native)
+                server = PymolHttpd(port,root,logging,wrap_native,headers=headers)
                 if port == 0:
                     port = server.port # get the dynamically assigned port number
                 server.start()
@@ -736,7 +599,7 @@ SEE ALSO
                     r = DEFAULT_SUCCESS
                 else:
                     r = DEFAULT_SUCCESS
-                if report_url != None: # report port back to server url (is this secure?)
+                if report_url is not None: # report port back to server url (is this secure?)
                     try:
                         report_url = report_url + str(port)
                         print(" Reporting back pymol port via: '%s'"%report_url)
@@ -744,7 +607,7 @@ SEE ALSO
                     except:
                         print(" Report attempt may have failed.")
         except ImportError:
-            traceback.print_exc()
+            colorprinting.print_exc()
 
         if is_error(r):
             print("Error: unable to handle PWG file")
@@ -778,7 +641,7 @@ SEE ALSO
 
     def load(filename, object='', state=0, format='', finish=1,
              discrete=-1, quiet=1, multiplex=None, zoom=-1, partial=0,
-             mimic=1, object_props=None, atom_props=None, _self=cmd):
+             mimic=1, object_props=None, atom_props=None, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -802,8 +665,8 @@ ARGUMENTS
     the content should be loaded, or 0 for append {default:0}
 
     format = pdb, ccp4, etc. {default: use file extension}): format of
-    data file
-
+    data file    
+    
 EXAMPLES
 
     load 1dn2.pdb
@@ -811,7 +674,7 @@ EXAMPLES
     load file001.pdb, ligand
 
     load http://delsci.com/sample.pdb
-
+    
 NOTES
 
     The file extension is used to determine the format unless the
@@ -837,28 +700,21 @@ PYMOL API
     cmd.load(string filename, string object-name, integer state,
              string format, int finish, int discrete, int quiet,
              int multiplex, int zoom, int partial)
-
+    
 SEE ALSO
 
     save, load_traj, fetch
         '''
-        r = DEFAULT_ERROR
         if object_props or atom_props:
             print(' Warning: properties are not supported in Open-Source PyMOL')
-        try:
-            _self.lock(_self)
+        with _self.lockcm:
             plugin = ''
             state = int(state)
             finish = int(finish)
             zoom = int(zoom)
             discrete = int(discrete)
-            if multiplex==None:
+            if multiplex is None:
                 multiplex=-2
-
-            filename = unquote(filename)
-
-            # analyze filename
-            noext, ext, format_guessed, zipped = filename_to_format(filename)
 
             # file format
             try:
@@ -867,6 +723,22 @@ SEE ALSO
                 format = loadable._reverse_lookup(format)
             except ValueError:
                 format = str(format)
+                ftype = getattr(_loadable, format, -1)
+
+            if ftype in _self._load2str.values():
+                assert format.endswith('str')
+                colorprinting.warning(
+                    ' cmd.load(format="{}") is deprecated, use cmd.load_raw(format="{}")'
+                    .format(format, format[:-3]))
+                return _self.load_raw(filename, format[:-3], object, state,
+                        finish, discrete, quiet, multiplex, zoom)
+
+            filename = unquote(filename)
+
+            # analyze filename
+            noext, ext, format_guessed, zipped = filename_to_format(filename)
+
+            if ftype == -1:
                 if not format:
                     format = format_guessed
                 elif format.startswith('plugin'):
@@ -877,8 +749,7 @@ SEE ALSO
                     format = 'model' # legacy
                 ftype = getattr(_loadable, format, -1)
 
-            if ftype not in _self._load2str.values():
-                filename = _self.exp_path(filename)
+            filename = _self.exp_path(filename)
 
             # object name
             object = str(object).strip()
@@ -897,8 +768,10 @@ SEE ALSO
                 ftype = loadable.plugin
 
             # special handling for trj files (autodetect AMBER versus GROMACS)
-            if ftype == loadable.trj and check_gromacs_trj_magic(filename):
-                ftype = loadable.trj2
+            if ftype == loadable.trj:
+                plugin, ftype = check_trj_magic(filename)
+                if plugin:
+                    plugin += ':2'  # cPlugIOManager_traj
 
             # special handling for cdr files (autodetect AMBER versus CHARMM)
             if ftype == loadable.crd and _magic_check_cor_charmm(filename):
@@ -906,9 +779,9 @@ SEE ALSO
                 plugin = 'cor'
 
             # generic forwarding to format specific load functions
-            func = loadfunctions.get(format, _load)
+            func = loadfunctions.get(format, pymol.internal._load)
             func = _eval_func(func)
-            kw = {
+            kw_all = {
                 'filename': filename,
                 'fname': filename, # alt
                 'object': object,
@@ -934,25 +807,27 @@ SEE ALSO
             }
 
             import inspect
-            spec = inspect.getargspec(func)
+            sig = inspect.signature(func, follow_wrapped=False)
+            kw = {}
 
-            if spec.varargs:
-                print('FIXME: loadfunctions[%s]: *args' % (format))
+            for n, param in sig.parameters.items():
+                if param.kind == inspect.Parameter.VAR_KEYWORD:
+                    kw = kw_all
+                    break
 
-            if not spec.keywords:
-                kw = dict((n, kw[n]) for n in spec.args if n in kw)
+                if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                    print('FIXME: loadfunctions[%s]: *args' % (format))
+                elif param.kind == inspect.Parameter.POSITIONAL_ONLY:
+                    raise Exception('positional-only arguments not supported')
+                elif n in kw_all:
+                    kw[n] = kw_all[n]
 
-            if 'contents' in spec.args:
+            if 'contents' in sig.parameters:
                 kw['contents'] = _self.file_read(filename)
 
             return func(**kw)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
-
-    def load_pse(filename, partial=0, quiet=1, format='pse', _self=cmd):
+    def load_pse(filename, partial=0, quiet=1, format='pse', *, _self=cmd):
         try:
             contents = _self.file_read(filename)
             session = io.pkl.fromString(contents)
@@ -981,7 +856,7 @@ SEE ALSO
 
     def load_embedded(key=None, name=None, state=0, finish=1, discrete=1,
                       quiet=1, zoom=-1, multiplex=-2, object_props=None,
-                      atom_props=None, _self=cmd):
+                      atom_props=None, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -990,7 +865,7 @@ DESCRIPTION
 
 USAGE
 
-    load_embedded [ key [, name [, state [, finish [, discrete [, quiet ]]]]]]
+    load_embedded [ key [, name [, state [, finish [, discrete [, quiet ]]]]]]        
 
 EXAMPLE
 
@@ -1008,12 +883,12 @@ EXAMPLE
 NOTES
 
     This approach only works with text data files.
-
+    
     '''
         if object_props or atom_props:
             print(' Warning: properties are not supported in Open-Source PyMOL')
         list = _self._parser.get_embedded(key)
-        if list == None:
+        if list is None:
             print("Error: embedded data '%s' not found."%key)
             return DEFAULT_ERROR
 
@@ -1023,29 +898,45 @@ NOTES
         return _self.load_raw(''.join(list[1]), list[0], name, state,
                 finish, discrete, quiet, multiplex, zoom)
 
-    def load_raw(content,  format='', object='', state=0, finish=1,
-                 discrete=-1, quiet=1, multiplex=None, zoom=-1,_self=cmd):
-        r = DEFAULT_ERROR
-        if multiplex==None:
+    def load_raw(content, format, object='', state=0, finish=1,
+                 discrete=-1, quiet=1, multiplex=None, zoom=-1, *, _self=cmd):
+        '''
+DESCRIPTION
+
+    API-only function for loading data from memory.
+
+EXAMPLE
+
+    contents = open('example.mmtf', 'rb').read()
+    cmd.load_raw(contents, 'mmtf')
+        '''
+        if multiplex is None:
             multiplex=-2
         ftype = getattr(loadable, format, None)
-        if True:
-            _raw_dict = cmd._load2str
-            if ftype in _raw_dict:
-                try:
-                    _self.lock(_self)
-                    r = _cmd.load(_self._COb,str(object),str(content),int(state)-1,
-                                  _raw_dict[ftype],int(finish),int(discrete),
+        if ftype is None:
+            assert format not in ('cif', 'mmtf', 'pdb', 'dx')
+
+            if not isinstance(content, bytes):
+                content = content.encode("utf-8")
+
+            import tempfile
+            fd, filename = tempfile.mkstemp()
+            try:
+                os.write(fd, content)
+                os.close(fd)
+                return _self.load(filename, object, state, format, finish,
+                                  discrete, quiet, multiplex, zoom)
+            finally:
+                os.unlink(filename)
+
+        with _self.lockcm:
+            return _cmd.load(_self._COb, str(object), None, content,
+                    int(state) - 1, cmd._load2str.get(ftype, ftype),
+                    int(finish), int(discrete),
                                   int(quiet),int(multiplex),int(zoom))
-                finally:
-                    _self.unlock(r,_self)
-            else:
-                raise pymol.CmdException("unknown raw format '%s'", format)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
     def read_sdfstr(sdfstr,name,state=0,finish=1,discrete=1,quiet=1,
-                    zoom=-1,multiplex=-2,object_props=None,_self=cmd):
+                    zoom=-1,multiplex=-2,object_props=None, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1068,21 +959,15 @@ NOTES
     no overlapping atoms in the file being loaded.  "discrete"
     objects save memory but can not be edited.
         '''
-        r = DEFAULT_ERROR
         if object_props:
             print(' Warning: properties are not supported in Open-Source PyMOL')
-        try:
-            _self.lock(_self)
-            r = _cmd.load(_self._COb,str(name),str(sdfstr),int(state)-1,
+        with _self.lockcm:
+            return _cmd.load(_self._COb, str(name), None, sdfstr, int(state) - 1,
                               loadable.sdf2str,int(finish),int(discrete),
                               int(quiet),int(multiplex),int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
     def read_molstr(molstr,name,state=0,finish=1,discrete=1,quiet=1,
-                         zoom=-1,_self=cmd):
+                         zoom=-1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1105,16 +990,11 @@ NOTES
     no overlapping atoms in the file being loaded.  "discrete"
     objects save memory but can not be edited.
         '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
-            r = _cmd.load(_self._COb,str(name),str(molstr),int(state)-1,
+        with _self.lockcm:
+            return _cmd.load(_self._COb, str(name), None, molstr,
+                          int(state) - 1,
                           loadable.molstr,int(finish),int(discrete),
                           int(quiet),0,int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
     def read_mmodstr(content, name, state=0, quiet=1, zoom=-1, _self=cmd, **kw):
         '''
@@ -1124,19 +1004,13 @@ DESCRIPTION
     string.
 
     '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
-            r = _cmd.load(_self._COb, str(name).strip(), str(content),
+        with _self.lockcm:
+            return _cmd.load(_self._COb, str(name), None, content,
                     int(state)-1, loadable.mmodstr, 1, 1, int(quiet), 0,
                     int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
     def read_pdbstr(contents, oname, state=0, finish=1, discrete=0, quiet=1,
-            zoom=-1, multiplex=-2, object_props=None, _self=cmd):
+            zoom=-1, multiplex=-2, object_props=None, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1146,7 +1020,7 @@ DESCRIPTION
 
 PYMOL API ONLY
 
-    cmd.read_pdbstr( string pdb-content, string object name
+    cmd.read_pdbstr( string pdb-content, string object name 
         [ ,int state [ ,int finish [ ,int discrete ] ] ] )
 
 NOTES
@@ -1161,21 +1035,15 @@ NOTES
     no overlapping atoms in the PDB files being loaded.  "discrete"
     objects save memory but can not be edited.
     '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
-            ftype = loadable.pdbstr
-            pdb = contents
-            r = _cmd.load(_self._COb,str(oname),pdb,int(state)-1,int(ftype),
+        with _self.lockcm:
+            r = _cmd.load(_self._COb, str(oname), None, contents,
+                    int(state) - 1, loadable.pdbstr,
                               int(finish),int(discrete),int(quiet),
                               int(multiplex),int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
     def read_mol2str(mol2,name,state=0,finish=1,discrete=0,
-                          quiet=1,zoom=-1,multiplex=-2,_self=cmd):
+                          quiet=1,zoom=-1,multiplex=-2, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1185,7 +1053,7 @@ DESCRIPTION
 
 PYMOL API ONLY
 
-    cmd.read_mol2str( string mol2-content, string object name
+    cmd.read_mol2str( string mol2-content, string object name 
         [ ,int state [ ,int finish [ ,int discrete ] ] ] )
 
 NOTES
@@ -1200,21 +1068,15 @@ NOTES
     no overlapping atoms in the MOL2 files being loaded.  "discrete"
     objects save memory but can not be edited.
     '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
-            ftype = loadable.mol2str
-            oname = str(name).strip()
-            r = _cmd.load(_self._COb,str(oname),mol2,int(state)-1,int(ftype),
+        with _self.lockcm:
+            return _cmd.load(_self._COb, str(name), None, mol2,
+                    int(state) - 1, loadable.mol2str,
                               int(finish),int(discrete),int(quiet),
                               int(multiplex),int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
+
 
     def read_xplorstr(xplor,name,state=0,finish=1,discrete=0,
-                            quiet=1,zoom=-1,_self=cmd):
+                            quiet=1,zoom=-1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1224,7 +1086,7 @@ DESCRIPTION
 
 PYMOL API ONLY
 
-    cmd.read_xplorstr( string xplor-content, string object name
+    cmd.read_xplorstr( string xplor-content, string object name 
         [ ,int state ] )
 
 NOTES
@@ -1232,20 +1094,13 @@ NOTES
     "state" is a 1-based state index for the object.
 
     '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
-            ftype = loadable.xplorstr
-            oname = str(name).strip()
-            r = _cmd.load(_self._COb,str(oname),xplor,int(state)-1,int(ftype),
+        with _self.lockcm:
+            return _cmd.load(_self._COb, str(name), None, xplor,
+                    int(state) - 1, loadable.xplorstr,
                               int(finish),int(discrete),int(quiet),
                               0,int(zoom))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
-    def finish_object(name,_self=cmd):
+    def finish_object(name, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1260,46 +1115,41 @@ PYMOL API
 
     "name" should be the name of the object
         '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
+        with _self.lockcm:
             r = _cmd.finish_object(_self._COb,name)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
     fetchHosts = {
-        "pdb"  : "http://ftp.wwpdb.org/pub/pdb",
-        "pdbe" : "ftp://ftp.ebi.ac.uk/pub/databases/pdb",
-        "pdbj" : "ftp://ftp.pdbj.org/pub/pdb",
+        "pdb"  : "https://ftp.wwpdb.org/pub/pdb",
+        "pdbe" : "https://ftp.ebi.ac.uk/pub/databases/pdb",
+        "pdbj" : "http://ftp.pdbj.org/pub/pdb",
     }
 
     hostPaths = {
-        "mmtf" : "http://mmtf.rcsb.org/v1.0/full/{code}.mmtf.gz",
+        "mmtf" : "https://mmtf.rcsb.org/v1.0/full/{code}.mmtf.gz",
         "bio"  : [
-            "http://files.rcsb.org/download/{code}.{type}.gz",
+            "https://files.rcsb.org/download/{code}.{type}.gz",
             "/data/biounit/coordinates/divided/{mid}/{code}.{type}.gz",
         ],
         "pdb"  : [
-            "http://files.rcsb.org/download/{code}.{type}.gz",
+            "https://files.rcsb.org/download/{code}.{type}.gz",
             "/data/structures/divided/pdb/{mid}/pdb{code}.ent.gz",
         ],
         "cif"  : [
-            "http://files.rcsb.org/download/{code}.{type}.gz",
+            "https://files.rcsb.org/download/{code}.{type}.gz",
             "/data/structures/divided/mmCIF/{mid}/{code}.cif.gz",
-            "http://ftp-versioned.wwpdb.org/pdb_versioned/views/latest/coordinates/mmcif/{mid}/pdb_{code:0>8}/pdb_{code:0>8}_xyz.cif.gz",
+            "https://ftp-versioned.wwpdb.org/pdb_versioned/views/latest/coordinates/mmcif/{mid}/pdb_{code:0>8}/pdb_{code:0>8}_xyz.cif.gz",
         ],
         "2fofc" : "https://www.ebi.ac.uk/pdbe/coordinates/files/{code}.ccp4",
         "fofc" : "https://www.ebi.ac.uk/pdbe/coordinates/files/{code}_diff.ccp4",
         "pubchem": [
-            "http://pubchem.ncbi.nlm.nih.gov/summary/summary.cgi?{type}={code}&disopt=3DSaveSDF",
-            "http://pubchem.ncbi.nlm.nih.gov/summary/summary.cgi?{type}={code}&disopt=SaveSDF",
+            "https://pubchem.ncbi.nlm.nih.gov/summary/summary.cgi?{type}={code}&disopt=3DSaveSDF",
+            "https://pubchem.ncbi.nlm.nih.gov/summary/summary.cgi?{type}={code}&disopt=SaveSDF",
         ],
-        "emd": "ftp://ftp.wwpdb.org/pub/emdb/structures/EMD-{code}/map/emd_{code}.map.gz",
+        "emd": "/../emdb/structures/EMD-{code}/map/emd_{code}.map.gz",
         "cc": [
-            "http://files.rcsb.org/ligands/download/{code}.cif",
-            "ftp://ftp.ebi.ac.uk/pub/databases/msd/pdbechem/files/mmcif/{code}.cif",
+            "https://files.rcsb.org/ligands/download/{code}.cif",
+            "https://ftp.ebi.ac.uk/pub/databases/msd/pdbechem_v2/{code:.1}/{code}/{code}.cif",
         ],
     }
 
@@ -1313,7 +1163,7 @@ PYMOL API
         discrete = bool: make discrete multi-state object
         multiplex = bool: split states into objects (like split_states)
         zoom = int: zoom to new loaded object
-        type = str: fofc, 2fofc, pdb, pdb1, ...
+        type = str: fofc, 2fofc, pdb, pdb1, ... 
         path = str: fetch_path
         file = str or file: file name or open file handle
         '''
@@ -1408,10 +1258,10 @@ PYMOL API
             r = _self.read_pdbstr(contents, name, state,
                     finish, discrete, quiet, zoom, multiplex)
         elif contents and bioType in ('cif', 'cc'):
-            r = _self.load(contents, name, state, loadable.cifstr,
+            r = _self.load_raw(contents, 'cif', name, state,
                     finish, discrete, quiet, multiplex, zoom)
         elif contents and bioType in ('mmtf',):
-            r = _self.load(contents, name, state, loadable.mmtfstr,
+            r = _self.load_raw(contents, 'mmtf', name, state,
                     finish, discrete, quiet, multiplex, zoom)
 
         if not _self.is_error(r):
@@ -1456,8 +1306,13 @@ PYMOL API
                     obj_name = 'emd_' + obj_code
 
             chain = None
-            if len(obj_code) in (5,6) and type in ('pdb', 'cif', 'mmtf'):
-                obj_code, chain = obj_code[:4], obj_code[-1]
+            if (len(obj_code) > 4 and type in ('pdb', 'cif', 'mmtf') and
+                    # "Extended PDB accession codes" have 8 characters,
+                    # try to distinguish by leading non-zero digit
+                    '1' <= obj_code[0] <= '9'):
+                obj_code, chain = obj_code[:4], obj_code[4:]
+                if chain[0] in ('.', '_', '-', ':'):
+                    chain = chain[1:]
 
             obj_name = _self.get_legal_name(obj_name)
 
@@ -1506,7 +1361,7 @@ PYMOL API
     cmd.fetch(string code, string name, int state, init finish,
               int discrete, int multiplex, int zoom, string type,
               int async, string path, string file, int quiet)
-
+              
 NOTES
 
     When running in interactive mode, the fetch command loads
@@ -1518,7 +1373,7 @@ NOTES
 
     Fetch requires a direct connection to the internet and thus may
     not work behind certain types of network firewalls.
-
+    
         '''
         state, finish, discrete = int(state), int(finish), int(discrete)
         multiplex, zoom = int(multiplex), int(zoom)
@@ -1539,13 +1394,13 @@ NOTES
             _self.async_(_multifetch, *args, **kwargs)
         else:
             try:
-                _self.block_flush(_self)
+                _self.block_flush()
                 r = _multifetch(*args)
             finally:
-                _self.unblock_flush(_self)
+                _self.unblock_flush()
         return r
 
-    def load_coordset(coords, object, state=0, quiet=1, _self=cmd):
+    def load_coordset(coords, object, state=0, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1565,16 +1420,11 @@ SEE ALSO
 
     cmd.load_coords
         '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
+        with _self.lockcm:
             r = _cmd.load_coordset(_self._COb, object, coords, int(state)-1)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
-    def load_coords(coords, selection, state=1, quiet=1, _self=cmd):
+    def load_coords(coords, selection, state=1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1596,7 +1446,7 @@ ARGUMENTS
             r = _cmd.load_coords(_self._COb, selection, coords, int(state)-1)
         return r
 
-    def load_idx(filename, object, state=0, quiet=1, zoom=-1, _self=cmd):
+    def load_idx(filename, object, state=0, quiet=1, zoom=-1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1610,6 +1460,9 @@ DESCRIPTION
             for line in handle:
                 k, v = line.split('=', 1)
                 data[k.strip()] = v.strip()
+
+        if state == 0:
+            state = 1
 
         oname = object
         _self.delete(oname)
@@ -1625,7 +1478,7 @@ DESCRIPTION
         return r
 
     def load_mtz(filename, prefix='', amplitudes='', phases='', weights='None',
-            reso_low=0, reso_high=0, quiet=1, _self=cmd):
+            reso_low=0, reso_high=0, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1684,11 +1537,11 @@ EXAMPLE
                 print(' Warning: group and object arguments given')
                 members = [kwargs['object']]
             else:
-                members = map(filename_to_objectname, filenames)
+                members = map(_self.filename_to_objectname, filenames)
             _self.group(group, ' '.join(members))
 
 
-    def load_mmtf(filename, object='', discrete=0, multiplex=0, zoom=-1, quiet=1, _self=cmd):
+    def load_mmtf(filename, object='', discrete=0, multiplex=0, zoom=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -1697,7 +1550,7 @@ DESCRIPTION
         from chempy.mmtf import MmtfReader
 
         if not object:
-            object = filename_to_objectname(filename)
+            object = _self.filename_to_objectname(filename)
 
         data = MmtfReader.from_url(filename)
         models = data.to_chempy(_self.get_setting_int('cif_use_auth'))
@@ -1746,19 +1599,19 @@ DESCRIPTION
                 _self.create(object, tmp, 1, -1, discrete=discrete, zoom=zoom)
                 _self.delete(tmp)
 
-    def load_ply(filename, object, state=0, zoom=-1, _self=cmd):
+    def load_ply(filename, object, state=0, zoom=-1, *, _self=cmd):
         from . import cgo
         obj = cgo.from_plystr(_self.file_read(filename))
         r = _self.load_cgo(obj, object, state, zoom=zoom)
         _self.set('cgo_lighting', 1, object)
         return r
 
-    def load_r3d(filename, object, state=0, zoom=-1, _self=cmd):
+    def load_r3d(filename, object, state=0, zoom=-1, *, _self=cmd):
         from . import cgo
         obj = cgo.from_r3d(filename)
         return _self.load_cgo(obj, object, state, zoom=zoom)
 
-    def load_cc1(filename, object, state=0, _self=cmd):
+    def load_cc1(filename, object, state=0, *, _self=cmd):
         obj = io.cc1.fromFile(filename)
         return _self.load_model(obj, object, state)
 
@@ -1776,11 +1629,12 @@ DESCRIPTION
         'idx': load_idx,
         'pse': load_pse,
         'psw': load_pse,
-        'cex': 'pymol.m4x:readcex',
         'ply': load_ply,
         'r3d': load_r3d,
         'cc1': load_cc1,
         'pdb': read_pdbstr,
+        'stl': 'pymol.lazyio:read_stlstr',
+        'dae': 'pymol.lazyio:read_collada',
 
         # Incentive
         'vis': incentive_format_not_available_func,

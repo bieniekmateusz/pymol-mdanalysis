@@ -51,33 +51,36 @@ int EditorLogState(PyMOLGlobals * G, int pkresi);
 void EditorFavorOrigin(PyMOLGlobals * G, float *v1);
 
 void EditorFree(PyMOLGlobals * G);
-void EditorSetDrag(PyMOLGlobals * G, CObject * obj, int sele, int quiet,
+void EditorSetDrag(PyMOLGlobals * G, pymol::CObject * obj, int sele, int quiet,
                    int state);
 void EditorReadyDrag(PyMOLGlobals * G, int state);
-void EditorPrepareDrag(PyMOLGlobals * G, CObject * obj, int sele, int index,
+void EditorPrepareDrag(PyMOLGlobals * G, pymol::CObject * obj, int sele, int index,
                        int state, int mode);
 int EditorDraggingObjectMatrix(PyMOLGlobals *G);
-void EditorDrag(PyMOLGlobals * G, CObject * obj, int index, int mode, int state,
+void EditorDrag(PyMOLGlobals * G, pymol::CObject * obj, int index, int mode, int state,
                 float *pt, float *mov, float *z_dir);
 
 void EditorActivate(PyMOLGlobals * G, int state, int enable_bond);
-CObject *EditorDragObject(PyMOLGlobals * G);
-void EditorReplace(PyMOLGlobals * G, const char *elem, int geom, int valence, const char *name="",
-                   int quiet=1);
-void EditorAttach(PyMOLGlobals * G, const char *elem, int geom, int valence, const char *name,
-                  int quiet);
-void EditorRemove(PyMOLGlobals * G, int hydrogen, int quiet);
-void EditorHFill(PyMOLGlobals * G, int quiet=1);
-void EditorHFix(PyMOLGlobals * G, const char *sele, int quiet);
-void EditorCycleValence(PyMOLGlobals * G, int quiet=1);
+pymol::CObject* EditorDragObject(PyMOLGlobals* G);
+pymol::Result<> EditorReplace(PyMOLGlobals* G, const char* elem, int geom,
+    int valence, const char* name = "", int quiet = 1);
+pymol::Result<> EditorAttach(PyMOLGlobals* G, const char* elem, int geom,
+    int valence, const char* name, int quiet = true);
+pymol::Result<> EditorRemove(
+    PyMOLGlobals* G, int hydrogen = true, int quiet = true);
+pymol::Result<> EditorHFill(PyMOLGlobals * G, int quiet=1);
+pymol::Result<> EditorHFix(
+    PyMOLGlobals* G, const char* sele = "", int quiet = true);
+pymol::Result<> EditorCycleValence(PyMOLGlobals * G, int quiet=1);
 void EditorInactivate(PyMOLGlobals * G);
 
 int EditorIsAnActiveObject(PyMOLGlobals * G, ObjectMolecule * obj);
 
-int EditorSelect(PyMOLGlobals * G, const char *s0, const char *s1, const char *s2, const char *s3, int pkresi,
-                 int pkbond, int quiet);
-int EditorTorsion(PyMOLGlobals * G, float angle);
-int EditorInvert(PyMOLGlobals * G, int quiet);
+pymol::Result<> EditorSelect(PyMOLGlobals* G, const char* s0 = "",
+    const char* s1 = "none", const char* s2 = "none", const char* s3 = "none",
+    int pkresi = false, int pkbond = true, int quiet = true);
+pymol::Result<> EditorTorsion(PyMOLGlobals * G, float angle);
+pymol::Result<> EditorInvert(PyMOLGlobals* G, int quiet = true);
 
 PyObject *EditorAsPyList(PyMOLGlobals * G);
 int EditorFromPyList(PyMOLGlobals * G, PyObject * list);
@@ -94,5 +97,6 @@ int EditorGetScheme(PyMOLGlobals * G);
 void EditorDihedralInvalid(PyMOLGlobals * G, ObjectMolecule * obj);
 
 void EditorInvalidateShaderCGO(PyMOLGlobals * G);
+void EditorRemoveStale(PyMOLGlobals* G);
 
 #endif

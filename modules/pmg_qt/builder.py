@@ -1,6 +1,4 @@
 
-from __future__ import print_function
-
 import itertools, os
 from glob import glob
 
@@ -10,6 +8,7 @@ import pymol._gui
 from .pymol_gl_widget import PyMOLGLWidget
 from pymol.Qt import QtGui, QtCore
 from pymol.Qt import QtWidgets
+from pymol.Qt.utils import PopupOnException
 
 Qt = QtCore.Qt
 
@@ -40,7 +39,7 @@ def undoablemethod(sele):
 
 class ActionWizard(Wizard):
 
-    def __init__(self,_self):
+    def __init__(self, _self=pymol.cmd):
         Wizard.__init__(self,_self)
         self.actionHash = str(self.__class__)
 
@@ -50,7 +49,7 @@ class ActionWizard(Wizard):
     def activateOrDismiss(self):
         activate_flag = 1
         cur_wiz = self.cmd.get_wizard()
-        if cur_wiz != None:
+        if cur_wiz is not None:
             if cur_wiz.__class__ == self.__class__:
                 if cur_wiz.actionHash == self.actionHash:
                     activate_flag = 0
@@ -90,7 +89,7 @@ class ActionWizard(Wizard):
 
 class CleanWizard(ActionWizard):
 
-    def __init__(self,_self):
+    def __init__(self, _self=pymol.cmd):
         self.clean_obj = None
         ActionWizard.__init__(self,_self)
 
@@ -135,7 +134,7 @@ class CleanWizard(ActionWizard):
 
 class SculptWizard(ActionWizard):
 
-    def __init__(self,_self):
+    def __init__(self, _self=pymol.cmd):
         ActionWizard.__init__(self,_self)
         self.sculpt_object = None
 
@@ -157,7 +156,7 @@ class SculptWizard(ActionWizard):
                 print("Error: cannot sculpt more than one object at a time")
 
     def sculpt_deactivate(self):
-        if ((self.sculpt_object != None) and
+        if ((self.sculpt_object is not None) and
             self.sculpt_object in self.cmd.get_names()):
             self.cmd.set("sculpt_vdw_vis_mode","0",self.sculpt_object)
             self.cmd.sculpt_iterate(self.sculpt_object,self.cmd.get_state(),0)
@@ -167,7 +166,7 @@ class SculptWizard(ActionWizard):
             self.cmd.refresh_wizard()
 
     def do_pick(self, bondFlag):
-        if self.sculpt_object == None:
+        if self.sculpt_object is None:
             self.cmd.select(active_sele, "byobj pk1")
             self.sculpt_activate()
         else:
@@ -179,7 +178,7 @@ class SculptWizard(ActionWizard):
                 self.sculpt_activate()
 
     def get_prompt(self):
-        if self.sculpt_object == None:
+        if self.sculpt_object is None:
             return ["Pick object to sculpt..."]
         else:
             return ["Sculpting %s..."%self.sculpt_object]
@@ -229,7 +228,7 @@ class SculptWizard(ActionWizard):
 
 class RepeatableActionWizard(ActionWizard):
 
-    def __init__(self,_self):
+    def __init__(self, _self=pymol.cmd):
         ActionWizard.__init__(self,_self)
         self.repeating = 0
 
@@ -243,7 +242,7 @@ class RepeatableActionWizard(ActionWizard):
     def activateRepeatOrDismiss(self):
         activate_flag = 1
         cur_wiz = self.cmd.get_wizard()
-        if cur_wiz != None:
+        if cur_wiz is not None:
             if cur_wiz.__class__ == self.__class__:
                 if cur_wiz.actionHash == self.actionHash:
                     if cur_wiz.getRepeating():
@@ -303,7 +302,7 @@ class ReplaceWizard(RepeatableActionWizard):
 
 class AttachWizard(RepeatableActionWizard):
 
-    def __init__(self,_self):
+    def __init__(self, _self=pymol.cmd):
         RepeatableActionWizard.__init__(self,_self)
         self.mode = 0
 
@@ -374,9 +373,18 @@ class AttachWizard(RepeatableActionWizard):
 
 class AminoAcidWizard(RepeatableActionWizard):
 
-    def __init__(self,_self):
+    def __init__(self, _self=pymol.cmd, ss=-1):
         RepeatableActionWizard.__init__(self,_self)
         self.mode = 0
+        self.setSecondaryStructure(ss)
+
+    def setSecondaryStructure(self, ss):
+        self._secondary_structure = ss
+
+    def attach_monomer(self, objectname=""):
+         editor.attach_amino_acid("?pk1", self.aminoAcid, object=objectname,
+                ss=self._secondary_structure,
+                 _self=self.cmd)
 
     def do_pick(self, bondFlag):
         # since this function can change any position of atoms in a related
@@ -385,7 +393,7 @@ class AminoAcidWizard(RepeatableActionWizard):
             self.cmd.select(active_sele, "bymol pk1")
             try:
                 with undocontext(self.cmd, "bymol ?pk1"):
-                    editor.attach_amino_acid("pk1", self.aminoAcid, _self=self.cmd)
+                    self.attach_monomer(self.aminoAcid)
             except QuietException:
                 fin = -1
         elif self.mode == 1:
@@ -411,7 +419,8 @@ class AminoAcidWizard(RepeatableActionWizard):
             if name not in names:
                 break
             num = num + 1
-        editor.attach_amino_acid("pk1", self.aminoAcid, object=name, _self=self.cmd)
+        self.attach_monomer(self.aminoAcid)
+
         if not self.getRepeating():
             self.actionWizardDone()
 
@@ -502,7 +511,7 @@ class ChargeWizard(RepeatableActionWizard):
 
     @undoablemethod("bymol ?pk1")
     def do_pick(self, bondFlag):
-        self.cmd.select(active_sele, "bymol pk1") 
+        self.cmd.select(active_sele, "bymol pk1")
         self.cmd.alter("pk1","formal_charge=%s" % self.charge)
         self.cmd.h_fill()
         if abs(float(self.charge))>0.0001:
@@ -541,6 +550,7 @@ class ChargeWizard(RepeatableActionWizard):
 
 class InvertWizard(RepeatableActionWizard):
 
+    @PopupOnException.decorator
     def do_pick(self, bondFlag):
         self.cmd.select(active_sele, "bymol pk1")
         picked = collectPicked(self.cmd)
@@ -832,10 +842,10 @@ class AtomFlagWizard(ActionWizard):
     def do_less(self,mode):
         if active_sele in self.cmd.get_names("selections"):
             if mode == 0:
-                self.cmd.flag(self.flag,"(( byobj " + active_sele + 
+                self.cmd.flag(self.flag,"(( byobj " + active_sele +
                               " ) and not flag %d) extend 1"%self.flag,"clear")
             elif mode == 1:
-                self.cmd.flag(self.flag,"byres ((( byobj " + active_sele + 
+                self.cmd.flag(self.flag,"byres ((( byobj " + active_sele +
                               " ) and not flag %d) extend 1)"%self.flag,"clear")
             self.update_display()
 
@@ -1001,8 +1011,8 @@ class _BuilderPanel(QtWidgets.QWidget):
               ("Cl", "Chlorrine", lambda: self.replace("Cl",1,1, "Chlorine")),
               ("Br", "Bromine", lambda: self.replace("Br",1,1, "Bromine")),
               ("I", "Iodine", lambda: self.replace("I",1,1, "Iodine")),
-              ("-CF3", "Trifluoromethane", lambda: self.replace("trifluoromethane",4,0, "trifluoro")),
-              ("-OMe", "Methanol", lambda: self.replace("methanol",5,0, "methoxy")),
+              ("-CF3", "Trifluoromethane", lambda: self.grow("trifluoromethane",4,0, "trifluoro")),
+              ("-OMe", "Methanol", lambda: self.grow("methanol",5,0, "methoxy")),
             ],
             [ ("CH4", "Methyl", lambda: self.grow("methane",1,0,"methyl")),
               ("C=C", "Ethylene", lambda: self.grow("ethylene",4,0,"vinyl")),
@@ -1070,6 +1080,7 @@ class _BuilderPanel(QtWidgets.QWidget):
         self.ss_cbox.addItem("Beta Sheet (Parallel)")
         self.protein_layout.addWidget(lab, 2, 0, 1, lab_cols)
         self.protein_layout.addWidget(self.ss_cbox, 2, lab_cols, 1, 4)
+        self.ss_cbox.currentIndexChanged[int].connect(self.ssIndexChanged)
 
         buttons = [
             [
@@ -1179,18 +1190,24 @@ class _BuilderPanel(QtWidgets.QWidget):
             ReplaceWizard(_self=self.cmd).toggle(atom,geometry,valence,text)
 
     def attach(self, aa):
+        ss = self.ss_cbox.currentIndex() + 1
         picked = collectPicked(self.cmd)
         if len(picked)==1:
             try:
                 with undocontext(self.cmd, "bymol %s" % picked[0]):
                     editor.attach_amino_acid(picked[0], aa,
-                            ss=self.ss_cbox.currentIndex() + 1, _self=self.cmd)
+                            ss=ss, _self=self.cmd)
             except:
                 fin = -1
             self.doZoom()
         else:
             self.cmd.unpick()
-            AminoAcidWizard(_self=self.cmd).toggle(aa)
+            AminoAcidWizard(_self=self.cmd, ss=ss).toggle(aa)
+
+    def ssIndexChanged(self, index):
+        w = self.cmd.get_wizard()
+        if isinstance(w, AminoAcidWizard):
+            w.setSecondaryStructure(index + 1)
 
     def doAutoPick(self, old_atoms=None):
         self.cmd.unpick()
@@ -1203,7 +1220,7 @@ class _BuilderPanel(QtWidgets.QWidget):
             index = new_list.pop()
             try:
                 self.cmd.edit("%s`%d" % index)
-                if self.cmd.get_wizard()!=None:
+                if self.cmd.get_wizard() is not None:
                     self.cmd.do("_ cmd.get_wizard().do_pick(0)")
             except pymol.CmdException:
                 print(" doAutoPick-Error: exception")
@@ -1277,7 +1294,8 @@ class _BuilderPanel(QtWidgets.QWidget):
         else:
             HydrogenWizard(_self=self.cmd).toggle('add')
 
-    def invert(self):
+    @PopupOnException.decorator
+    def invert(self, _=None):
         picked = collectPicked(self.cmd)
         if picked == ["pk1","pk2","pk3"]:
             self.cmd.invert()
@@ -1365,4 +1383,3 @@ def BuilderPanelDocked(parent, *args, **kwargs):
     window.setWidget(widget)
     window.setFloating(True)
     return window
-

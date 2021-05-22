@@ -5,11 +5,11 @@
 #pragma once
 
 #include "MemoryDebug.h"
-#include "LangUtil.h"
+#include "pymol/memory.h"
 #include <algorithm>
-#if 0
-#include <vector>
-#endif
+#include <cassert>
+#include <cstddef>
+#include <type_traits>
 
 namespace pymol
 {
@@ -34,19 +34,31 @@ namespace pymol
  */
 template <typename T> class vla
 {
+#if defined(__clang__) || !defined(__GNUC__) || __GNUC__ >= 5
+  // Not available in GCC 4.8
+  static_assert(std::is_trivially_copyable<T>::value, "");
+#endif
+
   T* m_vla = nullptr;
 
   void swap(vla<T>& other) noexcept { std::swap(m_vla, other.m_vla); }
 
 public:
   // implicit NULL constructor
-  vla(std::nullptr_t = nullptr) {}
+  vla() = default;
+
+  // NULL assignment
+  vla<T>& operator=(std::nullptr_t)
+  {
+    freeP();
+    return *this;
+  }
 
   /**
    * Takes ownership of a legacy VLA pointer
-   * @param vla Pointer to a legacy VLA which was constructed with VLAlloc (or a related function)
+   * @param ptr Pointer to a legacy VLA which was constructed with VLAlloc (or a related function)
    */
-  explicit vla(T*&& vla) : m_vla(vla) {}
+  template <typename U> friend vla<U> vla_take_ownership(U* ptr);
 
   /**
    * Construct a new zero-initialized container
@@ -54,33 +66,15 @@ public:
    */
   explicit vla(std::size_t size) { m_vla = VLACalloc(T, size); }
 
-  /**
-   * Constructs the container with @a size copies of elements with value @a
-   * value.
-   * @param size the size of the container
-   * @param value the value to initialize elements of the container with
-   */
-  vla(std::size_t size, T value)
-  {
-    m_vla = VLAlloc(T, size);
-    for (size_t i = 0; i < size; ++i) {
-      new (m_vla + i) T(value);
-    }
-  }
-
   // constructor with initializer list
-  vla(std::initializer_list<T> init) : vla(init.size())
+  // Empty list constructs a NULL VLA to be consistent with default constructor
+  vla(std::initializer_list<T> init)
   {
+    if (init.size() == 0)
+      return;
+    resize(init.size());
     std::copy(init.begin(), init.end(), this->begin());
   }
-
-#if 0
-  // constructor from std::vector
-  explicit vla(const std::vector<T>& vec) : vla(vec.size())
-  {
-    std::copy(vec.begin(), vec.end(), this->begin());
-  }
-#endif
 
   // copy constructor
   vla(const vla<T>& other) { m_vla = VLACopy2<T>(other.m_vla); }
@@ -113,8 +107,6 @@ public:
 
   /// legacy VLA cast
   operator const T*() const { return m_vla; }
-  /// legacy VLA cast
-  operator T*&() { return m_vla; }
 
   /// legacy address-of VLA cast
   T** operator&() { return &m_vla; }
@@ -175,9 +167,11 @@ public:
    * Grow the container size if index @a i is out-of-bounds.
    * @post size() > i
    * @return pointer to element @a i
+   * @pre operator bool() != false
    */
   T* check(std::size_t i)
   {
+    assert(m_vla != nullptr);
     VLACheck(m_vla, T, i);
     return m_vla + i;
   }
@@ -190,24 +184,57 @@ public:
   void freeP()
   {
     if (m_vla != nullptr) {
-      pymol::destroy(begin(), end());
       VLAFreeP(m_vla);
     }
   }
-
-#if 0
-  // Util functions
-  std::vector<T> toStdVector() const
-  {
-    return std::vector<T>(m_vla, m_vla + size());
-  }
-#endif
 
   T* begin() { return m_vla; }
   T* end() { return m_vla + size(); }
   const T* begin() const { return m_vla; }
   const T* end() const { return m_vla + size(); }
+
+  /**
+   * Unlike resize(), won't shrink the size, and unlike check(), can be
+   * called on empty container.
+   * @post size() >= count
+   * @post operator bool() != false
+   */
+  void reserve(std::size_t count)
+  {
+    if (m_vla == nullptr) {
+      m_vla = VLACalloc(T, count);
+    } else if (count != 0) {
+      VLACheck(m_vla, T, count - 1);
+    }
+  }
+
+  /**
+   * Inserts 'count' number of elements to the vla at a given index
+   * @param index position of the vla where elements are added
+   * @param count number of elements added
+   */
+  void insert(int index, int count)
+  {
+    m_vla = static_cast<T*>(VLAInsertRaw(m_vla, index, count));
+  }
+
+  /**
+   * Removes 'count' number of elements to the vla at a given index
+   * @param index position of the vla where elements are removed
+   * @param count number of elements removed
+   */
+  void erase(int index, int count)
+  {
+    m_vla = static_cast<T*>(VLADeleteRaw(m_vla, index, count));
+  }
 };
+
+template <typename U> vla<U> vla_take_ownership(U* ptr)
+{
+  vla<U> instance;
+  instance.m_vla = ptr;
+  return instance;
+}
 } // namespace pymol
 
 template <typename T> pymol::vla<T> VLACopy2(const pymol::vla<T>& v)

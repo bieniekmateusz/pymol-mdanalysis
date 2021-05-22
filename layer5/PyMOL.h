@@ -111,8 +111,6 @@ typedef struct _CPyMOLOptions CPyMOLOptions;
 CPyMOLOptions *PyMOLOptions_New(void);
 void PyMOLOptions_Free(CPyMOLOptions * option);
 
-CPyMOLOptions *PyMOLOptions_NewWithPython(int argc, char *argv[]);
-
 /* PyMOL instance type */
 
 #ifndef CPyMOL_DEFINED
@@ -245,7 +243,7 @@ void PyMOL_NeedFakeDrag(CPyMOL * I);
 void PyMOL_NeedRedisplay(CPyMOL * I);
 void PyMOL_NeedSwap(CPyMOL * I);
 void PyMOL_SetClickReady(CPyMOL * I, const char *name, int index, int button, int mod, int x,
-                         int y, const float *pos, int state);
+                         int y, const float *pos, int state, int bond = -1);
 void PyMOL_SetPassive(CPyMOL * I, int onOff);
 void PyMOL_NeedReshape(CPyMOL * I, int mode, int x, int y, int width, int height);
 
@@ -305,9 +303,6 @@ int PyMOL_GetIdleAndReady(CPyMOL * I);
 
 PyMOLreturn_int_array PyMOL_GetReshapeInfo(CPyMOL * I, int reset);
 
-/*PyMOLreturn_int_array PyMOL_GetStereoInfo(CPyMOL *I,int reset);  * to come for MacPyMOL -- blue line, etc */
-
-
 /* string results */
 
 char *PyMOL_GetClickString(CPyMOL * I, int reset);
@@ -339,8 +334,8 @@ void PyMOL_SetModalDraw(CPyMOL * I, PyMOLModalDrawFn * fn);     /* for internal 
 
 /* developer/transient privates */
 
-struct _PyMOLGlobals *PyMOL_GetGlobals(CPyMOL * I);
-struct _PyMOLGlobals **PyMOL_GetGlobalsHandle(CPyMOL * I);
+struct PyMOLGlobals* PyMOL_GetGlobals(CPyMOL * I);
+struct PyMOLGlobals** PyMOL_GetGlobalsHandle(CPyMOL * I);
 
 void PyMOL_RunTest(CPyMOL * I, int group, int test);
 

@@ -1,48 +1,45 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific. 
+#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function
 
 from chempy.models import Indexed,Connected
 from chempy import Storage,Atom,Bond
 
-import string
 import copy
 
 class MMD(Storage):
-    
+
 #---------------------------------------------------------------------------------
     def fromList(self,MMODList):
 
         model = Connected()
-        
+
 # get header information
         nAtom = int(MMODList[0][1:6])
-        model.molecule.title = string.strip(MMODList[0][8:])
+        model.molecule.title = MMODList[0][8:].strip()
         irec = 1
 
 # loop through atoms
         cnt = 0
         for a in range(nAtom):
             model.bond.append([])
-            
+
         for a in range(nAtom):
             at = Atom()
             at.numeric_type = int(MMODList[irec][1:4])
 
 # extract connectivity information
-            tokens = string.splitfields(MMODList[irec][5:52])
+            tokens = MMODList[irec][5:52].split()
             at.neighbor = []
             at.bondorder = []
 
@@ -54,32 +51,32 @@ class MMD(Storage):
                         b.index = [cnt,a2]
                         b.order = int(tokens[2*i+1])
                         model.bond[b.index[0]].append(b) # note two refs to same object
-                        model.bond[b.index[1]].append(b) # note two refs to same object 
+                        model.bond[b.index[1]].append(b) # note two refs to same object
                 else:
                     break
-            
+
 # extract other information
-            at.coord = [float(MMODList[irec][53:64]), 
+            at.coord = [float(MMODList[irec][53:64]),
                 float(MMODList[irec][65:76]), float(MMODList[irec][77:88])]
-            at.resi = string.strip(MMODList[irec][89:94])
+            at.resi = MMODList[irec][89:94].strip()
             at.resi_number = int(at.resi)
-            resn_code = string.strip(MMODList[irec][94:95])
+            resn_code = MMODList[irec][94:95].strip()
             if len(resn_code): at.resn_code = resn_code
-            color_code = string.strip(MMODList[irec][96:100])
+            color_code = MMODList[irec][96:100].strip()
             if color_code!='':
                 at.color_code = int(color_code)
             else:
                 at.color_code = 0
-            chain = string.strip(MMODList[irec][95:96])
+            chain = MMODList[irec][95:96].strip()
             if len(chain): at.chain = chain
             at.partial_charge = float(MMODList[irec][100:109])
             at.resn = MMODList[irec][119:123]
-            name = string.strip(MMODList[irec][124:128])
+            name = MMODList[irec][124:128].strip()
             if len(name): at.name = name
             model.atom.append(at)
             irec = irec + 1
             cnt = cnt + 1
-            
+
 # fill in remaining datatypes
         cnt = 1
         for a in model.atom:
@@ -87,7 +84,7 @@ class MMD(Storage):
             a.symbol = MMOD_atom_data[a.numeric_type][1]
             a.formal_charge = MMOD_atom_data[a.numeric_type][4]
             cnt = cnt + 1
-            
+
         return(model.convert_to_indexed())
 
 #---------------------------------------------------------------------------------
@@ -103,23 +100,23 @@ class MMD(Storage):
         c = 0
         for a in list[1:]:
             mac = model.atom[c]
-            mac.coord = [float(a[53:64]), 
+            mac.coord = [float(a[53:64]),
                 float(a[65:76]), float(a[77:88])]
-            mac.partial_charge = float(a[100:109])         
+            mac.partial_charge = float(a[100:109])
             c = c + 1
-            
+
 #---------------------------------------------------------------------------------
     def toList(self,model,no_blank_names=1):
 
         conn = copy.deepcopy(model)
         conn = conn.convert_to_connected()
-        
+
         MMODList = []
         MMODList.append(" %5d  %-70s\n" %(conn.nAtom,conn.molecule.title))
         c = 0
         neighbors_len = 6
         for i in conn.atom:
-            
+
 # construct neighbor list
             neighbors = [0] * neighbors_len
             bondorders = [0] * neighbors_len
@@ -132,7 +129,7 @@ class MMD(Storage):
                     n = b.index[1]
                 neighbors[j] = n + 1
                 bondorders[j] = b.order
-                
+
 # assemble output line
             if i.numeric_type>0:
                 tline = " %3d" % (i.numeric_type)
@@ -140,7 +137,7 @@ class MMD(Storage):
                 tline = " %3d" % 64
             for j in range(neighbors_len):
                 tline = tline + " %5d %1d" % (neighbors[j], bondorders[j])
-            tline = tline + " %11.6f %11.6f %11.6f " % (i.coord[0], 
+            tline = tline + " %11.6f %11.6f %11.6f " % (i.coord[0],
                 i.coord[1], i.coord[2])
             name = i.name
             if not len(name):
@@ -152,7 +149,7 @@ class MMD(Storage):
                  i.partial_charge, i.partial_charge, i.resn, name)
             MMODList.append(tline)
             c = c + 1
-            
+
         return(MMODList)
 
 
@@ -217,4 +214,3 @@ MMOD_atom_data = {
   62: ['Du','Du','unk',-1, 0],
   63: ['Lp','Lp','unk', 1, 0],
   64: ['Du','Du','unk',-1, 0]};
-

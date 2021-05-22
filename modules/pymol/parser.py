@@ -1,25 +1,20 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
 # parser.py
 # Python parser module for PyMol
 #
-
-from __future__ import absolute_import
-
-# Don't import __future__.print_function
-
 
 class SecurityException(Exception):
     pass
@@ -29,7 +24,7 @@ SCRIPT_TOPLEVEL = 'toplevel'
 
 
 if True:
-    
+
     import pymol
     import traceback
     import collections
@@ -45,7 +40,7 @@ if True:
 
     QuietException = parsing.QuietException
     CmdException = pymol.CmdException
-    
+
     py_delims = { '=' : 1, '+='  : 1, '-='  : 1, '*=' : 1,
                       '/=' :1, '//=' : 1, '%='  : 1, '&=' : 1,
                       '|=' :1, '^='  : 1, '>>=' : 1,'<<=' : 1,
@@ -61,7 +56,7 @@ if True:
         except:
             traceback.print_exc()
         amb = sc.interpret(st, mode)
-        if amb==None:
+        if amb is None:
             colorprinting.warning(" parser: no matching %s."%type_name)
         elif isinstance(amb, str):
             result = amb+postfix
@@ -90,7 +85,7 @@ if True:
             if len(css)>len(st):
                 result = css
         return result
-    
+
     class NestLayer:
 
         def __init__(self):
@@ -113,7 +108,7 @@ if True:
             self.nest = 0
             self.layer = collections.defaultdict(NestLayer)
             self.pymol_names = self.cmd._pymol.__dict__
-            
+
             # parsing state implemented with dictionaries to enable safe recursion
             # to arbitrary depths
 
@@ -146,6 +141,14 @@ if True:
             self.cmd._pymol.__script__ = SCRIPT_TOPLEVEL
 
         def exec_python(self, s, secure=False, fallback=False):
+            """Execute a python expression.
+
+            :param s: Python expression
+            :param secure: Must be false, otherwise raise an exception.
+            :param fallback: True if this is a fallback attempt and s may or
+            may not be a valid Python expression (used for better error
+            reporting).
+            """
             if secure:
                 raise SecurityException('Python expressions disallowed in this file')
 
@@ -162,6 +165,14 @@ if True:
         # main parser routine
 
         def parse(self,s,secure=0):
+            """Parse (and execute) commands from a single line. Multiple
+            commands can be concatenated with semicolon, but line feeds are
+            ignored.
+
+            :param s: Line to parse
+            :param secure: If true, then Python code and nested "embed" are not
+            allowed and will raise an exception.
+            """
             try:
                 self.nest += 1
                 return self._parse(s, secure)
@@ -233,11 +244,11 @@ if True:
                         if layer.cont != '':
                             layer.com1 = layer.cont + "\n" + layer.com1
                             layer.cont = ''
-        # this routine splits up the line first based on semicolon 
-                        
+        # this routine splits up the line first based on semicolon
+
                         layer.next = parsing.split(layer.com1,';',1) + layer.next[1:]
-                        
-        # layer.com2 now a full non-compound command            
+
+        # layer.com2 now a full non-compound command
                         layer.com2 = layer.next[0]
                         layer.input = layer.com2.split(' ',1)
                         lin = len(layer.input)
@@ -245,7 +256,7 @@ if True:
                             layer.input[0] = layer.input[0].strip()
                             com = layer.input[0]
                             if (com[0:1]=='/'):
-                                # explicit literal python 
+                                # explicit literal python
                                 layer.com2 = layer.com2[1:].strip()
                                 if len(layer.com2)>0:
                                     self.exec_python(layer.com2, secure)
@@ -255,7 +266,7 @@ if True:
                                 # try to find a keyword which matches
                                 if com in self.cmd.kwhash:
                                     amb = self.cmd.kwhash.interpret(com)
-                                    if amb == None:
+                                    if amb is None:
                                         com = self.cmd.kwhash[com]
                                     elif not isinstance(amb, str):
                                         colorprinting.warning('Error: ambiguous command: ')
@@ -287,7 +298,7 @@ if True:
                                             parsing.prepare_call(
                                              layer.kw[0],
                                              parsing.parse_arg(layer.com2,mode=layer.kw[4],_self=self.cmd),
-                                             layer.kw[4], _self=self.cmd) # will raise exception on failure
+                                             layer.kw[4], com, _self=self.cmd) # will raise exception on failure
                                         self.result=layer.kw[0](*layer.args, **layer.kw_args)
                                     elif layer.kw[4]==parsing.PYTHON:
                                             # handle python keyword
@@ -330,11 +341,11 @@ if True:
                                         if layer.kw[1]<= len(layer.args) <= layer.kw[2]:
                                             layer.args = [a.strip() for a in layer.args]
                                             if layer.kw[4]<parsing.RUN:
-                                                #                           
+                                                #
                                                 # this is where old-style commands are invoked
                                                 #
                                                 self.result=layer.kw[0](*layer.args)
-                                                #                           
+                                                #
                                             elif (layer.kw[4]==parsing.EMBED):
                                                 layer.next = []
                                                 if secure or self.nest==0: # only legal on top level and p1m files
@@ -405,10 +416,10 @@ if True:
                                             nest_securely = 1
                                         else:
                                             nest_securely = secure
-                                        if re.search("\.py$|\.pym$",path) != None:
+                                        if re.search("\.py$|\.pym$",path) is not None:
                                             if self.cmd._feedback(fb_module.parser,fb_mask.warnings):
                                                 print("Warning: use 'run' instead of '@' with Python files?")
-                                        layer.script = open(path,'rU')
+                                        layer.script = open(path,'r')
                                         self.cmd._pymol.__script__ = path
                                         self.nest=self.nest+1
                                         self.layer[self.nest] = NestLayer()
@@ -424,13 +435,13 @@ if True:
                                             tmp_cmd = inp_cmd.strip()
                                             if len(tmp_cmd):
                                                 if tmp_cmd[0] not in ['#','_','/']: # suppress comments, internals, python
-                                                    if layer.embed_sentinel==None:
+                                                    if layer.embed_sentinel is None:
                                                         colorprinting.parrot("PyMOL>"+tmp_cmd)
                                                 elif tmp_cmd[0]=='_' and \
                                                       tmp_cmd[1:2] in [' ','']: # "_ " remove echo suppression signal
                                                     inp_cmd=inp_cmd[2:]
                                             pp_result = self.parse(inp_cmd,nest_securely)
-                                            if pp_result==None: # RECURSION
+                                            if pp_result is None: # RECURSION
                                                 break # abort command gets us out
                                             elif pp_result==0: # QuietException
                                                 if self.cmd.get_setting_boolean("stop_on_exceptions"):
@@ -439,7 +450,7 @@ if True:
                                                     break;
                                         self.nest=self.nest-1
                                         layer=self.layer[self.nest]
-                                        
+
                                         layer.script.close()
                                         self.cmd._pymol.__script__ = layer.sc_path
                                     else: # nothing found, try literal python
@@ -464,7 +475,7 @@ if True:
             except (QuietException, CmdException) as e:
                 if e.args:
                     colorprinting.error(e)
-                if self.cmd._feedback(fb_module.parser,fb_mask.blather):         
+                if self.cmd._feedback(fb_module.parser,fb_mask.blather):
                     print("Parser: caught " + type(e).__name__)
                 p_result = 0
             except SecurityException as e:
@@ -482,7 +493,7 @@ if True:
         def get_embedded(self,key=None):
             layer = self.layer[self.nest]
             dict = layer.embed_dict
-            if key==None:
+            if key is None:
                 key = self.get_default_key()
             return dict.get(key,None)
 
@@ -490,28 +501,33 @@ if True:
             layer = self.layer[self.nest]
             return os.path.splitext(os.path.basename(layer.sc_path))[0]
 
-        def stdin_reader(self): # dedicated thread for reading standard input
-            import sys
-            while 1:
-                try:
-                    l = sys.stdin.readline()
-                except IOError:
-                    continue
-                if l!="":
-                    if self.nest==0:
-                        # if we're reading embedded input on stdin
-                        # then bypass PyMOL C code altogether
-                        if self.layer[0].embed_sentinel!=None:
-                            self.parse(l)
-                        else:
-                            self.cmd.do(l, flush=True)
-                    else:
-                        self.cmd.do(l, flush=True)
-                elif not self.cmd._pymol.invocation.options.keep_thread_alive:
-                    self.cmd.quit()
+        def parse_stream(self, stream):
+            """Parse commands line-by-line from an input stream.
+            """
+            for line in stream:
+                # For embedded input on stdin bypass PyMOL C code altogether
+                if self.nest == 0 and self.layer[0].embed_sentinel is not None:
+                    self.parse(line)
                 else:
-                    import time
-                    time.sleep(.1)
+                    self.cmd.do(line, flush=True)
+
+        def stdin_reader(self):
+            """Parse commands line-by-line from standard input. Run this
+            function in a daemon thread, otherwise it would lock up the GUI.
+            """
+            import sys
+
+            if sys.stdin is None:
+                if "pythonw" in sys.executable:
+                    msg = "Cannot listen to STDIN with pythonw.exe, use python.exe instead."
+                else:
+                    msg = "Cannot listen to STDIN, sys.stdin is None."
+                raise RuntimeError(msg)
+
+            self.parse_stream(sys.stdin)
+
+            if not self.cmd._pymol.invocation.options.keep_thread_alive:
+                self.cmd.quit()
 
             self.cmd._pymol._stdin_reader_thread = None
 
@@ -538,11 +554,11 @@ if True:
                             if full in self.cmd.auto_arg[count]: # autocomplete arguments
                                 flag = 1
                                 pre = re.sub(r"^[^ ]* ",' ',st,count=1) # trim command
-                                if re.search(r",",pre)!=None:
-                                    pre = re.sub(r"[^\, ]*$","",pre,count=1) 
+                                if re.search(r",",pre) is not None:
+                                    pre = re.sub(r"[^\, ]*$","",pre,count=1)
                                     pre = re.sub(r",\s*[^\, ]*$",", ",pre,count=1) # trim 1 arg
                                 else:
-                                    pre = re.sub("[^ ]*$","",pre,count=1) # trim 1 arg               
+                                    pre = re.sub("[^ ]*$","",pre,count=1) # trim 1 arg
                                 pre = re.sub(r"^ *",'',pre)
                                 pre = full+' '+pre
                                 pat = re.sub(r".*[\, ]",'',st)
@@ -582,7 +598,7 @@ if True:
                         css = os.path.commonprefix(flist)
                         if len(css)>len(st3):
                             result = css
-            if result!=None:
+            if result is not None:
                 result = pre+result
             return result
 
@@ -604,7 +620,3 @@ if True:
 #            return a
 #        else:
 #            return None
-
-    
-
-

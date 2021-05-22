@@ -1,21 +1,19 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
-from __future__ import print_function
-
 if True:
-	
+
         cmd = __import__("sys").modules["pymol.cmd"]
         from .cmd import _cmd,lock,unlock
         from . import selector
@@ -28,7 +26,7 @@ if True:
 
         def cealign(target, mobile, target_state=1, mobile_state=1, quiet=1,
                     guide=1, d0=3.0, d1=4.0, window=8, gap_max=30, transform=1,
-                    object=None, _self=cmd):
+                    object=None, *, _self=cmd):
                 '''
 DESCRIPTION
 
@@ -71,7 +69,7 @@ SEE ALSO
                 # handle PyMOL's macro /// notation
                 mobile = selector.process(mobile)
                 target = selector.process(target)
-                                
+
                 # make the lists for holding coordinates and IDs
                 mod1 = _self.get_model(target, state=target_state)
                 mod2 = _self.get_model(mobile, state=mobile_state)
@@ -79,7 +77,7 @@ SEE ALSO
                 sel2 = mod2.get_coord_list()
                 ids1 = [a.id for a in mod1.atom]
                 ids2 = [a.id for a in mod2.atom]
-                
+
                 if len(sel1) < 2 * window:
                         print("CEalign-Error: Your target selection is too short.")
                         raise pymol.CmdException
@@ -94,7 +92,7 @@ SEE ALSO
                         raise pymol.CmdException
 
                 r = DEFAULT_ERROR
-                
+
                 try:
                         _self.lock(_self)
 
@@ -133,11 +131,11 @@ SEE ALSO
                     print(" CEalign-Error: alignment failed")
                 finally:
                         _self.unlock(r,_self)
-                if _self._raising(r,_self): raise pymol.CmdException             
+                if _self._raising(r,_self): raise pymol.CmdException
                 return ( {"alignment_length": aliLen, "RMSD" : RMSD, "rotation_matrix" : rotMat } )
 
         def extra_fit(selection='(all)', reference='', method='align', zoom=1,
-                quiet=0, _self=cmd, **kwargs):
+                quiet=0, *, _self=cmd, **kwargs):
             '''
 DESCRIPTION
 
@@ -198,81 +196,87 @@ SEE ALSO
             _self.delete(sele_name)
 
 
-        def alignto(target='', method="cealign", selection='', quiet=1, _self=cmd, **kwargs):
+        def alignto(target='', method="cealign", selection='', quiet=1, *, _self=cmd, **kwargs):
                 """
 DESCRIPTION
 
-        "alignto" aligns all other loaded objects to the target
-        using the specified alignment algorithm.
+    "alignto" aligns all other loaded objects to the target
+    using the specified alignment algorithm.
+
+    This is a wrapper for "extra_fit".
 
 USAGE
 
-        alignto target [, method [, quiet ]]
+    alignto [ target [, method [, selection [, quiet ]]]]
 
-NOTES
+ARGUMENTS
 
-        Available alignment methods are "align", "super" and "cealign".
+    target = str: reference object name {default: first object in selection}
+
+    method = str: (see "extra_fit") {default: cealign}
+
+    selection = str: (see "extra_fit") {default: public objects}
 
 EXAMPLE
 
-        # fetch some calmodulins
-        fetch 1cll 1sra 1ggz 1k95, async=0
+    # fetch some calmodulins
+    fetch 1cll 1sra 1ggz 1k95, async=0
 
-        # align them to 1cll using cealign
-        alignto 1cll, method=cealign
-        alignto 1cll, object=all_to_1cll
+    # align them to 1cll using cealign
+    alignto 1cll, method=cealign
+    alignto 1cll, object=all_to_1cll
 
 SEE ALSO
 
-        extra_fit, align, super, cealign, fit, rms, rms_cur, intra_fit
+    extra_fit, align, super, cealign, fit, rms, rms_cur, intra_fit
                 """
                 if not selection:
                     names = _self.get_names("public_objects", 1)
                     if not names:
                         raise pymol.CmdException('no public objects')
                     selection = '%' + ' %'.join(names)
-                return extra_fit(selection, target, method, 0, quiet, _self, **kwargs)
-                                
+                return extra_fit(selection, target, method, 0, quiet, _self=_self, **kwargs)
+
 
 
         def super(mobile, target, cutoff=2.0, cycles=5,
                           gap=-1.5, extend=-0.7, max_gap=50, object=None,
-                          matrix="BLOSUM62", mobile_state=0, target_state=0, 
+                          matrix="BLOSUM62", mobile_state=0, target_state=0,
                           quiet=1, max_skip=0, transform=1, reset=0,
                           seq=0.0, radius=12.0, scale=17.0, base=0.65,
                           coord=0.0, expect=6.0, window=3, ante=-1.0,
-                          _self=cmd):
-                
+                          *, _self=cmd):
+
                 '''
 DESCRIPTION
 
-        "super" performs a residue-based pairwise alignment followed by a
-        structural superposition, and then carries out zero or more cycles
-        of refinement in order to reject outliers.
+    "super" performs a residue-based pairwise alignment followed by a
+    structural superposition, and then carries out zero or more cycles
+    of refinement in order to reject outliers.
 
 USAGE 
 
-        super mobile, target [, object=name ]
+    super mobile, target [, object=name ]
 
 NOTES
 
-        By adjusting various parameters, the nature of the initial
-        alignment can be modified to include or exclude various factors
-        including sequence similarity, main chain path, secondary &
-        tertiary structure, and current coordinates.
+    By adjusting various parameters, the nature of the initial
+    alignment can be modified to include or exclude various factors
+    including sequence similarity, main chain path, secondary &
+    tertiary structure, and current coordinates.
 
 EXAMPLE
 
-        super protA////CA, protB////CA, object=supeAB
+    super protA////CA, protB////CA, object=supeAB
 
 SEE ALSO
 
-        align, pair_fit, fit, rms, rms_cur, intra_rms, intra_rms_cur
+    align, pair_fit, fit, rms, rms_cur, intra_rms, intra_rms_cur
         '''
                 r = DEFAULT_ERROR
                 mobile = selector.process(mobile)
                 target = selector.process(target)
-                if object==None: object=''
+                if object is None: object=''
                 matrix = str(matrix)
                 if matrix.lower() in ['none', '']:
                         mfile = ''
@@ -283,7 +287,7 @@ SEE ALSO
                 # delete existing alignment object (if asked to reset it)
                 try:
                         _self.lock(_self)
-                        
+
                         r = _cmd.align(_self._COb,mobile,"("+target+")",float(cutoff),
                                                    int(cycles),float(gap),float(extend),int(max_gap),
                                                    str(object),str(mfile),
@@ -293,17 +297,17 @@ SEE ALSO
                                                    float(radius),float(scale),float(base),
                                                    float(coord),float(expect),int(window),
                                                    float(ante))
-                        
+
                 finally:
                         _self.unlock(r,_self)
-                if _self._raising(r,_self): raise pymol.CmdException             
+                if _self._raising(r,_self): raise pymol.CmdException
                 return r
 
         def align(mobile, target, cutoff=2.0, cycles=5, gap=-10.0,
                           extend=-0.5, max_gap=50, object=None,
                           matrix="BLOSUM62", mobile_state=0, target_state=0,
-                          quiet=1, max_skip=0, transform=1, reset=0, _self=cmd):
-                
+                          quiet=1, max_skip=0, transform=1, reset=0, *, _self=cmd):
+
                 '''
 DESCRIPTION
 
@@ -374,7 +378,7 @@ SEE ALSO
                         mfile = matrix
                 else:
                         mfile = cmd.exp_path("$PYMOL_DATA/pymol/matrices/"+matrix)
-                if object==None: object=''
+                if object is None: object=''
                 # delete existing alignment object (if asked to reset it)
                 try:
                         _self.lock(_self)
@@ -386,55 +390,55 @@ SEE ALSO
                                                    -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0)
                 finally:
                         _self.unlock(r,_self)
-                if _self._raising(r,_self): raise pymol.CmdException             
+                if _self._raising(r,_self): raise pymol.CmdException
                 return r
 
-        def intra_fit(selection, state=1, quiet=1, mix=0, _self=cmd):
+        def intra_fit(selection, state=1, quiet=1, mix=0, *, pbc=1, _self=cmd):
                 '''
 DESCRIPTION
 
-        "intra_fit" fits all states of an object to an atom selection
-        in the specified state.  It returns the rms values to python
-        as an array.
+    "intra_fit" fits all states of an object to an atom selection
+    in the specified state.  It returns the rms values to python
+    as an array.
 
 USAGE 
 
-        intra_fit selection [, state]
+    intra_fit selection [, state]
 
 ARGUMENTS
 
-        selection = string: atoms to fit
+    selection = string: atoms to fit
 
-        state = integer: target state
+    state = integer: target state
+
+    pbc = 0/1: Consider periodic boundary conditions {default: 1}
 
 PYMOL API
 
-        cmd.intra_fit( string selection, int state )
+    cmd.intra_fit( string selection, int state )
 
 EXAMPLES
 
-        intra_fit ( name CA )
+    intra_fit ( name CA )
 
 PYTHON EXAMPLE
 
-        from pymol import cmd
-        rms = cmd.intra_fit("(name CA)",1)
+    from pymol import cmd
+    rms = cmd.intra_fit("(name CA)",1)
 
 SEE ALSO
 
-        fit, rms, rms_cur, intra_rms, intra_rms_cur, pair_fit
+    fit, rms, rms_cur, intra_rms, intra_rms_cur, pair_fit
                 '''
                 # preprocess selection
                 selection = selector.process(selection)
-                #       
+                #
                 r = DEFAULT_ERROR
                 state = int(state)
                 mix = int(mix)
-                try:
-                        _self.lock(_self)
-                        r = _cmd.intrafit(_self._COb,"("+str(selection)+")",int(state)-1,2,int(quiet),int(mix))
-                finally:
-                        _self.unlock(r,_self)
+                with _self.lockcm:
+                    r = _cmd.intrafit(_self._COb, selection,
+                              int(state) - 1, 2, int(quiet), int(mix), int(pbc))
                 if not isinstance(r, list):
                         r = DEFAULT_ERROR
                 elif not quiet:
@@ -446,35 +450,35 @@ SEE ALSO
                                         else:
                                                 print(" cmd.intra_fit: %5.3f in state %d vs state %d"%(a,st,state))
                                 st = st + 1
-                if _self._raising(r,_self): raise pymol.CmdException             
+                if _self._raising(r,_self): raise pymol.CmdException
                 return r
 
-        def intra_rms(selection, state=0, quiet=1, _self=cmd):
+        def intra_rms(selection, state=0, quiet=1, *, _self=cmd):
                 '''
 DESCRIPTION
 
-        "intra_rms" calculates rms fit values for all states of an object
-        over an atom selection relative to the indicated state.
-        Coordinates are left unchanged.  The rms values are returned as a
-        python array.
+    "intra_rms" calculates rms fit values for all states of an object
+    over an atom selection relative to the indicated state.
+    Coordinates are left unchanged.  The rms values are returned as a
+    python array.
 
 EXAMPLE
 
-        from pymol import cmd
-        rms = cmd.intra_rms("(name CA)",1)
-        print rms
+    from pymol import cmd
+    rms = cmd.intra_rms("(name CA)",1)
+    print rms
 
 PYMOL API
 
-        cmd.intra_rms(string selection, int state)
+    cmd.intra_rms(string selection, int state)
 
 SEE ALSO
 
-        fit, rms, rms_cur, intra_fit, intra_rms_cur, pair_fit
+    fit, rms, rms_cur, intra_fit, intra_rms_cur, pair_fit
                 '''
                 # preprocess selection
                 selection = selector.process(selection)
-                #       
+                #
                 r = DEFAULT_ERROR
                 state = int(state)
                 try:
@@ -490,34 +494,34 @@ SEE ALSO
                                 if a>=0.0:
                                         print(" cmd.intra_rms: %5.3f in state %d vs state %d"%(a,st,state))
                                 st = st + 1
-                if _self._raising(r,_self): raise pymol.CmdException             
+                if _self._raising(r,_self): raise pymol.CmdException
                 return r
 
-        def intra_rms_cur(selection, state=0, quiet=1, _self=cmd):
+        def intra_rms_cur(selection, state=0, quiet=1, *, _self=cmd):
                 '''
 DESCRIPTION
 
-        "intra_rms_cur" calculates rms values for all states of an object
-        over an atom selection relative to the indicated state without
-        performing any fitting.  The rms values are returned
-        as a python array.
+    "intra_rms_cur" calculates rms values for all states of an object
+    over an atom selection relative to the indicated state without
+    performing any fitting.  The rms values are returned
+    as a python array.
 
 PYMOL API
 
-        cmd.intra_rms_cur( string selection, int state)
+    cmd.intra_rms_cur( string selection, int state)
 
 PYTHON EXAMPLE
 
-        from pymol import cmd
-        rms = cmd.intra_rms_cur("(name CA)",1)
+    from pymol import cmd
+    rms = cmd.intra_rms_cur("(name CA)",1)
 
 SEE ALSO
 
-        fit, rms, rms_cur, intra_fit, intra_rms, pair_fit
+    fit, rms, rms_cur, intra_fit, intra_rms, pair_fit
                 '''
                 # preprocess selection
                 selection = selector.process(selection)
-                #       
+                #
                 r = DEFAULT_ERROR
                 state = int(state)
                 try:
@@ -537,7 +541,7 @@ SEE ALSO
                 return r
 
         def fit(mobile, target, mobile_state=0, target_state=0,
-		quiet=1, matchmaker=0, cutoff=2.0, cycles=0, object=None, _self=cmd):
+		quiet=1, matchmaker=0, cutoff=2.0, cycles=0, object=None, *, _self=cmd):
             '''
 DESCRIPTION
 
@@ -587,14 +591,14 @@ SEE ALSO
 
 	align, super, pair_fit, rms, rms_cur, intra_fit, intra_rms, intra_rms_cur
             '''
-            r = DEFAULT_ERROR	   
+            r = DEFAULT_ERROR
             a=str(mobile)
             b=str(target)
             # preprocess selections
             a = selector.process(a)
             b = selector.process(b)
             #
-            if object==None: object=''
+            if object is None: object=''
             if int(matchmaker)==0:
                 sele1 = "((%s) in (%s))" % (str(a),str(b))
                 sele2 = "((%s) in (%s))" % (str(b),str(a))
@@ -614,33 +618,33 @@ SEE ALSO
             return r
 
         def rms(mobile, target, mobile_state=0, target_state=0, quiet=1,
-			  matchmaker=0, cutoff=2.0, cycles=0, object=None, _self=cmd):
+			  matchmaker=0, cutoff=2.0, cycles=0, object=None, *, _self=cmd):
             '''
 DESCRIPTION
 
-	"rms" computes a RMS fit between two atom selections, but does not
-	tranform the models after performing the fit.
+    "rms" computes a RMS fit between two atom selections, but does not
+    tranform the models after performing the fit.
 
 USAGE
 
-	rms (selection), (target-selection)
+    rms (selection), (target-selection)
 
 EXAMPLES
 
-	fit ( mutant and name CA ), ( wildtype and name CA )
+    fit ( mutant and name CA ), ( wildtype and name CA )
 
 SEE ALSO
 
-	fit, rms_cur, intra_fit, intra_rms, intra_rms_cur, pair_fit	  
+    fit, rms_cur, intra_fit, intra_rms, intra_rms_cur, pair_fit
             '''
-            r = DEFAULT_ERROR	   
+            r = DEFAULT_ERROR
             a=str(mobile)
             b=str(target)
             # preprocess selections
             a = selector.process(a)
             b = selector.process(b)
             #
-            if object==None: object=''		
+            if object is None: object=''
             if int(matchmaker)==0:
                 sele1 = "((%s) in (%s))" % (str(a),str(b))
                 sele2 = "((%s) in (%s))" % (str(b),str(a))
@@ -648,7 +652,7 @@ SEE ALSO
                 sele1 = str(a)
                 sele2 = str(b)
             try:
-                _self.lock(_self)	
+                _self.lock(_self)
                 r = _cmd.fit(_self._COb,sele1,sele2,1,
                         int(mobile_state)-1,int(target_state)-1,
                         int(quiet),int(matchmaker),float(cutoff),
@@ -661,30 +665,30 @@ SEE ALSO
 
         def rms_cur(mobile, target, mobile_state=0, target_state=0,
 				quiet=1, matchmaker=0, cutoff=2.0, cycles=0,
-				object=None, _self=cmd):
-		
+				object=None, *, _self=cmd):
+
             '''
 DESCRIPTION
 
-	"rms_cur" computes the RMS difference between two atom
-	selections without performing any fitting.
+    "rms_cur" computes the RMS difference between two atom
+    selections without performing any fitting.
 
 USAGE
 
-	rms_cur (selection), (selection)
+    rms_cur (selection), (selection)
 
 SEE ALSO
 
-	fit, rms, intra_fit, intra_rms, intra_rms_cur, pair_fit	  
+    fit, rms, intra_fit, intra_rms, intra_rms_cur, pair_fit
             '''
-            r = DEFAULT_ERROR	   
+            r = DEFAULT_ERROR
             a=str(mobile)
             b=str(target)
             # preprocess selections
             a = selector.process(a)
             b = selector.process(b)
             #
-            if object==None: object=''			  
+            if object is None: object=''
             if int(matchmaker)==0:
                 sele1 = "((%s) in (%s))" % (str(a),str(b))
                 sele2 = "((%s) in (%s))" % (str(b),str(a))
@@ -703,62 +707,50 @@ SEE ALSO
                 raise pymol.CmdException
             return r
 
-        def pair_fit(*arg, **kw):
+        def pair_fit(*arg, quiet=0, _self=cmd):
             '''
 DESCRIPTION
 
-	"pair_fit" fits matched sets of atom pairs between two objects.
+    "pair_fit" fits matched sets of atom pairs between two objects.
 
 USAGE
 
-	pair_fit selection, selection, [ selection, selection [ ... ]]
+    pair_fit selection, selection, [ selection, selection [ ... ]]
 
 EXAMPLES
 
-	# superimpose protA residues 10-25 and 33-46 to protB residues 22-37 and 41-54:
-	
-	pair_fit protA/10-25+33-46/CA, protB/22-37+41-54/CA
+    # superimpose protA residues 10-25 and 33-46 to protB residues 22-37 and 41-54:
 
-	# superimpose ligA atoms C1, C2, and C4 to ligB atoms C8, C4, and C10, respectively:
-	
-	pair_fit ligA////C1, ligB////C8, ligA////C2, ligB////C4, ligA////C3, ligB////C10
-	
+    pair_fit protA/10-25+33-46/CA, protB/22-37+41-54/CA
+
+    # superimpose ligA atoms C1, C2, and C4 to ligB atoms C8, C4, and C10, respectively:
+
+    pair_fit ligA////C1, ligB////C8, ligA////C2, ligB////C4, ligA////C3, ligB////C10
+
 NOTES
 
-	So long as the atoms are stored in PyMOL with the same order
-	internally, you can provide just two selections.  Otherwise, you
-	may need to specify each pair of atoms separately, two by two, as
-	additional arguments to pair_fit.
-	
-	Script files are usually recommended when using this command.
+    So long as the atoms are stored in PyMOL with the same order
+    internally, you can provide just two selections.  Otherwise, you
+    may need to specify each pair of atoms separately, two by two, as
+    additional arguments to pair_fit.
+
+    Script files are usually recommended when using this command.
 
 SEE ALSO
 
-	fit, rms, rms_cur, intra_fit, intra_rms, intra_rms_cur
+    fit, rms, rms_cur, intra_fit, intra_rms, intra_rms_cur
             '''
-            _self = kw.pop('_self',cmd)
-            quiet = int(kw.pop('quiet', 0))
-
-            if kw:
-                raise pymol.CmdException('unexpected keyword arguments: ' + str(list(kw)))
-
-            r = DEFAULT_ERROR	   
+            r = DEFAULT_ERROR
             if len(arg) < 2:
                 raise pymol.CmdException('need at least 2 selection')
             if len(arg) % 2:
                 raise pymol.CmdException('need even number of selections')
             new_arg = list(map(selector.process, arg))
             try:
-                _self.lock(_self)	
+                _self.lock(_self)
                 r = _cmd.fit_pairs(_self._COb,new_arg, quiet)
             finally:
                 _self.unlock(r,_self)
             if r < -0.5:
                 raise pymol.CmdException
             return r
-
-
-
-
-
-

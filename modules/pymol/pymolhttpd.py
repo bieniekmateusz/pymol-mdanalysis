@@ -7,30 +7,20 @@
 #
 # web server interface for controlling PyMOL
 
-from __future__ import print_function
-from __future__ import absolute_import
-
 # we make extensive use of Python's build-in in web infrastructure
 
 import sys
 
-_PY3 = sys.version_info[0] > 2
-
-if _PY3:
+if True:
     import http.server as BaseHTTPServer
     import io as StringIO
     import urllib.parse as urlparse
     from urllib.request import urlopen
-else:
-    import BaseHTTPServer
-    import StringIO
-    import urlparse
-    from urllib import urlopen
 
 import cgi
 import socket
 
-# we also rely upon Python's json infrastructure 
+# we also rely upon Python's json infrastructure
 
 try:
     import simplejson as json
@@ -60,7 +50,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     # if we need to, then we'll change this
 
     def wfile_write(self, s):
-        if _PY3 and not isinstance(s, bytes):
+        if not isinstance(s, bytes):
             s = s.encode('utf-8')
         self.wfile.write(s)
 
@@ -87,14 +77,14 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                                 % host)
             else:
                 self.session = self.server.pymol_session # local session
-                self.callback = None 
+                self.callback = None
                 self.parse_args()
                 self.process_urlpath()
         except socket.error:
             traceback.print_exc()
             print("broken pipe")
             pass
-        
+
     def parse_args(self):
         """
         parses URL arguments into a urlpath (before the ?)
@@ -124,14 +114,14 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.urlpath can be a request for a document, or a
         special request, such as apply or getattr
         """
-        parts = self.urlpath.split('/') 
+        parts = self.urlpath.split('/')
 
         # for example:
         # if http://localhost:8080/apply/pymol.cmd.color?...
         # then parts is ['', 'apply', 'pymol.cmd.color...']
         # or if http://localhost:8080/apply?_json=...
         # then parts is ['', 'apply?_json=...']
-        
+
         if len(parts) < 2: # then it cannot be a PyMOL request
             self.send_doc() # simple file retrieval
         else: # might be a PyMOL request
@@ -154,7 +144,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         """
         key = '/getattr/' + attr;
         if key in self.session:
-            try:   
+            try:
                 result = repr(self.session[key])
                 self.send_json_result(result)
             except:
@@ -171,7 +161,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             return json.dumps(r, indent=indent)
         else:
             return json.dumps(result, indent=indent)
-        
+
     def send_json_result(self, result):
         """
         send the mime header and result body.  requests that came from
@@ -179,7 +169,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         formatted results.  other requests will have come from
         ordinary GET or POST requests via links or forms
         """
-        if self.callback != None:
+        if self.callback is not None:
             self.send_resp_header(200,'text/javascript')
             self.wfile_write("%s(%s)"%(self.callback,self.wrap_return(result)))
 
@@ -188,15 +178,15 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             if accept_mime in _json_mime_types:
                 self.send_resp_header(200,accept_mime)
                 self.wfile_write(self.wrap_return(result))
-                
+
             else:
                 self.send_resp_header(200,'text/html')
                 self.wfile_write("PyMOL's JSON response: <pre>")
                 self.wfile_write(self.wrap_return(result,indent=4))
                 self.wfile_write("</pre>")
-            
+
     def send_json_error(self, code, message):
-        if self.callback != None:
+        if self.callback is not None:
             self.send_resp_header(code,'text/javascript')
             self.wfile_write("%s(%s)"%(self.callback,self.wrap_return(message,"ERROR")))
         else:
@@ -216,7 +206,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         tb = fp.getvalue()
         message = message + tb.split('\n')
         response = json.dumps(message)
-        if self.callback != None:
+        if self.callback is not None:
             self.send_resp_header(code, 'text/javascript')
             self.wfile_write("%s(%s)"%(self.callback,response))
         else:
@@ -234,7 +224,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         """
         apply the appropriate method held in the session dictionary.
         supply the method arguements in the form of key/value
-        """        
+        """
         args = None
         kwds = None
         query_kwds = {}
@@ -247,8 +237,8 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 elif k == '_json': # main path for Javascript API
                     method = json.loads(self.fs.getfirst(k))
                     # [ "my_method", [ arg1, ... ] , { 'key1' : 'val1, ... } ]
-                    # or 
-                    # [ [ "my_met1", [ arg1, ... ], { 'key1' : 'val1, ... } ], 
+                    # or
+                    # [ [ "my_met1", [ arg1, ... ], { 'key1' : 'val1, ... } ],
                     #   [ "my_met2", [ arg1, ... ], { 'key1' : 'val1, ... } ] ]
                 elif k == '_method': # tentative, not in spec -- may disappear
                     # a method name "my_method"
@@ -260,13 +250,13 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 # other underscore arguments are ignored (not passed on)
             elif k[0:1] != '_':
                 query_kwds[k] = self.fs.getfirst(k)
-                
-        blocks = []            
+
+        blocks = []
         if isinstance(method, str):
-            # method is merely a string 
-            if kwds == None:
+            # method is merely a string
+            if kwds is None:
                 kwds = query_kwds
-            if args == None:
+            if args is None:
                 args = ()
             if len(method):
                 blocks = [ [ method, args, kwds ] ]
@@ -290,7 +280,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 fn = self.session.get(block[0],None)
                 if fn is None and block[0].startswith('pymol.cmd.'):
                     fn = getattr(self.server.pymol_cmd, block[0][10:], None)
-                if fn != None:
+                if fn is not None:
                     len_block = len(block)
                     if len_block>1:
                         args = tuple(block[1])
@@ -311,7 +301,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                         return
                 else:
                     self.send_json_error(500,[ "Method not found:",
-                                               str(block) ])                
+                                               str(block) ])
                     return
 
                 if block[0] == '_quit': # special quit behavior
@@ -322,9 +312,9 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                         href = str(kwds['href'])
                     elif len(args):
                         href = str(args[1])
-                    if href == None:
+                    if href is None:
                         self.wfile_write("<body>")
-                    elif not len(href): # simply 
+                    elif not len(href): # simply
                         self.wfile_write("<body onload=\"window.close()\">")
                     else:
                         self.wfile_write(
@@ -353,7 +343,7 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if '..' in path_list: # prevent access to parent directories
             self.send_error(404,"Illegal path.")
             self.wfile_write(": %s" % self.path)
-        elif self.server.pymol_root == None:
+        elif self.server.pymol_root is None:
             self.send_error(404,"No content root specified.")
         else:
             try:
@@ -394,24 +384,30 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             return 'application/x-pymol'
         else:
             return 'text/plain'
-            
+
+    def send_custom_headers(self):
+        for item in getattr(self.server, 'custom_headers', ()):
+            self.send_header(item[0], item[1])
+
     def send_error(self,errcode,errmsg):
         self.send_response(errcode)
         self.send_header('Content-type', 'text/plain')
         self.send_header('Pragma','no-cache')
         self.send_header('Cache-Control','no-cache, must-revalidate')
         self.send_header('Expires','Sat, 10 Jan 2008 01:00:00 GMT')
+        self.send_custom_headers()
         self.end_headers()
         self.wfile_write("PyMOL-HTTPd-Error: "+errmsg+"\n")
-        
+
     def send_resp_header(self, code=200, mime='text/html'):
         self.send_response(code)
         self.send_header('Content-type', mime)
         self.send_header('Pragma','no-cache')
         self.send_header('Cache-Control','no-cache, must-revalidate')
         self.send_header('Expires','Sat, 10 Jan 2008 01:00:00 GMT')
+        self.send_custom_headers()
         self.end_headers()
-        
+
     def echo_args(self):
         """
         for debugging requests
@@ -447,8 +443,11 @@ class _PymolHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
 class PymolHttpd:
 
-    def __init__(self, port=8080, root=None, logging=1, wrap_natives=0, self_cmd=None):
-        if self_cmd == None:
+    def __init__(self, port=8080, root=None, logging=1, wrap_natives=0, self_cmd=None, headers=()):
+        '''
+        :param headers: A list or tuple of (key, value) header items to send with each response.
+        '''
+        if self_cmd is None:
             # fallback on the global singleton PyMOL API
             try:
                 from pymol import cmd
@@ -468,31 +467,32 @@ class PymolHttpd:
         session['_quit'] = lambda href=None,s=self:s.quit()
 
         # JavaScript workarounds for keyword clashes
-        
-        session['pymol.cmd.delete_'] = self_cmd.delete 
-        session['pymol.cmd.super_'] = self_cmd.super 
+
+        session['pymol.cmd.delete_'] = self_cmd.delete
+        session['pymol.cmd.super_'] = self_cmd.super
 
         ## Unsafe methods to workaround (uses eval)
 
         session['pymol.cmd.label'] = self_cmd.label2 # no-eval version
-        
+
         self.server = BaseHTTPServer.HTTPServer(('', self.port),
                                                 _PymolHTTPRequestHandler)
         self.server.wrap_natives = wrap_natives
+        self.server.custom_headers = headers
 
         if self.port == 0:
             self.port = self.server.socket.getsockname()[1]
         self.server.pymol_session = self.session
         self.server.pymol_root = self.root
-        if self.root != None:
+        if self.root is not None:
             os.environ['PYMOL_HTTP_ROOT'] = self.root
-        self.server.pymol_cmd = self.cmd 
+        self.server.pymol_cmd = self.cmd
         self.server.pymol_logging = logging
 
     def _server_thread(self):
         while not self.stop_event.isSet():
             self.server.handle_request()
-        
+
     def start(self):
         print ( " PyMOL-HTTPd: serving requests on http://localhost:%d" %
                 self.port )
@@ -518,17 +518,15 @@ class PymolHttpd:
         exposes a Python method or symbol to the web services interface
         '''
         self.session[name] = value
-        
+
 # default behavior if run explicitly from PyMOL
 
-if __name__ == 'pymol': # launched inside PyMOL 
+if __name__ == 'pymol': # launched inside PyMOL
 
-    # initialize the server 
-    
+    # initialize the server
+
     server = PymolHttpd()
-    
+
     # handle_requests (fires off a separate thread)
 
     server.start()
-
-  

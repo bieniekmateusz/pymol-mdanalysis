@@ -6,8 +6,6 @@ License: BSD-2-Clause
 
 '''
 
-from __future__ import print_function
-
 import os
 import sys
 import pymol
@@ -138,8 +136,7 @@ DESCRIPTION
     if len(plugins) == 0:
         initialize(-2)
     if name not in plugins:
-        print(' Error: no such plugin')
-        return
+        raise pymol.CmdException('no such plugin')
     info = plugins[name]
     if info.loaded:
         if not int(quiet):
@@ -198,8 +195,9 @@ class PluginInfo(object):
         Parse plugin file for metadata (hash-commented block at beginning of file).
         '''
         metadata = dict()
-        f = open(self.filename, 'rU')
+        f = open(self.filename, 'rb')
         for line in f:
+            line = line.decode('utf-8', errors='replace')
             if line.strip() == '':
                 continue
             if not line.startswith('#'):
@@ -238,13 +236,12 @@ class PluginInfo(object):
             return self.module.__doc__
 
         try:
-            c = compile(''.join(open(self.filename)), 'x', 'exec', dont_inherit=True)
+            c = compile(b''.join(open(self.filename, 'rb')), 'x', 'exec', dont_inherit=True)
             s = c.co_consts[0]
             if cmd.is_string(s):
                 return s
         except SyntaxError as e:
-            if sys.version_info[0] > 2:
-                return 'WARNING: Plugin not Python 3.x compatible: ' + str(e)
+            return 'WARNING: Plugin not Python 3.x compatible: ' + str(e)
         except:
             pass
 
@@ -274,10 +271,7 @@ class PluginInfo(object):
 
             # do not use self.loaded here
             if force and self.module is not None:
-                if sys.version_info[0] > 2:
-                    from importlib import reload
-                else:
-                    from __builtin__ import reload
+                from importlib import reload
                 reload(self.module)
             else:
                 __import__(self.mod_name, level=0)
@@ -418,17 +412,12 @@ def initialize(pmgapp=-1):
     pmgapp == -1: Autoloading but no legacyinit
     else:         Autoloading and legacyinit
     '''
-
-    # check for obsolete development version of pymolplugins
-    if 'pymolplugins' in sys.modules:
-        from .legacysupport import tkMessageBox
-        tkMessageBox.showwarning('WARNING',
-                '"pymolplugins" now integrated into PyMOL as "pymol.plugins"! '
-                'Please remove the old pymolplugins module and delete ~/.pymolrc_plugins.py')
-
     if os.path.exists(PYMOLPLUGINSRC):
         from pymol import parsing
-        parsing.run_file(PYMOLPLUGINSRC, {'__script__': PYMOLPLUGINSRC}, {})
+        try:
+            parsing.run_file(PYMOLPLUGINSRC, {'__script__': PYMOLPLUGINSRC}, {})
+        except SyntaxError as e:
+            colorprinting.warning(str(e))
 
     autoload = (pmgapp != -2)
     for parent in [startup]:

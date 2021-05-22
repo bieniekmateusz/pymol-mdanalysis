@@ -19,8 +19,10 @@ Z* -------------------------------------------------------------------
 
 #include "Ortho.h"
 #include "PyMOLObject.h"
+#include "ScrollBar.h"
+#include <vector>
 
-typedef struct {
+struct CSeqCol {
   int start;
   int stop;
   int offset;
@@ -32,34 +34,69 @@ typedef struct {
   int color;
   int tag;
   int is_abbr, hint_no_space;
-} CSeqCol;
+};
 
-typedef struct {
+struct ObjectMolecule;
+struct AtomInfoType;
+
+struct CSeqRow {
   ov_size len, ext_len;
   int label_flag, column_label_flag;
   int color;
-  char *txt;
-  CSeqCol *col, *fill;
+  pymol::vla<char> txt;
+  pymol::vla<CSeqCol> col;
+  pymol::vla<CSeqCol> fill;
   int nCol, cCol;
   int nFill;
-  int *char2col;
-  int *atom_lists;
+  pymol::vla<int> char2col;
+  pymol::vla<int> atom_lists;
   ObjectNameType name;          /* associated object */
-  struct ObjectMolecule *obj;   /* this pointer only valid during update */
-  struct AtomInfoType *last_ai;
+  ObjectMolecule *obj;   /* this pointer only valid during update */
+  AtomInfoType *last_ai;
   int accum, current, title_width;      /* temporary stores for aligning */
-} CSeqRow;
+};
 
-typedef struct {
-  CSeqRow *(*fClick) (PyMOLGlobals * G, CSeqRow * rowVLA, int button, int row, int col,
-                      int mod, int x, int y);
-  CSeqRow *(*fDrag) (PyMOLGlobals * G, CSeqRow * rowVLA, int row, int col, int mod);
-  CSeqRow *(*fRelease) (PyMOLGlobals * G, CSeqRow * rowVLA, int button, int row, int col,
-                        int mod);
-  void (*fRefresh) (PyMOLGlobals * G, CSeqRow * rowVLA);
-  int box_active, box_row;
-  int box_start_col, box_stop_col;
-} CSeqHandler;
+struct CSeqHandler {
+  virtual CSeqRow* click(PyMOLGlobals * G, std::vector<CSeqRow>& rowVLA, int button, int row, int col,
+                      int mod, int x, int y) = 0;
+  virtual CSeqRow* drag(PyMOLGlobals * G, std::vector<CSeqRow>& rowVLA, int row, int col, int mod) = 0;
+  virtual CSeqRow* release(PyMOLGlobals * G, std::vector<CSeqRow>& rowVLA, int button, int row, int col,
+                        int mod) = 0;
+ virtual void refresh(PyMOLGlobals * G, std::vector<CSeqRow>& rowVLA) = 0;
+
+  bool box_active{};
+  int box_row{};
+  int box_start_col{};
+  int box_stop_col{};
+};
+
+struct CSeq : public Block {
+  bool DragFlag { false };
+  bool ScrollBarActive { true };
+  int NSkip {};
+  ScrollBar m_ScrollBar;
+  std::vector<CSeqRow> Row;
+  int NRow { 0 };
+  int Size {};
+  int VisSize {};
+  int Changed {};
+  bool Dirty { true };
+  int LineHeight { 13 };
+  int CharWidth { 8 };
+  int ScrollBarWidth { 16 };
+  int ScrollBarMargin { 2 };
+  int CharMargin { 2 };
+  int LastRow { -1 };
+  CSeqHandler *Handler {};         /* borrowed pointer */
+
+  CSeq(PyMOLGlobals * G) : Block(G), m_ScrollBar(G, true) {}
+
+  int click(int button, int x, int y, int mod) override;
+  void draw(CGO* orthoCGO) override;
+  int drag(int x, int y, int mod) override;
+  int release(int button, int x, int y, int mod) override;
+  void reshape(int width, int height) override;
+};
 
 int SeqInit(PyMOLGlobals * G);
 void SeqFree(PyMOLGlobals * G);
@@ -67,7 +104,7 @@ Block *SeqGetBlock(PyMOLGlobals * G);
 
 int SeqGetHeight(PyMOLGlobals * G);
 void SeqSetHandler(PyMOLGlobals * G, CSeqHandler * handler);
-void SeqSetRowVLA(PyMOLGlobals * G, CSeqRow * row, int nRow);
+void SeqSetRow(PyMOLGlobals * G, std::vector<CSeqRow>&& row, int nRow);
 void SeqDirty(PyMOLGlobals * G);        /* sequence dirty -- need to update selections */
 void SeqChanged(PyMOLGlobals * G);      /* sequence changed -- need to rebuild */
 void SeqUpdate(PyMOLGlobals * G);

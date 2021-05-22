@@ -21,6 +21,7 @@ Z* -------------------------------------------------------------------
 
 #include"Rep.h"
 #include"Setting.h"
+#include"SymOp.h"
 #include"Version.h"
 
 #if _PyMOL_VERSION_int < 1770
@@ -79,6 +80,8 @@ Z* -------------------------------------------------------------------
 
 
 /* FLAG 24 - don't surface these atoms (waters, ligands, etc.) */
+// DEPRECATED (PYMOL-3500): Instead of `flag exfoliate, sele`, use `hide
+// surface, sele` or some equivalent command.
 #define cAtomFlag_exfoliate     0x01000000
 
 
@@ -220,15 +223,18 @@ extern const int ElementTableSize;
 
 typedef struct BondType {
   int index[2];
-  int id;
   int unique_id;
-#ifdef _PYMOL_IP_EXTRAS
-  int oldid;
-#endif
+
+  /// Symmetry operation of the second atom. The implicit symmetry for the first
+  /// atom is 1_555. (We assume that there is no use case for `symop_1 != 1_555
+  /// && symop_2 != 1_555`).
+  pymol::SymOp symop_2;
+
   signed char order;    // 0-4
-  signed char temp1;    // bool? where used?
-  signed char stereo;   // 0-6 Only for SDF (MOL) format in/out
   bool has_setting;     /* setting based on unique_id */
+
+  /// True if this is a bond to a symmetry mate
+  bool hasSymOp() const;
 } BondType;
 
 typedef struct AtomInfoType {
@@ -246,18 +252,20 @@ typedef struct AtomInfoType {
   int customType;
   int priority;
   float b, q, vdw, partialCharge;
-  int selEntry;
+
+  SelectorMemberOffset_t selEntry;
+
   int color;
   int id;                       // PDB ID
   unsigned int flags;
   int temp1;                    /* kludge fields - to remove */
   int unique_id;                /* introduced in version 0.77 */
-  int discrete_state;           /* state+1 for atoms in discrete objects */
+  StateIndexPython_t discrete_state; ///< state+1 for atoms in discrete objects
   float elec_radius;            /* radius for PB calculations */
   int rank;
   int visRep;                   /* bitmask for all reps */
+
 #ifdef _PYMOL_IP_EXTRAS
-  int oldid;                    // for undo
   int prop_id;
 #endif
 
@@ -363,7 +371,7 @@ typedef struct AtomInfoType {
 void AtomInfoFree(PyMOLGlobals * G);
 int AtomInfoInit(PyMOLGlobals * G);
 void BondTypeInit(BondType *bt);
-void BondTypeInit2(BondType *bt, int i1, int i2, int order);
+void BondTypeInit2(BondType *bt, int i1, int i2, int order = 1);
 void AtomInfoPurge(PyMOLGlobals * G, AtomInfoType * ai);
 void AtomInfoCopy(PyMOLGlobals * G, const AtomInfoType * src, AtomInfoType * dst, int copy_properties=true);
 int AtomInfoReserveUniqueID(PyMOLGlobals * G, int unique_id);
@@ -390,7 +398,6 @@ PyObject *AtomInfoAsPyList(PyMOLGlobals * G, const AtomInfoType * at);
 int AtomInfoFromPyList(PyMOLGlobals * G, AtomInfoType * at, PyObject * list);
 
 int AtomInfoMatch(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2, bool, bool);
-int AtomInfoCompareAll(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2);
 int AtomInfoCompare(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2);
 int AtomInfoCompareIgnoreRank(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2);
 int AtomInfoCompareIgnoreHet(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2);
@@ -414,7 +421,11 @@ void AtomInfoBracketResidueFast(PyMOLGlobals * G, const AtomInfoType * ai0, int 
                                 int *st, int *nd);
 
 int AtomInfoUniquefyNames(PyMOLGlobals * G, const AtomInfoType * atInfo0, int n0,
-                          AtomInfoType * atInfo1, int *flag1, int n1);
+                          AtomInfoType * atInfo1, int *flag1, int n1,
+                          const ObjectMolecule* mol = nullptr);
+int AtomInfoUniquefyNames(
+    const ObjectMolecule* mol, AtomInfoType* atoms, size_t natoms);
+
 bool AtomResiFromResv(char *resi, size_t size, int resv, char inscode);
 inline bool AtomResiFromResv(char *resi, size_t size, const AtomInfoType * ai) {
   return AtomResiFromResv(resi, size, ai->resv, ai->inscode);
@@ -455,8 +466,6 @@ typedef struct {
   unsigned char type;
   int next;
 } SSEntry;
-
-int BondTypeCompare(PyMOLGlobals * G, const BondType * bt1, const BondType * bt2);
 
 void atomicnumber2elem(char * dst, int protons);
 

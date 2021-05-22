@@ -29,36 +29,40 @@ Z* -------------------------------------------------------------------
 #include"ShaderMgr.h"
 #include"CGO.h"
 
-typedef struct RepNonbonded {
-  Rep R;
+struct RepNonbonded : Rep {
+  using Rep::Rep;
+
+  ~RepNonbonded() override;
+
+  cRep_t type() const override { return cRepNonbonded; }
+  void render(RenderInfo* info) override;
+
   CGO *primitiveCGO;
   CGO *shaderCGO;
   bool shaderCGO_has_cylinders;
-} RepNonbonded;
+};
 
 #include"ObjectMolecule.h"
 
-static
-void RepNonbondedFree(RepNonbonded * I)
+RepNonbonded::~RepNonbonded()
 {
-  CGOFree(I->primitiveCGO);
-  CGOFree(I->shaderCGO);
-  RepPurge(&I->R);
-  OOFreeP(I);
+  CGOFree(primitiveCGO);
+  CGOFree(shaderCGO);
 }
 
 void RepNonbondedRenderImmediate(CoordSet * cs, RenderInfo * info)
 {
-  PyMOLGlobals *G = cs->State.G;
+#ifndef PURE_OPENGL_ES_2
+  PyMOLGlobals *G = cs->G;
   if(info->ray || info->pick || (!(G->HaveGUI && G->ValidContext)))
     return;
   else {
     int active = false;
     ObjectMolecule *obj = cs->Obj;
     float line_width =
-      SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_line_width);
+      SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_line_width);
     float nonbonded_size =
-      SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_nonbonded_size);
+      SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_nonbonded_size);
 
     if(info->width_scale_flag)
       glLineWidth(line_width * info->width_scale);
@@ -73,13 +77,13 @@ void RepNonbondedRenderImmediate(CoordSet * cs, RenderInfo * info)
     {
       int a;
       int nIndex = cs->NIndex;
-      AtomInfoType *atomInfo = obj->AtomInfo;
-      int *i2a = cs->IdxToAtm;
+      const AtomInfoType* atomInfo = obj->AtomInfo.data();
+      const int* i2a = cs->IdxToAtm.data();
       int last_color = -1;
-      float *v = cs->Coord;
+      const float *v = cs->Coord;
 
       for(a = 0; a < nIndex; a++) {
-        AtomInfoType *ai = atomInfo + *(i2a++);
+        const AtomInfoType* ai = atomInfo + *(i2a++);
         if((!ai->bonded) && (ai->visRep & cRepNonbondedBit)) {
           int c = ai->color;
           float v0 = v[0];
@@ -108,25 +112,26 @@ void RepNonbondedRenderImmediate(CoordSet * cs, RenderInfo * info)
     if(!active)
       cs->Active[cRepNonbonded] = false;
   }
+#endif
 }
 
 static int RepNonbondedCGOGenerate(RepNonbonded * I, RenderInfo * info)
 {
-  PyMOLGlobals *G = I->R.G;
+  PyMOLGlobals *G = I->G;
   float alpha;
   int ok = true;
   CGO *convertcgo = NULL;
   short nonbonded_as_cylinders ;
   short use_shader;
   float nonbonded_size =
-    SettingGet_f(G, I->R.cs->Setting, I->R.obj->Setting, cSetting_nonbonded_size);
+    SettingGet_f(G, I->cs->Setting.get(), I->obj->Setting.get(), cSetting_nonbonded_size);
 
   nonbonded_as_cylinders = SettingGetGlobal_b(G, cSetting_render_as_cylinders) && SettingGetGlobal_b(G, cSetting_nonbonded_as_cylinders);
   use_shader = SettingGetGlobal_b(G, cSetting_nonbonded_use_shader) & 
     SettingGetGlobal_b(G, cSetting_use_shaders);
 
   alpha =
-    SettingGet_f(G, I->R.cs->Setting, I->R.obj->Setting, cSetting_nonbonded_transparency);
+    SettingGet_f(G, I->cs->Setting.get(), I->obj->Setting.get(), cSetting_nonbonded_transparency);
   alpha = 1.0F - alpha;
   if(fabs(alpha - 1.0) < R_SMALL4)
     alpha = 1.0F;
@@ -187,41 +192,41 @@ static int RepNonbondedCGOGenerate(RepNonbonded * I, RenderInfo * info)
   return ok;
 }
 
-static void RepNonbondedRender(RepNonbonded * I, RenderInfo * info)
+void RepNonbonded::render(RenderInfo* info)
 {
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  PyMOLGlobals *G = I->R.G;
   int ok = true;
   float alpha =
-    SettingGet_f(G, I->R.cs->Setting, I->R.obj->Setting, cSetting_nonbonded_transparency);
+    SettingGet_f(G, I->cs->Setting.get(), I->obj->Setting.get(), cSetting_nonbonded_transparency);
   alpha = 1.0F - alpha;
   if(fabs(alpha - 1.0) < R_SMALL4)
     alpha = 1.0F;
   if(ray) {
 #ifndef _PYMOL_NO_RAY
-    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->R.cs->Setting, I->R.cs->Obj->Obj.Setting);
+    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->cs->Setting.get(), I->cs->Obj->Setting.get());
     ray->transparentf(0.0);
 #endif
   } else if(G->HaveGUI && G->ValidContext) {
     if(pick) {
-      CGORenderGLPicking(I->shaderCGO ? I->shaderCGO : I->primitiveCGO, info, &I->R.context, I->R.cs->Setting, I->R.obj->Setting);
+      CGORenderGLPicking(I->shaderCGO ? I->shaderCGO : I->primitiveCGO, info, &I->context, I->cs->Setting.get(), I->obj->Setting.get());
     } else {
       /* not pick, but render */
       bool use_shader = SettingGetGlobal_b(G, cSetting_nonbonded_use_shader) && SettingGetGlobal_b(G, cSetting_use_shaders);
       if (!use_shader){
-        CGORenderGL(I->primitiveCGO, NULL, NULL, NULL, info, &I->R);
+        CGORenderGL(I->primitiveCGO, NULL, NULL, NULL, info, I);
         return;
       }
       bool nonbonded_as_cylinders = SettingGetGlobal_b(G, cSetting_render_as_cylinders) && SettingGetGlobal_b(G, cSetting_nonbonded_as_cylinders);
       if (I->shaderCGO && use_shader != I->shaderCGO->use_shader){
-        CGOFree(I->shaderCGO);
-        I->shaderCGO = 0;
+	CGOFree(I->shaderCGO);
+	I->shaderCGO = 0;
       }
 
       if (I->shaderCGO && (nonbonded_as_cylinders ^ I->shaderCGO_has_cylinders)){
-        CGOFree(I->shaderCGO);
-        I->shaderCGO = 0;
+	CGOFree(I->shaderCGO);
+	I->shaderCGO = 0;
       }
 
       if (!I->shaderCGO){
@@ -232,16 +237,15 @@ static void RepNonbondedRender(RepNonbonded * I, RenderInfo * info)
         }
         ok &= RepNonbondedCGOGenerate(I, info);
       }
-      CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, &I->R);
+      CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, I);
     }
   }
 }
 
 Rep *RepNonbondedNew(CoordSet * cs, int state)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   bool hasNonbondedAtoms = false;
-  OOAlloc(G, RepNonbonded);
 
   ObjectMolecule *obj = cs->Obj;
 
@@ -255,20 +259,12 @@ Rep *RepNonbondedNew(CoordSet * cs, int state)
     }
   }
   if(!hasNonbondedAtoms) {
-    OOFreeP(I);
     return (NULL);              /* skip if no dots are visible */
   }
 
-  RepInit(G, &I->R);
+  auto I = new RepNonbonded(cs, state);
 
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepNonbondedRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepNonbondedFree;
-  I->R.fRecolor = NULL;
   I->shaderCGO = NULL;
-
-  I->R.P = NULL;
-  I->R.obj = (CObject *) (cs->Obj);
-  I->R.cs = cs;
 
   I->primitiveCGO = CGONew(G);
 
@@ -276,7 +272,6 @@ Rep *RepNonbondedNew(CoordSet * cs, int state)
   CGOSpecial(I->primitiveCGO, LINEWIDTH_FOR_LINES);
   CGOBegin(I->primitiveCGO, GL_LINES); // for immediate mode
   bool first = true;
-  float *v1;
   int a1, c1;
   float tmpColor[3];
   for(int a = 0; a < cs->NIndex; a++){
@@ -284,7 +279,7 @@ Rep *RepNonbondedNew(CoordSet * cs, int state)
     AtomInfoType *ai = obj->AtomInfo + a1;
     if(!ai->bonded && (ai->visRep & cRepNonbondedBit)) {
       c1 = ai->color;
-      v1 = cs->Coord + 3 * a;
+      const float* v1 = cs->coordPtr(a);
       ColorGetCheckRamped(G, c1, v1, tmpColor, state);
       if (first || !equal3f(I->primitiveCGO->color, tmpColor)){
         CGOColorv(I->primitiveCGO, tmpColor);
@@ -296,7 +291,5 @@ Rep *RepNonbondedNew(CoordSet * cs, int state)
   }
   CGOEnd(I->primitiveCGO); // for immediate mode
   CGOSpecialWithArg(I->primitiveCGO, LINE_LIGHTING, 1.f);
-    I->R.context.object = (void *) obj;
-    I->R.context.state = state;
   return (Rep *) I;
 }

@@ -38,6 +38,7 @@ Z* -------------------------------------------------------------------
 #include"Setting.h"
 #include"Executive.h"
 #include "Lex.h"
+#include "pymol/zstring_view.h"
 
 #include <map>
 
@@ -158,11 +159,9 @@ int AtomInfoCheckUniqueBondID(PyMOLGlobals * G, BondType * bi)
 }
 
 void BondTypeInit(BondType *bt){
-#ifdef _PYMOL_IP_EXTRAS
-  bt->oldid = -1;
-#endif
   bt->unique_id = 0;
   bt->has_setting = 0;
+  bt->symop_2 = pymol::SymOp();
 }
 
 /**
@@ -174,7 +173,6 @@ void BondTypeInit2(BondType *bond, int i1, int i2, int order)
   bond->index[0] = i1;
   bond->index[1] = i2;
   bond->order = order;
-  bond->id = -1;
 }
 
 int AtomInfoInit(PyMOLGlobals * G)
@@ -1156,10 +1154,22 @@ void AtomInfoCombine(PyMOLGlobals * G, AtomInfoType * dst, AtomInfoType&& src_, 
 
 
 /*========================================================================*/
+/**
+ * Make atom names in `atInfo1` unique w.r.t.\ `atInfo0` (and to `atInfo1` itself).
+ * @param atInfo0 List of reference atoms
+ * @param n0 Size of atInfo0 list
+ * @param atInfo1 List of atoms which need to be made unique
+ * @param flag1 Optional whitelist mask for `atInfo1` or NULL
+ * @param n1 Size of atInfo1 list
+ * @param mol Optional reference molecule to limit to atoms with coordinates
+ * @return Number of renamed atoms
+ */
 int AtomInfoUniquefyNames(PyMOLGlobals * G, const AtomInfoType * atInfo0, int n0,
-                          AtomInfoType * atInfo1, int *flag1, int n1)
+                          AtomInfoType * atInfo1, int *flag1, int n1,
+                          const ObjectMolecule * mol)
 {
   /* makes sure all names in atInfo1 are unique WRT 0 and 1 */
+  auto ignore_case = SettingGet<bool>(G, cSetting_ignore_case);
 
   /* tricky optimizations to avoid n^2 dependence in this operation */
   int result = 0;
@@ -1205,7 +1215,7 @@ int AtomInfoUniquefyNames(PyMOLGlobals * G, const AtomInfoType * atInfo0, int n0
 
       ai0 = atInfo1 + st1;
       for(a = st1; a <= nd1; a++) {
-        if(!WordMatchExact(G, ai1->name, ai0->name, true))
+        if(!WordMatchExact(G, ai1->name, ai0->name, ignore_case))
           ai0++;
         else if(!AtomInfoSameResidue(G, ai1, ai0))
           ai0++;
@@ -1221,27 +1231,20 @@ int AtomInfoUniquefyNames(PyMOLGlobals * G, const AtomInfoType * atInfo0, int n0
       if(atInfo0) {
         /* check within object 2 */
 
-        if(!lai0)
-          bracketFlag = true;
-        else if(!AtomInfoSameResidue(G, lai0, ai1))
-          bracketFlag = true;
-        else
-          bracketFlag = false;
-        if(bracketFlag) {
+        if (!lai0 || !AtomInfoSameResidue(G, lai0, ai1)) {
           AtomInfoBracketResidue(G, atInfo0, n0, ai1, &st0, &nd0);
           lai0 = ai1;
         }
-        ai0 = atInfo0 + st0;
-        for(a = st0; a <= nd0; a++) {
-          if(!WordMatchExact(G, ai1->name, ai0->name, true))
-            ai0++;
-          else if(!AtomInfoSameResidue(G, ai1, ai0))
-            ai0++;
-          else if(ai1 != ai0) {
+
+        for (a = st0; a <= nd0; ++a) {
+          ai0 = atInfo0 + a;
+
+          if (WordMatchExact(G, ai1->name, ai0->name, ignore_case) &&
+              AtomInfoSameResidue(G, ai1, ai0) && ai1 != ai0 &&
+              (!mol || mol->atomHasAnyCoordinates(a))) {
             matchFlag = true;
             break;
-          } else
-            ai0++;
+          }
         }
       }
     }
@@ -1266,6 +1269,19 @@ int AtomInfoUniquefyNames(PyMOLGlobals * G, const AtomInfoType * atInfo0, int n0
   return result;
 }
 
+/**
+ * Make atom names in `atoms` unique w.r.t.\ atoms-with-coordinates in `mol`.
+ * @param mol Reference molecule
+ * @param atoms List of atoms which need to be made unique
+ * @param natoms Size of atoms list
+ * @return Number of renamed atoms
+ */
+int AtomInfoUniquefyNames(
+    const ObjectMolecule* mol, AtomInfoType* atoms, size_t natoms)
+{
+  return AtomInfoUniquefyNames(
+      mol->G, mol->AtomInfo, mol->NAtom, atoms, nullptr, natoms, mol);
+}
 
 /*========================================================================*/
 void AtomInfoBracketResidue(PyMOLGlobals * G, const AtomInfoType * ai0, int n0,
@@ -1962,55 +1978,6 @@ static int AtomInfoNameCompare(PyMOLGlobals * G, const lexidx_t& name1, const le
   return AtomInfoNameCompare(G, LexStr(G, name1), LexStr(G, name2));
 }
 
-int AtomInfoCompareAll(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2)
-{
-  return (at1->resv != at2->resv ||
-	  at1->customType != at2->customType ||
-	  at1->priority != at2->priority ||
-	  at1->b != at2->b ||
-	  at1->q != at2->q ||
-	  at1->vdw != at2->vdw ||
-	  at1->partialCharge != at2->partialCharge ||
-	  at1->formalCharge != at2->formalCharge ||
-	  //	  at1->selEntry != at2->selEntry ||
-	  at1->color != at2->color ||
-	  at1->id != at2->id ||
-	  at1->flags != at2->flags ||
-	  //	  at1->temp1 != at2->temp1 ||
-	  at1->unique_id != at2->unique_id ||
-	  at1->discrete_state != at2->discrete_state ||
-	  at1->elec_radius != at2->elec_radius ||
-	  at1->rank != at2->rank ||
-	  at1->textType != at2->textType ||
-	  at1->custom != at2->custom ||
-	  at1->label != at2->label ||
-	  //	  !memcmp(at1->visRep, at2->visRep, sizeof(signed char)*cRepCnt) || // should this be in here?
-	  at1->stereo != at2->stereo ||
-	  at1->cartoon != at2->cartoon ||
-	  at1->hetatm != at2->hetatm ||
-	  at1->bonded != at2->bonded ||
-	  //	  at1->chemFlag != at2->chemFlag ||
-	  //	  at1->geom != at2->geom ||
-	  //	  at1->valence != at2->valence ||  // Valence should not be in, since it is not initially computed?
-	  at1->deleteFlag != at2->deleteFlag ||
-	  at1->masked != at2->masked ||
-	  at1->protekted != at2->protekted ||
-	  at1->protons != at2->protons ||
-	  at1->hb_donor != at2->hb_donor ||
-	  at1->hb_acceptor != at2->hb_acceptor ||
-	  at1->has_setting != at2->has_setting ||
-	  at1->chain != at2->chain ||
-	  at1->segi != at2->segi ||
-	  at1->resn != at2->resn ||
-	  at1->name != at2->name ||
-	  strcmp(at1->alt, at2->alt) || 
-	  at1->inscode != at2->inscode ||
-	  strcmp(at1->elem, at2->elem) || 
-	  strcmp(at1->ssType, at2->ssType));
-	  // should these variables be in here?
-	  //  float U11, U22, U33, U12, U13, U23;
-}
-
 /**
  * Compares atoms based on all atom identifiers, discrete state, priority,
  * hetatm (optional) and rank (optional)
@@ -2124,7 +2091,7 @@ int AtomInfoSameResidue(PyMOLGlobals * G, const AtomInfoType * at1, const AtomIn
       at1->discrete_state == at2->discrete_state &&
       at1->inscode == at2->inscode &&
       at1->segi == at2->segi &&
-      WordMatchExact(G, at1->resn, at2->resn, true));
+      WordMatchExact(G, at1->resn, at2->resn, SettingGet<bool>(G, cSetting_ignore_case)));
 }
 
 int AtomInfoSameResidueP(PyMOLGlobals * G, const AtomInfoType * at1, const AtomInfoType * at2)
@@ -2350,7 +2317,7 @@ int AtomInfoGetExpectedValence(PyMOLGlobals * G, const AtomInfoType * I)
 static int get_protons(const char * symbol)
 {
   char titleized[4];
-  static std::map<const char *, int, cstrless_t> lookup;
+  static std::map<pymol::zstring_view, int> lookup;
 
   if (lookup.empty()) {
     for (int i = 0; i < ElementTableSize; i++)
@@ -2479,8 +2446,14 @@ void AtomInfoAssignParameters(PyMOLGlobals * G, AtomInfoType * I)
     case 'Q':
       *(e + 1) = 0;
       break;
+    case 'p':
+      if (p_strstartswith(n, "pseudo")) {
+        strcpy(e, "PS");
+      }
     }
-    if(*(e + 1) && (e[1] != 'P' || e[0] != 'L'))
+    if(*(e + 1) &&
+        (/* e != "LP" */ e[1] != 'P' || e[0] != 'L') &&
+        (/* e != "PS" */ e[1] != 'S' || e[0] != 'P'))
       *(e + 1) = tolower(*(e + 1));
   }
 
@@ -2798,16 +2771,6 @@ void AtomInfoAssignParameters(PyMOLGlobals * G, AtomInfoType * I)
   }
 }
 
-int BondTypeCompare(PyMOLGlobals * G, const BondType * bt1, const BondType * bt2){
-  return (bt1->index[0] != bt2->index[0] ||
-	  bt1->index[1] != bt2->index[1] ||
-	  bt1->order != bt2->order ||
-	  bt1->id != bt2->id ||
-	  bt1->unique_id != bt2->unique_id ||
-	  bt1->stereo != bt2->stereo ||
-	  bt1->has_setting != bt2->has_setting);
-}
-
 /**
  * Get the element symbol. E.g. "He" for Helium.
  * @param[out] dst output buffer of length cElemNameLen
@@ -2984,4 +2947,9 @@ void AtomInfoGetAlignedPDBAtomName(PyMOLGlobals * G,
   }
 
   name[4] = 0;
+}
+
+bool BondType::hasSymOp() const
+{
+  return symop_2;
 }

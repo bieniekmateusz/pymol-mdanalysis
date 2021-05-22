@@ -140,7 +140,7 @@ Block *PopUpNew(PyMOLGlobals * G, int x, int y, int last_x, int last_y,
   PyObject *elem;
   const char *str, *c;
   int blocked = PAutoBlock(G);
-  int ui_light_bg = SettingGetGlobal_b(G, cSetting_internal_gui_mode);
+  auto ui_light_bg = SettingGet<InternalGUIMode>(cSetting_internal_gui_mode, G->Setting);
   CPopUp *I = new CPopUp(G);
 
   I->reference = (void *) I;
@@ -153,7 +153,7 @@ Block *PopUpNew(PyMOLGlobals * G, int x, int y, int last_x, int last_y,
   I->BackColor[1] = 0.1F;
   I->BackColor[2] = 0.1F;
 
-  if(ui_light_bg) {
+  if(ui_light_bg != InternalGUIMode::Default) {
     I->TextColor[0] = 0.0F;
     I->TextColor[1] = 0.0F;
     I->TextColor[2] = 0.0F;
@@ -180,7 +180,11 @@ Block *PopUpNew(PyMOLGlobals * G, int x, int y, int last_x, int last_y,
   mx = 1;
   cmx = 1;
   for(a = 0; a < I->NLine; a++) {
-    elem = PyList_GetItem(PyList_GetItem(list, a), 1);
+    PyObject* item = PyList_GetItem(list, a);
+    if (PyList_Size(item) < 2) {
+      continue;
+    }
+    elem = PyList_GetItem(item, 1);
     l = PyString_Size(elem);
     str = PyString_AsString(elem);
     cl = l;
@@ -205,8 +209,9 @@ Block *PopUpNew(PyMOLGlobals * G, int x, int y, int last_x, int last_y,
 
   mx = 1;
   for(a = 0; a < I->NLine; a++) {
-    PyObject *command = (PyList_GetItem(PyList_GetItem(list, a), 2));
-    if(command) {
+    PyObject* item = PyList_GetItem(list, a);
+    if (PyList_Size(item) > 2) {
+      PyObject* command = PyList_GetItem(item, 2);
       if(PyString_Check(command)) {
 	l = PyString_Size(command);
 	if(l > mx)
@@ -225,7 +230,13 @@ Block *PopUpNew(PyMOLGlobals * G, int x, int y, int last_x, int last_y,
     PyObject *command;
     elem = PyList_GetItem(list, a);
     I->Code[a] = PyInt_AsLong(PyList_GetItem(elem, 0));
+    if (I->Code[a] == 0) {
+      continue;
+    }
     strcpy(I->Text[a], PyString_AsString(PyList_GetItem(elem, 1)));
+    if (I->Code[a] == 2) {
+      continue;
+    }
     command = PyList_GetItem(elem, 2);
     if(command) {
       if(PyString_Check(command)) {
@@ -798,11 +809,13 @@ void CPopUp::draw(CGO* orthoCGO)
     }
     if(I->Code[0] == 2) {       /* menu name */
 
-      if(!SettingGetGlobal_i(G, cSetting_internal_gui_mode)) {
-	if (orthoCGO)
-	  CGOColor(orthoCGO, 0.3F, 0.3F, 0.6F);
-	else
-	  glColor3f(0.3F, 0.3F, 0.6F);
+      if (SettingGet<InternalGUIMode>(cSetting_internal_gui_mode, G->Setting) ==
+          InternalGUIMode::Default)
+      {
+        if (orthoCGO)
+          CGOColor(orthoCGO, 0.3F, 0.3F, 0.6F);
+        else
+          glColor3f(0.3F, 0.3F, 0.6F);
       } else {
 	if (orthoCGO)
 	  CGOColor(orthoCGO, 1.0F, 1.0F, 1.0F);

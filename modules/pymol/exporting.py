@@ -1,49 +1,38 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
-from __future__ import print_function, absolute_import
+from . import colorprinting
 
 if True:
     import os
     import sys
-    if sys.version_info[0] == 2:
-        import thread
-    else:
-        import _thread as thread
+    import _thread as thread
     from . import selector
     import re
     import copy
-    
+
     import pymol
     cmd = sys.modules["pymol.cmd"]
-    from .cmd import _cmd,lock,unlock,Shortcut,QuietException
+    from .cmd import _cmd,Shortcut,QuietException
     from chempy import io
     from chempy.pkl import cPickle
-    from chempy.sdf import SDF,SDFRec
     from .cmd import _feedback,fb_module,fb_mask, \
-                     DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error, \
+                     DEFAULT_ERROR, DEFAULT_SUCCESS, is_error, \
                      is_list, is_dict, is_tuple, loadable
-    import traceback
 
-    def copy_image(quiet=1,_self=cmd): # incentive feature / proprietary
-        r = DEFAULT_ERROR
-        if thread.get_ident() == pymol.glutThread:
-            r = _self._copy_image(_self,int(quiet))
-        else:
-            r = _self.do('cmd._copy_image(quiet=%d)'%int(quiet))
-        if _self._raising(r,_self): raise QuietException         
-        return r
+    def copy_image(quiet=1, *, _self=cmd): # incentive feature / proprietary
+        _self._call_in_gui_thread(lambda: _self._copy_image(_self, int(quiet)))
 
     cache_action_dict = {
         'enable'      : 0,
@@ -55,7 +44,7 @@ if True:
 
     cache_action_sc = Shortcut(cache_action_dict.keys())
 
-    def cache(action='optimize', scenes='',state=-1, quiet=1, _self=cmd):
+    def cache(action='optimize', scenes='',state=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -91,26 +80,24 @@ PYMOL API
     cmd.cache(string action, string scenes, int state, int quiet)
 
     '''
-        
-        r = DEFAULT_ERROR
+
         action = cache_action_dict[cache_action_sc.auto_err(str(action),'action')]
         quiet = int(quiet)
         if action == 0: # enable
-            r = _self.set('cache_mode',2,quiet=quiet)
-        elif action == 1: # disable
-            r =_self.set('cache_mode',0,quiet=quiet)
-        elif action == 2: # read_only
-            r =_self.set('cache_mode',1,quiet=quiet)
+            _self.set('cache_mode', 2, quiet=quiet)
+        elif action == 1:  # disable
+            _self.set('cache_mode', 0, quiet=quiet)
+        elif action == 2:  # read_only
+            _self.set('cache_mode', 1, quiet=quiet)
         elif action == 3: # clear
-            r =_self._cache_clear(_self=_self)
+            _self._cache_clear()
         elif action == 4: # optimize
-            r = DEFAULT_SUCCESS
-            _self._cache_mark(_self=_self)
+            _self._cache_mark()
             cur_scene = _self.get('scene_current_name')
-            cache_max = int(_self.get('cache_max'))
+            cache_max = _self.get_setting_int('cache_max')
             if cache_max>0:
                 # allow double memory for an optimized cache
-                _self.set('cache_max',cache_max*2) 
+                _self.set('cache_max',cache_max*2)
             scenes = str(scenes)
             scene_list = scenes.split()
             cache_mode = int(_self.get('cache_mode'))
@@ -135,20 +122,16 @@ PYMOL API
                         print(" cache: no scenes defined -- optimizing current display.")
                     _self.rebuild()
                     _self.refresh()
-            usage = _self._cache_purge(-1,_self=_self)
+            usage = _self._cache_purge(-1)
             if cache_mode:
                 _self.set('cache_mode',cache_mode)
             else:
                 _self.set('cache_mode',2) # hmm... could use 1 here instead.
             _self.set('cache_max',cache_max) # restore previous limits
-            if not quiet:            
+            if not quiet:
                 print(" cache: optimization complete (~%0.1f MB)."%(usage*4/1000000.0))
-        try:
-            _self.lock(_self)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException         
-        return r
+        else:
+            raise ValueError('action')
 
     _resn_to_aa =  {
             'ALA' : 'A',
@@ -182,8 +165,8 @@ PYMOL API
             'DG'  : 'G',
             'DC'  : 'C',
             }
-    
-    def get_fastastr(selection="all", state=-1, quiet=1, key='', _self=cmd):
+
+    def get_fastastr(selection="all", state=-1, quiet=1, key='', *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -235,7 +218,7 @@ ARGUMENTS
             lines.append('')  # final newline
         return '\n'.join(lines)
 
-    def get_pdbstr(selection="all", state=-1, ref='', ref_state=-1, quiet=1, _self=cmd):
+    def get_pdbstr(selection="all", state=-1, ref='', ref_state=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -256,7 +239,7 @@ NOTES
     if state is 0, then all states are saved.
     
     '''
-        return get_str('pdb', selection, state, ref, ref_state, -1, quiet, _self)
+        return _self.get_str('pdb', selection, state, ref, ref_state, -1, quiet)
 
     def _get_dump_str(obj):
         if is_list(obj):
@@ -273,7 +256,7 @@ NOTES
         else:
             result = str(obj)
         return result
-    
+
     def _session_convert_legacy(session, version, _self=cmd):
         '''
         Convert session contents to be compatible with previous PyMOL versions
@@ -384,20 +367,34 @@ NOTES
                             # std and ray CGO
                             state.append(state[0])
 
-    def get_session(names='', partial=0, quiet=1, compress=-1, cache=-1, _self=cmd):
+    def get_session(names='', partial=0, quiet=1, compress=-1, cache=-1,
+                    binary=-1, version=-1,
+                    *, _self=cmd):
+        '''
+        :param names: Names of objects to export, or the empty string to export all objects.
+        :param partial: If true, do not store selections, settings, view, movie.
+        :param compress: DEPRECATED Pickle the dictionary to a string and
+        compress that with zlib {default: session_compression}
+        :param cache: ?
+        :param binary: Use efficient binary format {default: pse_binary_dump}
+        :param version: {default: pse_export_version}
+        '''
         session = {}
-        r = DEFAULT_SUCCESS
         cache = int(cache)
         compress = int(compress)
         partial = int(partial)
+        quiet = int(quiet)
 
-        pse_export_version = round(_self.get_setting_float('pse_export_version'), 4)
+        if version < 0:
+            version = _self.get_setting_float('pse_export_version')
+
+        pse_export_version = round(float(version), 4)
         legacyscenes = (0 < pse_export_version < 1.76) and _self.get_scene_list()
 
-        if sys.version_info[0] > 2:
+        if True:
             legacypickle = (0 < pse_export_version < 1.9)
             if legacypickle:
-                print(' Warning: pse_export_version with Python 3 is experimental')
+                print(' Using Python 2 compatible legacy pickler')
             cPickle.configure_legacy_dump(legacypickle)
 
         if legacyscenes:
@@ -418,33 +415,39 @@ NOTES
             _self.set('scene_current_name', scene_current_name)
 
         if cache:
-            cache_opt = int(_self.get('session_cache_optimize'))
-            if cache != 0:
-                cache_mode = int(_self.get('cache_mode'))
-                if ((cache_mode > 0) and (cache_opt != 0)) or (cache_opt==1):
-                    _self.cache('optimize')
-        for a in _self._pymol._session_save_tasks:
-            if a==None:
-                try:
-                    _self.lock(_self)
-                    r = _cmd.get_session(_self._COb,session,str(names),
-                                         int(partial),int(quiet))
-                finally:
-                    _self.unlock(r,_self)
+            cache_opt = _self.get_setting_int('session_cache_optimize')
+            if cache_opt == 1 or (cache_opt != 0
+                                  and _self.get_setting_int('cache_mode')):
+                _self.cache('optimize')
+
+        with _self.lockcm:
+            _cmd.get_session(_self._COb, session, str(names), int(partial),
+                             int(quiet), binary, pse_export_version)
+
+        if True:
                 try:
                     session['session'] = copy.deepcopy(_self._pymol.session)
                     if cache and hasattr(_self._pymol,'_cache'):
                         session['cache'] = _self._pymol._cache
                 except:
-                    traceback.print_exc()
-            else:
-                try:
-                    if is_error(a(*(session,), **{'_self':_self})):
-                        r = DEFAULT_ERROR
-                except:
-                    traceback.print_exc()
-                    print("Error: An error occurred when trying to generate session.")
-                    print("Error: The resulting session file may be incomplete.")
+                    colorprinting.print_exc()
+
+        for a in _self._pymol._session_save_tasks:
+            assert a is not None
+            error = False
+            try:
+                # TODO _session_restore_tasks use `not <return-value>`
+                # instead of `is_error(<return-value>)`
+                error = is_error(a(session, _self=_self))
+            except:
+                if not quiet:
+                    colorprinting.print_exc([__file__])
+                error = True
+            if error:
+                msg = f'Warning: session-save-task "{a.__name__}" failed.'
+                if not quiet:
+                    msg += '\n         The resulting session file may be incomplete.'
+                colorprinting.warning(msg)
 
         if legacyscenes:
             del session['moviescenes']
@@ -453,7 +456,7 @@ NOTES
             pymol.viewing._legacy_scene('*', 'clear', _self=_self)
             del _self.pymol._scene_dict
 
-        if is_ok(r):
+        if True:
             if pse_export_version > 0.0:
                 try:
                     _session_convert_legacy(session, pse_export_version, _self)
@@ -463,13 +466,14 @@ NOTES
             if(compress<0):
                 compress = _self.get_setting_boolean('session_compression')
             if(compress):
+                colorprinting.warning(
+                    ' Warning: `session_compression` is deprecated. Save '
+                    'to ".pze" or ".pse.gz" files instead, and/or use '
+                    '`pse_binary_dump`')
                 import zlib
                 session = zlib.compress(cPickle.dumps(session, 1))
             return session
-        elif _self._raising(r,_self):
-            raise QuietException                  
-        return r
-        
+
     def _unit2px(value, dpi, unit=''):
         '''API only. Returns pixel units given a string representation in other units'''
         if cmd.is_string(value):
@@ -492,7 +496,7 @@ NOTES
         return float(value) * dpi / upi[unit] + 0.5
 
     def png(filename, width=0, height=0, dpi=-1.0, ray=0,
-            quiet=1, prior=0, format=0, _self=cmd):
+            quiet=1, prior=0, format=0, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -536,48 +540,67 @@ PYMOL API
     cmd.png(string filename, int width, int height, float dpi,
             int ray, int quiet)
         '''
-        r = DEFAULT_ERROR
+        ray = int(ray)
+
+        PRIOR_TRY = -1
+        PRIOR_NO = 0
+        PRIOR_YES = 1
+
         prior = int(prior)
+        assert prior in (PRIOR_TRY, PRIOR_YES, PRIOR_NO)
+
+        FORMAT_GUESS = -1
+        FORMAT_PNG = 0
+        FORMAT_PPM = 1
 
         if format == 'png':
-            format = 0
+            format = FORMAT_PNG
 
-        if prior: 
-            # fetch the prior image, without doing any work (fast-path / non-GLUT thread-safe)
-            r = _self._png(str(filename),0,0,float(dpi),0,int(quiet),1,
-                           int(format),_self)            
-            if r != 1: # no prior image available -- revert to default behavior
-                if prior < 0: # default is to fall back to actual rendering
-                    prior = 0
-        if not prior:
-            dpi = float(dpi)
-            if dpi < 0:
-                dpi = _self.get_setting_float('image_dots_per_inch')
-            width = _unit2px(width, dpi)
-            height = _unit2px(height, dpi)
+        assert format in (FORMAT_PNG, FORMAT_PPM, FORMAT_GUESS)
 
-            if thread.get_ident() == pymol.glutThread:
-                r = _self._png(str(filename),int(width),int(height),float(dpi),
-                               int(ray),int(quiet),0,int(format),_self)
+        if format == FORMAT_GUESS:
+            if filename and filename.endswith(".ppm"):
+                format = FORMAT_PPM
             else:
-                r = _self._do("cmd._png('''%s''',%d,%d,%1.6f,%d,%d,%d,%d)"%
-                              (filename,width,height,dpi,
-                               ray,int(quiet),0,int(format)),_self=_self)
-        if _self._raising(r,_self): raise QuietException
-        return r
+                format = FORMAT_PNG
 
-    def export_coords(obj,state,_self=cmd): # experimental
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)   
-            r = _cmd.export_coords(_self._COb,str(obj),int(state)-1)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException
-        return r
+        if filename and not filename.startswith('\x01'):
+            if format == FORMAT_PNG and not filename.endswith(".png"):
+                filename += ".png"
+
+            filename = cmd.exp_path(filename)
+
+        dpi = float(dpi)
+        if dpi < 0:
+            dpi = _self.get_setting_float('image_dots_per_inch')
+
+        width = _unit2px(width, dpi)
+        height = _unit2px(height, dpi)
+
+        def func():
+            with _self.lockcm:
+                return _cmd.png(_self._COb, filename, int(width), int(height),
+                                dpi, ray, int(quiet), prior, format)
+
+        if prior:
+            # fetch the prior image, without doing any work (fast-path / non-GLUT thread-safe)
+            r = func()
+            if r:
+                return r
+
+            if prior != PRIOR_TRY:
+                raise pymol.CmdException("no prior image available")
+
+            print("no prior image available, fall back to rendering")
+            prior = PRIOR_NO
+
+        if ray:
+            return func()
+
+        return _self._call_with_opengl_context(func)
 
     def multisave(filename, pattern="all", state=-1,
-                  append=0, format='', quiet=1, _self=cmd): 
+                  append=0, format='', quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -619,11 +642,10 @@ ARGUMENTS
         if format not in ('pdb', 'cif'):
             raise pymol.CmdException(format + ' format not supported with multisave')
 
-        s = get_str(format, pattern, state, '', -1, 1, quiet, _self)
+        s = _self.get_str(format, pattern, state, '', -1, 1, quiet)
 
         if s is None:
-            if _self._raising(): raise QuietException
-            return DEFAULT_ERROR
+            raise QuietException
 
         filename = _self.exp_path(filename)
 
@@ -632,29 +654,28 @@ ARGUMENTS
 
         return DEFAULT_SUCCESS
 
-    def assign_atom_types( selection, format = "mol2", state=1, quiet=1, _self=cmd):
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
+    def assign_atom_types( selection, format = "mol2", state=1, quiet=1, *, _self=cmd):
+        fmt = {'mol2': 1, 'mmd': 2}[format]
+        with _self.lockcm:
             # format : mol2/sybyl = 1, macromodel/mmd = 2, global setting atom_type_format = 0
-            r = _cmd.assign_atom_types(_self._COb, selection, int(1), int(state-1), quiet)
-        finally:
-            _self.unlock(r,_self)
-        return r
+            _cmd.assign_atom_types(_self._COb, selection, fmt, int(state - 1),
+                                   quiet)
 
     def get_str(format, selection='(all)', state=-1, ref='',
-             ref_state=-1, multi=-1, quiet=1, _self=cmd):
+             ref_state=-1, multi=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
     Like "get_bytes" but return a unicode string.
         '''
         assert format not in ('mmtf',), 'binary format, use get_bytes'
-        b = get_bytes(format, selection, state, ref, ref_state, multi, quiet, _self)
+        b = _self.get_bytes(format, selection, state, ref, ref_state, multi, quiet)
+        if b is None:
+            return None
         return b.decode('utf-8')
 
     def get_bytes(format, selection='(all)', state=-1, ref='',
-             ref_state=-1, multi=-1, quiet=1, _self=cmd):
+             ref_state=-1, multi=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -681,11 +702,8 @@ ARGUMENTS
                     int(state) - 1, str(ref), int(ref_state),
                     int(multi), int(quiet))
 
-    if sys.version_info[0] == 2:
-        get_str = get_bytes
-
     def multifilesave(filename, selection='*', state=-1, format='', ref='',
-             ref_state=-1, quiet=1, _self=cmd):
+             ref_state=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -754,9 +772,10 @@ EXAMPLES
         filename = filename.replace('{num}', '{num:0%d}' % nwidth)
 
         for num, (oname, osele, ostate) in enumerate(odata, 1):
+            title = _self.get_title(oname, ostate) if multistate else ''
             fname = filename.format(oname, ostate,
                     name=oname, state=ostate, num=num,
-                    title=_self.get_title(oname, ostate))
+                    title=title)
             yield fname, osele, ostate
 
 
@@ -827,7 +846,7 @@ DESCRIPTION
 
 
     def save(filename, selection='(all)', state=-1, format='', ref='',
-             ref_state=-1, quiet=1, partial=0,_self=cmd):
+             ref_state=-1, quiet=1, partial=0, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -875,7 +894,7 @@ SEE ALSO
 
         # preprocess selection
         selection = selector.process(selection)
-        #   
+        #
         r = DEFAULT_ERROR
 
         # analyze filename
@@ -909,7 +928,7 @@ SEE ALSO
             # generic forwarding to format specific save functions
             func = savefunctions[format]
             func = _eval_func(func)
-            kw = {
+            kw_all = {
                 'filename': filename,
                 'selection': selection,
                 'name': selection,      # alt (get_ccp4str)
@@ -923,17 +942,24 @@ SEE ALSO
             }
 
             import inspect
-            spec = inspect.getargspec(func)
+            sig = inspect.signature(func, follow_wrapped=False)
+            kw = {}
 
-            if spec.varargs:
-                print('FIXME: savefunctions[%s]: *args' % (format))
+            for n, param in sig.parameters.items():
+                if param.kind == inspect.Parameter.VAR_KEYWORD:
+                    kw = kw_all
+                    break
 
-            if not spec.keywords:
-                kw = dict((n, kw[n]) for n in spec.args if n in kw)
+                if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                    print('FIXME: savefunctions[%s]: *args' % (format))
+                elif param.kind == inspect.Parameter.POSITIONAL_ONLY:
+                    raise Exception('positional-only arguments not supported')
+                elif n in kw_all:
+                    kw[n] = kw_all[n]
 
             contents = func(**kw)
 
-            if 'filename' in spec.args:
+            if 'filename' in sig.parameters:
                 # assume function wrote directly to file and returned a status
                 return contents
 
@@ -963,8 +989,8 @@ SEE ALSO
             with fopen(filename, 'wb') as handle:
                 handle.write(contents)
             r = DEFAULT_SUCCESS
-            
-        if _self._raising(r,_self): raise QuietException
+
+        if _self._raising(r): raise QuietException
 
         if not quiet:
             if r == DEFAULT_SUCCESS:
@@ -974,7 +1000,7 @@ SEE ALSO
 
         return r
 
-    def get_cifstr(selection="all", state=-1, quiet=1, _self=cmd):
+    def get_cifstr(selection="all", state=-1, quiet=1, *, _self=cmd):
         '''
 DESCRIPTION
 
@@ -984,32 +1010,33 @@ SEE ALSO
 
     get_pdbstr
         '''
-        return get_str('cif', selection, state, '', -1, -1, quiet, _self)
+        return _self.get_str('cif', selection, state, '', -1, -1, quiet)
 
-    def get_xyzstr(selection, state=-1, quiet=1, _self=cmd):
-        return get_str('xyz', selection, state, '', -1, -1, quiet, _self)
+    def get_xyzstr(selection, state=-1, quiet=1, *, _self=cmd):
+        return _self.get_str('xyz', selection, state, '', -1, -1, quiet)
 
-    def get_sdfstr(selection, state=-1, ref='', ref_state=-1, quiet=1, _self=cmd):
-        return get_str('sdf', selection, state, ref, ref_state, -1, quiet, _self)
+    def get_sdfstr(selection, state=-1, ref='', ref_state=-1, quiet=1, *, _self=cmd):
+        return _self.get_str('sdf', selection, state, ref, ref_state, -1, quiet)
 
-    def get_mol2str(selection, state=-1, ref='', ref_state=-1, quiet=1, _self=cmd):
-        return get_str('mol2', selection, state, ref, ref_state, -1, quiet, _self)
+    def get_mol2str(selection, state=-1, ref='', ref_state=-1, quiet=1, *, _self=cmd):
+        return _self.get_str('mol2', selection, state, ref, ref_state, -1, quiet)
 
-    def get_alnstr(selection, state=-1, quiet=1, _self=cmd):
+    def get_alnstr(selection, state=-1, quiet=1, *, _self=cmd):
         with _self.lockcm:
             return _cmd.get_seq_align_str(_self._COb, str(selection),
                     int(state)-1, 0, int(quiet))
 
-    def get_pqrstr(selection, state=-1, ref='', ref_state=-1, quiet=1, _self=cmd):
-        return get_str('pqr', selection, state, ref, ref_state, -1, quiet, _self)
+    def get_pqrstr(selection, state=-1, ref='', ref_state=-1, quiet=1, *, _self=cmd):
+        return _self.get_str('pqr', selection, state, ref, ref_state, -1, quiet)
 
-    def get_maestr(selection, state=-1, ref='', ref_state=-1, quiet=1, _self=cmd):
-        return get_str('mae', selection, state, ref, ref_state, -1, quiet, _self)
+    def get_maestr(selection, state=-1, ref='', ref_state=-1, quiet=1, *, _self=cmd):
+        return _self.get_str('mae', selection, state, ref, ref_state, -1, quiet)
 
-    def get_ccp4str(name, state=1, quiet=1, _self=cmd):
+    def get_ccp4str(name, state=1, quiet=1, format='ccp4', *, _self=cmd):
+        ftype = getattr(loadable, format, -1)
         with _self.lockcm:
             return _cmd.get_ccp4str(_self._COb, str(name),
-                    int(state) - 1, int(quiet))
+                    int(state) - 1, int(quiet), ftype)
 
     def get_psestr(selection, partial, quiet, _self):
         if '(' in selection: # ignore selections
@@ -1041,14 +1068,18 @@ SEE ALSO
         'fasta': get_fastastr,
         'aln': get_alnstr,
         'ccp4': get_ccp4str,
+        'mrc': get_ccp4str,
+        'map': get_ccp4str,
 
         'png': png,
 
         # no arguments (some have a "version" argument)
         'dae': 'pymol.querying:get_collada',
+        'gltf': 'pymol.querying:get_gltf',
         'wrl': 'pymol.querying:get_vrml',
         'pov': 'pymol.querying:get_povray',
         'idtf': 'pymol.querying:get_idtf',
         'mtl': _get_mtl_obj, # TODO not implemented
         'obj': _get_mtl_obj,
+        'stl': 'pymol.lazyio:get_stlstr',
     }

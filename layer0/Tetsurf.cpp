@@ -20,6 +20,7 @@ Z* -------------------------------------------------------------------
 #include"os_predef.h"
 #include"os_std.h"
 
+#include"CarveHelper.h"
 #include"Isosurf.h"
 #include"Tetsurf.h"
 #include"MemoryDebug.h"
@@ -31,21 +32,11 @@ Z* -------------------------------------------------------------------
 
 #define Trace_OFF
 
-#define O3(field,P1,P2,P3,offs) Ffloat3(field,P1+offs[0],P2+offs[1],P3+offs[2])
+#define O3(field,P1,P2,P3,offs) ((field)->get<float>(P1+offs[0],P2+offs[1],P3+offs[2]))
 
-#define O3Ptr(field,P1,P2,P3,offs) Ffloat3p(field,P1+offs[0],P2+offs[1],P3+offs[2])
+#define O4Ptr(field,P1,P2,P3,P4,offs) ((field)->ptr<float>(P1+offs[0],P2+offs[1],P3+offs[2],P4))
 
-#define O4(field,P1,P2,P3,P4,offs) Ffloat4(field,P1+offs[0],P2+offs[1],P3+offs[2],P4)
-
-#define O4Ptr(field,P1,P2,P3,P4,offs) Ffloat4p(field,P1+offs[0],P2+offs[1],P3+offs[2],P4)
-
-#define I3(field,P1,P2,P3) Fint3(field,P1,P2,P3)
-
-#define I3Ptr(field,P1,P2,P3) Fint3p(field,P1,P2,P3)
-
-#define I4(field,P1,P2,P3,P4) Fint4(field,P1,P2,P3,P4)
-
-#define I4Ptr(field,P1,P2,P3,P4) Fint4p(field,P1,P2,P3,P4)
+#define I3(field,P1,P2,P3) ((field)->get<int>(P1,P2,P3))
 
 typedef struct {
   float Point[3];
@@ -65,9 +56,7 @@ typedef struct {
   int tri;
 } PointLinkType;
 
-#define EdgePtPtr(field,P2,P3,P4,P5) ((PointType*)Fvoid4p(field,P2,P3,P4,P5))
-
-#define EdgePt(field,P2,P3,P4,P5) (*((PointType*)Fvoid4p(field,P2,P3,P4,P5)))
+#define EdgePtPtr(field,P2,P3,P4,P5) ((field)->ptr<PointType>(P2,P3,P4,P5))
 
 struct _CTetsurf {
   PyMOLGlobals *G;
@@ -91,10 +80,9 @@ static int TetsurfAlloc(CTetsurf * II);
 static void TetsurfPurge(CTetsurf * II);
 static int TetsurfCodeVertices(CTetsurf * II);
 
-static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_vert,
-                                  int **strip_l, float **vert,
-                                  MapType * voxelmap, float *a_vert,
-                                  float carvebuffer, int side);
+static int TetsurfFindActiveBoxes(CTetsurf * II, cIsosurfaceMode, int& n_strip, int n_vert,
+                                  pymol::vla<int>& strip_l, pymol::vla<float>& vert,
+                                  const CarveHelper*, cIsosurfaceSide);
 
 #define TetsurfSubSize		50
 
@@ -407,8 +395,14 @@ void TetsurfFree(PyMOLGlobals * G)
 
 
 /*===========================================================================*/
+/**
+ * @param mn Minimum point in real space (3f)
+ * @param mx Maximum point in real space (3f)
+ * @param[out] range Minimum and maximum field indices (6i)
+ */
 void TetsurfGetRange(PyMOLGlobals * G,
-                     Isofield * field, CCrystal * cryst, float *mn, float *mx, int *range)
+    const Isofield* field,
+    const CCrystal* cryst, const float* mn, const float* mx, int* range)
 {
   float rmn[3], rmx[3];
   float imn[3], imx[3];
@@ -428,8 +422,8 @@ void TetsurfGetRange(PyMOLGlobals * G,
 
   /* get min/max extents of map in fractional space */
 
-  transform33f3f(cryst->RealToFrac, rmn, imn);
-  transform33f3f(cryst->RealToFrac, rmx, imx);
+  transform33f3f(cryst->realToFrac(), rmn, imn);
+  transform33f3f(cryst->realToFrac(), rmx, imx);
 
   mix[0] = mn[0];
   mix[1] = mn[1];
@@ -466,7 +460,7 @@ void TetsurfGetRange(PyMOLGlobals * G,
   /* compute min/max of query in fractional space */
 
   for(b = 0; b < 8; b++) {
-    transform33f3f(cryst->RealToFrac, mix + 3 * b, imix + 3 * b);
+    transform33f3f(cryst->realToFrac(), mix + 3 * b, imix + 3 * b);
   }
 
   for(a = 0; a < 3; a++) {
@@ -515,9 +509,31 @@ void TetsurfGetRange(PyMOLGlobals * G,
 
 
 /*===========================================================================*/
-int TetsurfVolume(PyMOLGlobals * G, Isofield * field, float level, int **num,
-                  float **vert, int *range, int mode, MapType * voxelmap, float *a_vert,
-                  float carvebuffer, int side)
+/**
+ * Compute an isosurface using the "marching tetrahedra" algorithm.
+ *
+ * @param[in,out] field     Map data (field->gradients will be generated if
+ *                          missing for cIsosurfaceMode::triangles_grad_normals)
+ * @param[in] level         Contour level
+ * @param[out] num          Number of vertices + normals per strip (e.g. 6 for
+ *                          triangle strip with a single triangle)
+ * @param[out] vert         Normals (triangle modes only) and vertices for
+ *                          strips according to `num`
+ * @param[in] range         Min and max indices of box (6i - can be NULL,
+ *                          then use entire field)
+ * @param[in] mode          Geometry mode (points, lines, triangles)
+ * @param[in] carvehelper   For carving (optional)
+ * @param[in] side          Front or back face (triangle winding order and
+ *                          normal)
+ * @return Number of primitives
+ */
+int TetsurfVolume(PyMOLGlobals* G, Isofield* field, float level,
+    pymol::vla<int>& num,    //
+    pymol::vla<float>& vert, //
+    const int* range,        //
+    cIsosurfaceMode mode,    //
+    const CarveHelper* carvehelper, //
+    cIsosurfaceSide side)
 {
 
   CTetsurf *I;
@@ -536,7 +552,7 @@ int TetsurfVolume(PyMOLGlobals * G, Isofield * field, float level, int **num,
     int n_vert = 0;
     int tot_prim = 0;
 
-    if(mode == 3)
+    if(mode == cIsosurfaceMode::triangles_grad_normals)
       IsofieldComputeGradients(G, field);
 
     I->TotPrim = 0;
@@ -549,8 +565,8 @@ int TetsurfVolume(PyMOLGlobals * G, Isofield * field, float level, int **num,
     } else {
       range = range_store;
       for(c = 0; c < 3; c++) {
-        range[c] = 0;
-        range[3 + c] = field->dimensions[c];
+        range_store[c] = 0;
+        range_store[3 + c] = field->dimensions[c];
         I->AbsDim[c] = field->dimensions[c];
         I->CurDim[c] = TetsurfSubSize + 1;
         Steps[c] = 1 + (I->AbsDim[c] - 1) / TetsurfSubSize;
@@ -563,9 +579,9 @@ int TetsurfVolume(PyMOLGlobals * G, Isofield * field, float level, int **num,
        }
      */
 
-    I->Coord = field->points;
-    I->Grad = field->gradients;
-    I->Data = field->data;
+    I->Coord = field->points.get();
+    I->Grad = field->gradients.get();
+    I->Data = field->data.get();
     I->Level = level;
     if(ok)
       ok = TetsurfAlloc(I);
@@ -592,15 +608,15 @@ int TetsurfVolume(PyMOLGlobals * G, Isofield * field, float level, int **num,
 
             if(ok) {
               if(TetsurfCodeVertices(I))
-                n_vert = TetsurfFindActiveBoxes(I, mode, &n_strip, n_vert, num, vert,
-                                                voxelmap, a_vert, carvebuffer, side);
+                n_vert = TetsurfFindActiveBoxes(I, mode, n_strip, n_vert, num, vert,
+                                                carvehelper, side);
             }
           }
       TetsurfPurge(I);
     }
 
     if(Feedback(G, FB_Isosurface, FB_Blather)) {
-      if(mode < 2) {
+      if(static_cast<int>(mode) < 2) {
         printf(" TetsurfVolume: Surface generated using %d vertices.\n", n_vert);
       } else {
         printf(" TetsurfVolume: Surface generated using %d triangles.\n", I->TotPrim);
@@ -609,14 +625,12 @@ int TetsurfVolume(PyMOLGlobals * G, Isofield * field, float level, int **num,
 
     /* sentinel strip (0 length) */
 
-    VLACheck(*num, int, n_strip);
-    (*num)[n_strip] = 0;
-    (n_strip)++;
+    num.resize(++n_strip);
+    num[n_strip - 1] = 0;
 
     /* shrinks sizes for more efficient RAM usage */
 
-    VLASize(*vert, float, n_vert * 3);
-    VLASize(*num, int, n_strip);
+    vert.resize(n_vert * 3);
 
     tot_prim = I->TotPrim;
 
@@ -641,13 +655,13 @@ static int TetsurfAlloc(CTetsurf * II)
     dim4[a] = I->CurDim[a];
   dim4[3] = 3;
 
-  I->VertexCodes = FieldNew(G, I->CurDim, 3, sizeof(int), cFieldInt);
+  I->VertexCodes = CField::make<int>(G, I->CurDim, 3);
   ErrChkPtr(G, I->VertexCodes);
-  I->ActiveEdges = FieldNew(G, I->CurDim, 3, sizeof(int), cFieldInt);
+  I->ActiveEdges = CField::make<int>(G, I->CurDim, 3);
   ErrChkPtr(G, I->ActiveEdges);
 
   dim4[3] = 7;                  /* seven different ways now... */
-  I->Point = FieldNew(G, dim4, 4, sizeof(PointType), cFieldOther);
+  I->Point = CField::make<PointType>(G, dim4, 4);
   ErrChkPtr(G, I->Point);
 
   I->Tri = VLAlloc(TriangleType, 50000);
@@ -674,25 +688,14 @@ static void TetsurfPurge(CTetsurf * II)
   if(I->PtLink) {
     VLAFreeP(I->PtLink);
   }
-  if(I->VertexCodes) {
-    FieldFree(I->VertexCodes);
-    I->VertexCodes = NULL;
-  }
-  if(I->ActiveEdges) {
-    FieldFree(I->ActiveEdges);
-    I->ActiveEdges = NULL;
-  }
-  if(I->Point) {
-    FieldFree(I->Point);
-    I->Point = NULL;
-  }
+  DeleteP(I->VertexCodes);
+  DeleteP(I->ActiveEdges);
+  DeleteP(I->Point);
 }
 
 
 /*===========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
+inline
 static void TetsurfInterpolate2(float *pt, float *v0, float l0, float *v1, float l1,
                                 float level)
 {
@@ -705,9 +708,6 @@ static void TetsurfInterpolate2(float *pt, float *v0, float l0, float *v1, float
 
 
 /*===========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static void TetsurfInterpolate4(float *pt, float *v0, float l0, float *v1, float l1,
                                 float l2, float l3, float level)
 {
@@ -730,9 +730,6 @@ static void TetsurfInterpolate4(float *pt, float *v0, float l0, float *v1, float
 
 
 /*===========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static void TetsurfInterpolate8(float *pt, float *v0, float l0, float *v1, float l1,
                                 float l2, float l3, float l4,
                                 float l5, float l6, float l7, float level)
@@ -756,13 +753,13 @@ static void TetsurfInterpolate8(float *pt, float *v0, float l0, float *v1, float
 
 
 /*===========================================================================*/
-static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_vert,
-                                  int **strip_l, float **vert,
-                                  MapType * voxelmap, float *a_vert,
-                                  float carvebuffer, int side)
+static int TetsurfFindActiveBoxes(CTetsurf * II, cIsosurfaceMode mode, int &n_strip, int n_vert,
+                                  pymol::vla<int>& strip_l, pymol::vla<float>& vert_,
+                                  const CarveHelper* carvehelper, cIsosurfaceSide side)
 {
+  float** const vert = &vert_;
   CTetsurf *I = II;
-  int a, b, c, i, j, k, h, l;
+  int a, b, i, j, k;
 #ifdef Trace
   int ECount = 0;
 #endif
@@ -782,12 +779,6 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
   TriangleType *tt;
   int n_tri = 0;
   int n_link = 1;
-
-  int avoid_flag = false;
-  if(carvebuffer < 0.0F) {
-    avoid_flag = true;
-    carvebuffer = -carvebuffer;
-  }
 
   FieldZero(I->Point);          /* sets initial links to zero */
   FieldZero(I->ActiveEdges);
@@ -817,8 +808,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
           c110 = O4Ptr(I->Coord, i + 1, j + 1, k, 0, I->CurOff);
           c111 = O4Ptr(I->Coord, i + 1, j + 1, k + 1, 0, I->CurOff);
 
-          if(mode == 3) {
-
+          if (mode == cIsosurfaceMode::triangles_grad_normals) {
             g000 = O4Ptr(I->Grad, i, j, k, 0, I->CurOff);
             g001 = O4Ptr(I->Grad, i, j, k + 1, 0, I->CurOff);
             g010 = O4Ptr(I->Grad, i, j + 1, k, 0, I->CurOff);
@@ -867,7 +857,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j, k) & cM_000_001)) {
               I3(I->ActiveEdges, i, j, k) |= cM_000_001;
               TetsurfInterpolate2(e[cE_000_001]->Point, c000, d000, c001, d001, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_000_001]->Normal, g000, d000, g001, d001,
                                     I->Level);
             }
@@ -877,7 +867,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j, k) & cM_000_010)) {
               I3(I->ActiveEdges, i, j, k) |= cM_000_010;
               TetsurfInterpolate2(e[cE_000_010]->Point, c000, d000, c010, d010, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_000_010]->Normal, g000, d000, g010, d010,
                                     I->Level);
 
@@ -889,7 +879,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               I3(I->ActiveEdges, i, j, k) |= cM_000_011;
               TetsurfInterpolate4(e[cE_000_011]->Point, c000, d000, c011, d011, d001,
                                   d010, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate4(e[cE_000_011]->Normal, g000, d000, g011, d011, d001,
                                     d010, I->Level);
             }
@@ -899,7 +889,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j, k) & cM_000_100)) {
               I3(I->ActiveEdges, i, j, k) |= cM_000_100;
               TetsurfInterpolate2(e[cE_000_100]->Point, c000, d000, c100, d100, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_000_100]->Normal, g000, d000, g100, d100,
                                     I->Level);
 
@@ -911,7 +901,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               I3(I->ActiveEdges, i, j, k) |= cM_000_101;
               TetsurfInterpolate4(e[cE_000_101]->Point, c000, d000, c101, d101, d100,
                                   d001, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate4(e[cE_000_101]->Normal, g000, d000, g101, d101, d100,
                                     d001, I->Level);
             }
@@ -922,7 +912,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               I3(I->ActiveEdges, i, j, k) |= cM_000_110;
               TetsurfInterpolate4(e[cE_000_110]->Point, c000, d000, c110, d110, d100,
                                   d010, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate4(e[cE_000_110]->Normal, g000, d000, g110, d110, d100,
                                     d010, I->Level);
             }
@@ -934,7 +924,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               TetsurfInterpolate8(e[cE_000_111]->Point,
                                   c000, d000, c111, d111,
                                   d001, d010, d011, d100, d101, d110, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate8(e[cE_000_111]->Normal,
                                     g000, d000, g111, d111,
                                     d001, d010, d011, d100, d101, d110, I->Level);
@@ -945,7 +935,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j, k + 1) & cM_000_010)) {
               I3(I->ActiveEdges, i, j, k + 1) |= cM_000_010;
               TetsurfInterpolate2(e[cE_001_011]->Point, c001, d001, c011, d011, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_001_011]->Normal, g001, d001, g011, d011,
                                     I->Level);
             }
@@ -955,7 +945,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j, k + 1) & cM_000_100)) {
               I3(I->ActiveEdges, i, j, k + 1) |= cM_000_100;
               TetsurfInterpolate2(e[cE_001_101]->Point, c001, d001, c101, d101, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_001_101]->Normal, g001, d001, g101, d101,
                                     I->Level);
             }
@@ -966,7 +956,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               I3(I->ActiveEdges, i, j, k + 1) |= cM_000_110;
               TetsurfInterpolate4(e[cE_001_111]->Point, c001, d001, c111, d111, d101,
                                   d011, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate4(e[cE_001_111]->Normal, g001, d001, g111, d111, d101,
                                     d011, I->Level);
             }
@@ -976,7 +966,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j + 1, k) & cM_000_001)) {
               I3(I->ActiveEdges, i, j + 1, k) |= cM_000_001;
               TetsurfInterpolate2(e[cE_010_011]->Point, c010, d010, c011, d011, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_010_011]->Normal, g010, d010, g011, d011,
                                     I->Level);
             }
@@ -986,7 +976,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j + 1, k) & cM_000_100)) {
               I3(I->ActiveEdges, i, j + 1, k) |= cM_000_100;
               TetsurfInterpolate2(e[cE_010_110]->Point, c010, d010, c110, d110, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_010_110]->Normal, g010, d010, g110, d110,
                                     I->Level);
             }
@@ -997,7 +987,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               I3(I->ActiveEdges, i, j + 1, k) |= cM_000_101;
               TetsurfInterpolate4(e[cE_010_111]->Point, c010, d010, c111, d111, d110,
                                   d011, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate4(e[cE_010_111]->Normal, g010, d010, g111, d111, d110,
                                     d011, I->Level);
             }
@@ -1007,7 +997,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i + 1, j, k) & cM_000_001)) {
               I3(I->ActiveEdges, i + 1, j, k) |= cM_000_001;
               TetsurfInterpolate2(e[cE_100_101]->Point, c100, d100, c101, d101, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_100_101]->Normal, g100, d100, g101, d101,
                                     I->Level);
             }
@@ -1017,7 +1007,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i + 1, j, k) & cM_000_010)) {
               I3(I->ActiveEdges, i + 1, j, k) |= cM_000_010;
               TetsurfInterpolate2(e[cE_100_110]->Point, c100, d100, c110, d110, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_100_110]->Normal, g100, d100, g110, d110,
                                     I->Level);
             }
@@ -1028,7 +1018,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
               I3(I->ActiveEdges, i + 1, j, k) |= cM_000_011;
               TetsurfInterpolate4(e[cE_100_111]->Point, c100, d100, c111, d111, d101,
                                   d110, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate4(e[cE_100_111]->Normal, g100, d100, g111, d111, d101,
                                     d110, I->Level);
             }
@@ -1038,7 +1028,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i, j + 1, k + 1) & cM_000_100)) {
               I3(I->ActiveEdges, i, j + 1, k + 1) |= cM_000_100;
               TetsurfInterpolate2(e[cE_011_111]->Point, c011, d011, c111, d111, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_011_111]->Normal, g011, d011, g111, d111,
                                     I->Level);
             }
@@ -1048,7 +1038,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i + 1, j, k + 1) & cM_000_010)) {
               I3(I->ActiveEdges, i + 1, j, k + 1) |= cM_000_010;
               TetsurfInterpolate2(e[cE_101_111]->Point, c101, d101, c111, d111, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_101_111]->Normal, g101, d101, g111, d111,
                                     I->Level);
             }
@@ -1058,7 +1048,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             if(!(I3(I->ActiveEdges, i + 1, j + 1, k) & cM_000_001)) {
               I3(I->ActiveEdges, i + 1, j + 1, k) |= cM_000_001;
               TetsurfInterpolate2(e[cE_110_111]->Point, c110, d110, c111, d111, I->Level);
-              if(mode == 3)
+              if (mode == cIsosurfaceMode::triangles_grad_normals)
                 TetsurfInterpolate2(e[cE_110_111]->Normal, g110, d110, g111, d111,
                                     I->Level);
             }
@@ -1067,8 +1057,8 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
 
           if(active) {
             switch (mode) {
-            case 2:
-            case 3:
+            case cIsosurfaceMode::triangles_tri_normals:
+            case cIsosurfaceMode::triangles_grad_normals:
               code =
                 (i000 ? 0x01 : 0) |
                 (i001 ? 0x02 : 0) |
@@ -1112,7 +1102,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
                 eidx += 3;
               }
               break;
-            case 1:            /* lines */
+            case cIsosurfaceMode::lines:
               VLACheck(*vert, float, (n_vert * 3) + 200);
 
               code =
@@ -1142,7 +1132,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
                 eidx += 3;
               }
               break;
-            case 0:
+            case cIsosurfaceMode::dots:
             default:           /* dots */
               VLACheck(*vert, float, (n_vert * 3) + 200);
 
@@ -1235,8 +1225,8 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
       }
 
   switch (mode) {
-  case 2:
-  case 3:
+  case cIsosurfaceMode::triangles_tri_normals:
+  case cIsosurfaceMode::triangles_grad_normals:
     /* compute area-weighted normal */
     for(a = 0; a < n_tri; a++) {
       float *v0, *v1, *v2;
@@ -1250,7 +1240,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
 
       subtract3f(v0, v2, vt1);
       subtract3f(v1, v2, vt2);
-      if(side >= 0) {
+      if (side != cIsosurfaceSide::back) {
         cross_product3f(vt2, vt1, tt->n);
       } else {
         cross_product3f(vt1, vt2, tt->n);
@@ -1269,7 +1259,8 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             add3f(I->Tri[I->PtLink[idx].tri].n, v, v);
             idx = I->PtLink[idx].link;
           }
-          if(mode == 3) {       /* gradient-based normals */
+          if (mode == cIsosurfaceMode::triangles_grad_normals) {
+            /* gradient-based normals */
             dp = dot_product3f(v, tt->p[b]->Normal);
             if(dp < 0.0F) {
               invert3f(tt->p[b]->Normal);
@@ -1279,14 +1270,14 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
             } else {
               normalize3f(tt->p[b]->Normal);
             }
-          } else {              /* triangle-based normals */
+          } else { /* triangle-based normals */
             normalize23f(v, tt->p[b]->Normal);
           }
           tt->p[b]->NormalFlag = true;
         }
       }
     }
-    if(mode == 2) {
+    if (mode == cIsosurfaceMode::triangles_tri_normals) {
       /* if we're using triangle normals, then 
          do an additional averaging cycle with no weighting */
       for(a = 0; a < n_tri; a++) {
@@ -1320,32 +1311,14 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
     /* Need to move the points now, right? */
 
     /* if we are carving, then exclude triangles outside region */
-    if(voxelmap) {
+    if (carvehelper) {
       for(a = 0; a < n_tri; a++) {
-        float *v;
         tt = I->Tri + a;
-        c = 0;
-        for(b = 0; b < 3; b++) {
-          v = tt->p[b]->Point;
-          MapLocus(voxelmap, v, &h, &k, &l);
-          i = *(MapEStart(voxelmap, h, k, l));
-          if(i) {
-            j = voxelmap->EList[i++];
-            while(j >= 0) {
-              if(within3f(a_vert + 3 * j, v, carvebuffer)) {
-                c++;
-                break;
-              }
-              j = voxelmap->EList[i++];
-            }
-          }
-        }
-        if(avoid_flag) {
-          if(c >= 3)
-            tt->done = true;    /* exclude this triangle from the surface */
-        } else {
-          if(c < 3)             /* exclude this triangle from the surface */
-            tt->done = true;
+        if (carvehelper->is_excluded( //
+                tt->p[0]->Point,      //
+                tt->p[1]->Point,      //
+                tt->p[2]->Point)) {
+          tt->done = true;    /* exclude this triangle from the surface */
         }
       }
     }
@@ -1358,7 +1331,7 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
 
         VLACheck(*vert, float, (n_vert * 3) + 200);
 
-        if(side >= 0) {
+        if (side != cIsosurfaceSide::back) {
           /* switch order around to get "correct" triangles */
 
           copy3fn(tt->p[1]->Normal, (*vert) + (n_vert * 3));
@@ -1398,7 +1371,6 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
 
           p0 = tt->p[1];
           p1 = tt->p[2];
-
         }
 
         tt->done = true;
@@ -1456,41 +1428,29 @@ static int TetsurfFindActiveBoxes(CTetsurf * II, int mode, int *n_strip, int n_v
         }
       }
       if(n_vert > n_start) {
-        VLACheck(*strip_l, int, *n_strip);
-        (*strip_l)[*n_strip] = n_vert - n_start;
-        (*n_strip)++;
+        *strip_l.check(n_strip++) = n_vert - n_start;
       }
     }
     I->TotPrim += n_tri;
     break;
 
-  case 1:
+  case cIsosurfaceMode::lines:
     /* Need to move the points now, right? */
 
     if(n_vert > n_start) {
-      VLACheck(*strip_l, int, *n_strip);
-      (*strip_l)[*n_strip] = n_vert - n_start;
-      (*n_strip)++;
+      *strip_l.check(n_strip++) = n_vert - n_start;
     }
     break;
-  case 0:                      /* dots */
+  case cIsosurfaceMode::dots:
   default:
 
     /* Need to move the points now, right? */
 
     if(n_vert > n_start) {
-      VLACheck(*strip_l, int, *n_strip);
-      (*strip_l)[*n_strip] = n_vert - n_start;
-      (*n_strip)++;
+      *strip_l.check(n_strip++) = n_vert - n_start;
     }
     break;
   }
-  /*
-     printf("n_strip %d\n",*n_strip);
-     printf("n_active %d\n",n_active);
-     printf("n_vert %d\n",n_vert);
-     printf("mode %d\n",mode);
-   */
   return (n_vert);
 }
 

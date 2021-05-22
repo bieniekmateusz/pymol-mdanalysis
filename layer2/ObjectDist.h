@@ -17,21 +17,27 @@ Z* -------------------------------------------------------------------
 #ifndef _H_ObjectDist
 #define _H_ObjectDist
 
-#include"PyMOLObject.h"
-#include"AtomInfo.h"
-#include"Vector.h"
-#include"Color.h"
+#include "PyMOLObject.h"
+#include <vector>
+
+struct DistSet;
 
 /* NOTE: "Dist" names & symbols should be updated to "Measurement" */
 
-typedef struct ObjectDist {
-  /* base class, this IS-A CObject */
-  CObject Obj;
-  /* Array of pointers to DistSets */
-  struct DistSet **DSet;
-  /* number of dist sets */
-  int NDSet;
-} ObjectDist;
+struct ObjectDist : public pymol::CObject {
+    std::vector<pymol::copyable_ptr<DistSet>> DSet;
+
+  ObjectDist(PyMOLGlobals* G);
+  ObjectDist(const ObjectDist& other);
+  ObjectDist& operator=(const ObjectDist& other);
+
+  // virtual methods
+  void update() override;
+  void render(RenderInfo* info) override;
+  void invalidate(cRep_t rep, cRepInv_t level, int state) override;
+  int getNFrame() const override;
+  pymol::CObject* clone() const override;
+};
 
 ObjectDist *ObjectDistNewFromSele(PyMOLGlobals * G, ObjectDist * oldObj,
                                   int sele1, int sele2, int mode, float cutoff,
@@ -52,8 +58,7 @@ int ObjectDistGetLabelTxfVertex(ObjectDist * I, int state, int index, float *v);
 int ObjectDistMoveLabel(ObjectDist * I, int state, int index, float *v, int mode,
                         int log);
 
-ObjectDist *ObjectDistNew(PyMOLGlobals * G);
-void ObjectDistInvalidateRep(ObjectDist * I, int rep);
+void ObjectDistInvalidateRep(ObjectDist * I, cRep_t rep);
 PyObject *ObjectDistAsPyList(ObjectDist * I);
 int ObjectDistNewFromPyList(PyMOLGlobals * G, PyObject * list, ObjectDist ** result);
 
@@ -61,11 +66,5 @@ int ObjectDistNewFromPyList(PyMOLGlobals * G, PyObject * list, ObjectDist ** res
 /* An ObjectMolecule moved, causing this function to be called */
 struct ObjectMolecule;
 int ObjectDistMoveWithObject(ObjectDist * I, struct ObjectMolecule * O);
-
-struct M4XBondType;
-ObjectDist *ObjectDistNewFromM4XBond(PyMOLGlobals * G, ObjectDist * oldObj,
-                                     struct ObjectMolecule *objMol,
-                                     struct M4XBondType *hbond, int n_hbond,
-                                     int nbr_sele);
 
 #endif

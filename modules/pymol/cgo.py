@@ -1,18 +1,16 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function
 
 from chempy import cpv
 #import popen2
@@ -29,7 +27,7 @@ TRIANGLE_STRIP     = 5.0
 TRIANGLE_FAN       = 6.0
 #QUADS              = 7.0
 #QUAD_STRIP         = 8.0
-#POLYGON            = 9.0                                                            
+#POLYGON            = 9.0
 
 STOP               =  0.0
 NULL               =  1.0
@@ -64,22 +62,21 @@ CHAR               = 23.0
 
 ALPHA              = 25.0
 QUADRIC            = 26.0 # NOTE: Only works with ellipsoids and disks
-CONE               = 27.0 
+CONE               = 27.0
+
+PICK_COLOR         = 31.0 # 0x1F [PICK_COLOR, index, bond/cPickable_t]
 
 LIGHTING           = float(0x0B50)
 
-def molauto(*arg,**kw):
-    _self = kw.get('_self',cmd)
-    name = "mols"
-    sele = "(all)"
-    marg = "-nice"
-    la = len(arg)
-    if la:
-        name = arg[0]
-    if la>1:
-        sele = arg[1]
-    if la>2:
-        marg = arg[2]
+# enum cPickable_t:
+cPickableAtom = -1.0
+cPickableLabel = -2.0
+cPickableGadget = -3.0
+cPickableNoPick = -4.0
+cPickableThrough = -5.0
+
+
+def molauto(name="mols", sele="(all)", marg="-nice", _self=cmd):
     _self.save("molauto.pdb",sele)
     print("molauto %s -nocentre molauto.pdb | molscript -r > molauto.r3d"%marg)
     os.system("molauto %s -nocentre molauto.pdb | molscript -r > molauto.r3d"%marg)
@@ -87,14 +84,6 @@ def molauto(*arg,**kw):
     rr = RenderReader(f)
     f.close()
     _self.load_cgo(rr.obj,name)
-
-# the following implementation causes full-blown system crashes on some machines.
-#   (stdout,stdin) = popen2.popen2("molauto %s -nocentre molauto.pdb | molscript -r > molauto.r3d"%marg)
-#
-#   if stdin:
-#      stdin.close()
-#      rr = RenderReader(stdout)
-#      cmd.load_cgo(rr.obj,name)
 
 def measure_text(font,text,
                       axes=[[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]):
@@ -128,7 +117,7 @@ def wire_text(cgo,font,pos,text,
                 cgo.append(VERTEX)
                 cgo.append(pos[0]+x[0]*ax+y[0]*ay)
                 cgo.append(pos[1]+x[1]*ax+y[1]*ay)
-                cgo.append(pos[2]+x[2]*ax+y[2]*ay)         
+                cgo.append(pos[2]+x[2]*ax+y[2]*ay)
                 c = c + 3
             pos[0] = pos[0] + w*x[0]
             pos[1] = pos[1] + w*x[1]
@@ -174,10 +163,7 @@ def from_r3d(fname):
     result = DEFAULT_ERROR
     input = None
     if '://' in fname:
-        try:
-            from urllib import urlopen
-        except ImportError:
-            from urllib.request import urlopen
+        from urllib.request import urlopen
         input = urlopen(fname)
     elif os.path.exists(fname):
         input = open(fname)
@@ -192,7 +178,7 @@ class RenderReader:
         if self.app_fn:
             self.app_fn()
             self.app_fn=None
-        
+
     def append_tri(self):
         if self.l_vert:
             d0 = cpv.sub(self.l_vert[0],self.l_vert[1])
@@ -309,7 +295,7 @@ class RenderReader:
             self.obj.extend([float(s[0]),float(s[1]),float(s[2]),
                              float(s[3]),float(s[4]),float(s[5]),
                              float(s[6]),float(s[7]),float(s[8]),float(s[9])])
-        
+
     def mat_prop(self,f):
         self.append_last()
         l = f.readline()
@@ -331,7 +317,7 @@ class RenderReader:
 
     def reset(self,f):
         pass
-    
+
     def __init__(self,input):
         # Author: Warren DeLano
         # Modifications: Robert Campbell
@@ -464,7 +450,7 @@ def from_plystr(contents, surfacenormals=True, alphaunit=1.):
     PLY - Polygon File Format
     '''
     import sys
-    if sys.version_info[0] == 3 and isinstance(contents, bytes):
+    if isinstance(contents, bytes):
         contents = contents.decode(errors='ignore')
 
     lines_iter = iter(contents.splitlines())

@@ -14,6 +14,9 @@ I* Additional authors of this source file include:
 Z* -------------------------------------------------------------------
 */
 
+#include <algorithm>
+#include <iterator>
+
 #include"os_predef.h"
 #include"os_std.h"
 #include"os_time.h"
@@ -210,7 +213,26 @@ void UtilCleanStr(char *s) /*remove flanking white and all unprintables*/
 	 }
 }
 
-/*
+/**
+ * Removes unprintables and flanking whitespace
+ * @param s string to be cleaned
+ * @return whitespace-trimmed string with readable characters
+ */
+std::string UtilCleanStdStr(const std::string& s)
+{
+  std::string ret;
+
+  auto is_not_whitespace = [](char c) { return c > ' '; };
+  auto is_printable = [](char c) { return c >= ' '; };
+
+  auto leading = std::find_if(s.begin(), s.end(), is_not_whitespace);
+  auto trailing = std::find_if(s.rbegin(), s.rend(), is_not_whitespace);
+
+  std::copy_if(leading, trailing.base(), std::back_inserter(ret), is_printable);
+  return ret;
+}
+
+/**
  * Remove ANSI Escape sequences in-place
  */
 void UtilStripANSIEscapes(char *s)
@@ -364,7 +386,7 @@ void UtilSortIndex(int n,void *array,int *x,UtilOrderFn* fOrdered)
   for(a=0;a<n;a++) x[a]--;
 }
 
-void UtilSortIndexGlobals(PyMOLGlobals *G,int n,void *array,int *x,UtilOrderFnGlobals* fOrdered)
+void UtilSortIndexGlobals(PyMOLGlobals *G,int n,const void *array,int *x,UtilOrderFnGlobals* fOrdered)
 {
   int l,a,r,t,i;
 

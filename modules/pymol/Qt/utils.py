@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 from pymol.Qt import *
 
 
@@ -162,6 +160,9 @@ class MainThreadCaller(QtCore.QObject):
     """
     mainthreadrequested = QtCore.Signal(object)
 
+    RESULT_RETURN = 0
+    RESULT_EXCEPTION = 1
+
     def __init__(self):
         super(MainThreadCaller, self).__init__()
         self.waitcondition = QtCore.QWaitCondition()
@@ -170,7 +171,10 @@ class MainThreadCaller(QtCore.QObject):
         self.mainthreadrequested.connect(self._mainThreadAction)
 
     def _mainThreadAction(self, func):
-        self.results[func] = func()
+        try:
+            self.results[func] = (self.RESULT_RETURN, func())
+        except Exception as ex:
+            self.results[func] = (self.RESULT_EXCEPTION, ex)
         self.waitcondition.wakeAll()
 
     def __call__(self, func):
@@ -189,7 +193,10 @@ class MainThreadCaller(QtCore.QObject):
             except KeyError:
                 print(type(self).__name__ + ': result was not ready')
 
-        return result
+        if result[0] == self.RESULT_EXCEPTION:
+            raise result[1]
+
+        return result[1]
 
 
 def connectFontContextMenu(widget):
@@ -269,15 +276,28 @@ def loadUi(uifile, widget):
         m = __import__(PYQT_NAME + '.uic')
         return m.uic.loadUi(uifile, widget)
     elif PYQT_NAME == 'PySide2':
-        import pyside2uic as pysideuic
+        try:
+            import pyside2uic as pysideuic
+        except ImportError:
+            pysideuic = None
     else:
         import pysideuic
 
-    import io
-    stream = io.StringIO()
-    pysideuic.compileUi(uifile, stream)
+    if pysideuic is None:
+        import subprocess
+        p = subprocess.Popen(['uic', '-g', 'python', uifile],
+                             stdout=subprocess.PIPE)
+        source = p.communicate()[0]
+        # workaround for empty retranslateUi bug
+        source += b'\n' + b' ' * 8 + b'pass'
+    else:
+        import io
+        stream = io.StringIO()
+        pysideuic.compileUi(uifile, stream)
+        source = stream.getvalue()
+
     ns_locals = {}
-    exec(stream.getvalue(), None, ns_locals)
+    exec(source, ns_locals)
 
     if 'Ui_Form' in ns_locals:
         form = ns_locals['Ui_Form']()
@@ -318,8 +338,10 @@ class PopupOnException:
             import traceback
             QMB = QtWidgets.QMessageBox
 
+            parent = QtWidgets.QApplication.focusWidget()
+
             msg = str(e) or 'unknown error'
-            msgbox = QMB(QMB.Critical, 'Error', msg, QMB.Close)
+            msgbox = QMB(QMB.Critical, 'Error', msg, QMB.Close, parent)
             msgbox.setDetailedText(''.join(traceback.format_tb(tb)))
             msgbox.exec_()
 

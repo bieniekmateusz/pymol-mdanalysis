@@ -1,18 +1,16 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific. 
+#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function
 
 import chempy
 import copy
@@ -38,7 +36,7 @@ class Base:
         for a in self.atom:
             idx[id(a)] = c
             c = c + 1
-            
+
 #------------------------------------------------------------------------------
     def get_residues(self):
         list = []
@@ -85,13 +83,13 @@ class Base:
             print(a.symbol, a.name,  a.coord)
         for a in self.bond:
             print(a.index)
-            
+
 #------------------------------------------------------------------------------
     def get_implicit_mass(self):
         # mass calculation for implicit models
 
         valence = [0]*len(self.atom)
-        
+
         for a in self.bond:
             v = 1.5 if a.order == 4 else a.order
             valence[a.index[0]] += v
@@ -138,7 +136,7 @@ class Indexed(Base):
 #------------------------------------------------------------------------------
     def __init__(self):
         self.reset()
-        
+
 #------------------------------------------------------------------------------
     def reset(self):
         self.index = None
@@ -162,7 +160,7 @@ class Indexed(Base):
             return [mn,mx]
         else:
             return [[0.0,0.0,0.0],[0.0,0.0,0.0]]
-        
+
 #------------------------------------------------------------------------------
     def merge(self,other): # steals atom objects from 'other' and resets 'other'
         if chempy.feedback['actions']:
@@ -181,7 +179,7 @@ class Indexed(Base):
     def delete_atom(self,index):
         if chempy.feedback['atoms']:
             print(" "+str(self.__class__)+": deleting atom %d." % index)
-    
+
         nAtom=self.nAtom
 
 # update index if it exists
@@ -208,9 +206,9 @@ class Indexed(Base):
 
 # re-index bond table
         for b in self.bond:
-            if b.index[0] > index: 
+            if b.index[0] > index:
                 b.index[0] = b.index[0] - 1
-            if b.index[1] > index: 
+            if b.index[1] > index:
                 b.index[1] = b.index[1] - 1
 
 #--------------------------------------------------------------------------------
@@ -224,9 +222,9 @@ class Indexed(Base):
         lrev = copy.deepcopy(list)
         lrev.sort()
         lrev.reverse()
-        
+
         # generate cross-reference tables
-    
+
         o2n = {} # old to new
         if len(lrev):
             nxt = lrev.pop()
@@ -254,10 +252,10 @@ class Indexed(Base):
                 if o2n[i]>=0:
                     new_atom.append(self.atom[i])
             self.atom = new_atom
-            
-            # delete bonds 
 
-            new_bond = []   
+            # delete bonds
+
+            new_bond = []
             for b in self.bond:
                 b0 = b.index[0]
                 b1 = b.index[1]
@@ -284,12 +282,12 @@ class Indexed(Base):
 
         nAtom=self.nAtom
         self.atom.insert(index,atom)
-        
+
 # re-index bond table
         for b in self.bond:
-            if b.index[0] >= index: 
+            if b.index[0] >= index:
                 b.index[0] = b.index[0] + 1
-            if b.index[1] >= index: 
+            if b.index[1] >= index:
                 b.index[1] = b.index[1] + 1
 
 # update index if it exists
@@ -299,7 +297,7 @@ class Indexed(Base):
                 if idx[k] >= index:
                     idx[k] = idx[k] + 1
             idx[id(atom)] = index
-            
+
 #------------------------------------------------------------------------------
     def index_atom(self,atom):
         c = 0
@@ -309,7 +307,7 @@ class Indexed(Base):
                 return c
             c = c + 1
         return -1
-        
+
 #------------------------------------------------------------------------------
     def add_atom(self,atom):
         if chempy.feedback['atoms']:
@@ -325,7 +323,7 @@ class Indexed(Base):
         if chempy.feedback['bonds']:
             print(" "+str(self.__class__)+": adding bond (%d,%d)." % \
                     (bond.index[0],bond.index[1]))
-        self.bond.append(bond)      
+        self.bond.append(bond)
 
 #------------------------------------------------------------------------------
     def remove_bond(self,index):
@@ -333,8 +331,8 @@ class Indexed(Base):
             print(" "+str(self.__class__)+": removing bond %d." % index)
         nBond=len(self.Bond)
         del self.bond[index]
-        
-    
+
+
 #------------------------------------------------------------------------------
     def convert_to_connected(self):
         if chempy.feedback['verbose']:
@@ -348,11 +346,11 @@ class Indexed(Base):
             model.bond.append([])
         for b in self.bond:
             model.bond[b.index[0]].append(b) # note two refs to same object
-            model.bond[b.index[1]].append(b) # note two refs to same object 
+            model.bond[b.index[1]].append(b) # note two refs to same object
         self.reset()
         return model
 #------------------------------------------------------------------------------
-    def from_molobj(self,molobj): 
+    def from_molobj(self,molobj):
         self.reset()
         mol = self.molecule
         if len(molobj.title):
@@ -406,7 +404,7 @@ class Indexed(Base):
         if not self.index:
             self.update_index()
         old_index = self.index
-        self.atom.sort()      
+        self.atom.sort()
         self.update_index()
         xref = {}
         new_index = self.index
@@ -501,40 +499,40 @@ class Indexed(Base):
                 for b in model.bond: # use bond as center of torsion
                     a1 = b.index[0]
                     a2 = b.index[1]
-                    for c in cmodel.bond[a1]: 
-                        a0 = c.index[0] 
+                    for c in cmodel.bond[a1]:
+                        a0 = c.index[0]
                         if a0 not in (a1,a2): # outside atom
                             for d in cmodel.bond[a2]:
-                                a3 = d.index[0] 
-                                if a3 not in (a0,a1,a2): # outside atom
-                                    if a0 < a3:
-                                        to = (a0,a1,a2,a3)
-                                    else:
-                                        to = (a3,a2,a1,a0)                        
-                                    tors[to] = 1
-                                a3 = d.index[1] 
+                                a3 = d.index[0]
                                 if a3 not in (a0,a1,a2): # outside atom
                                     if a0 < a3:
                                         to = (a0,a1,a2,a3)
                                     else:
                                         to = (a3,a2,a1,a0)
                                     tors[to] = 1
-                        a0 = c.index[1] 
+                                a3 = d.index[1]
+                                if a3 not in (a0,a1,a2): # outside atom
+                                    if a0 < a3:
+                                        to = (a0,a1,a2,a3)
+                                    else:
+                                        to = (a3,a2,a1,a0)
+                                    tors[to] = 1
+                        a0 = c.index[1]
                         if a0 not in (a1,a2): # outside atom
                             for d in cmodel.bond[a2]:
-                                a3 = d.index[0] 
+                                a3 = d.index[0]
                                 if a3 not in (a0,a1,a2): # outside atom
                                     if a0 < a3:
                                         to = (a0,a1,a2,a3)
                                     else:
-                                        to = (a3,a2,a1,a0)                        
+                                        to = (a3,a2,a1,a0)
                                     tors[to] = 1
-                                a3 = d.index[1] 
+                                a3 = d.index[1]
                                 if a3 not in (a0,a1,a2): # outside atom
                                     if a0 < a3:
                                         to = (a0,a1,a2,a3)
                                     else:
-                                        to = (a3,a2,a1,a0)                        
+                                        to = (a3,a2,a1,a0)
                                     tors[to] = 1
                 if len(tors):
                     # choose remaining atoms based on existing atoms using torsion
@@ -576,14 +574,14 @@ class Connected(Base):
 #------------------------------------------------------------------------------
     def __init__(self):
         self.reset()
-  
+
 #------------------------------------------------------------------------------
     def reset(self):
         self.index = None
         self.molecule = chempy.Molecule()
         self.atom = []
         self.bond = []
-        
+
 #------------------------------------------------------------------------------
     def convert_to_indexed(self):
         if chempy.feedback['verbose']:
@@ -591,7 +589,7 @@ class Connected(Base):
         indexed = Indexed()
         indexed.atom = self.atom
         indexed.molecule = self.molecule
-        c = 0 
+        c = 0
         for a in self.bond:
             for b in a:
                 if b.index[0] == c:
@@ -608,7 +606,7 @@ class Connected(Base):
 
         nAtom=self.nAtom
         self.atom.insert(index,atom)
-        
+
 # re-index bond table
         for a in self.bonds:
             for b in a:
@@ -660,9 +658,9 @@ class Connected(Base):
 
 # re-index bond table
         for b in self.bond:
-            if b.index[0] > index: 
+            if b.index[0] > index:
                 b.index[0] = b.index[0] - 1
-            if b.index[1] > index: 
+            if b.index[1] > index:
                 b.index[1] = b.index[1] - 1
 
 #------------------------------------------------------------------------------
@@ -683,7 +681,7 @@ class Connected(Base):
         if not self.index:
             self.update_index()
         old_index = self.index
-        self.atom.sort()      
+        self.atom.sort()
         self.update_index()
         xref = {}
         new_index = self.index
@@ -705,7 +703,3 @@ class Connected(Base):
         self.bond = new_bond
         del old_index
         del xref
-        
-
-
-

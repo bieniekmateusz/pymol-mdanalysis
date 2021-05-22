@@ -9,6 +9,8 @@
 #include <cmath>
 #include "os_python.h"
 #include "PConv.h"
+#include "pymol/type_traits.h"
+#include "pymol/algorithm.h"
 #include <catch2/catch.hpp>
 
 namespace pymol {
@@ -33,7 +35,7 @@ static bool isArrayZero(const T *arr, const std::size_t len) {
 // Checks whether arrays are equal
 template <typename T>
 static bool isArrayEqual(const T *arr1, const T *arr2, const std::size_t len) {
-  return std::equal(arr1, arr1 + len, arr2);
+  return pymol::equal(arr1, arr1 + len, arr2);
 }
 
 // Checks whether type has all special member functions
@@ -52,10 +54,6 @@ template <typename T> static bool isRegular()
 template <typename T> static bool isNullptr(const T *ptr) {
   return ptr == nullptr;
 }
-struct PYMOL_TEST_API {
-  static PyObject *PYMOL_TEST_SUCCESS;
-  static PyObject *PYMOL_TEST_FAILURE;
-};
 
 class TmpFILE
 {

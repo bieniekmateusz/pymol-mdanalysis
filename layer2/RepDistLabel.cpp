@@ -38,52 +38,55 @@ Z* -------------------------------------------------------------------
 
 typedef char DistLabel[12];
 
-typedef struct RepDistLabel {
-  Rep R;
-  float *V;
-  int N;
+struct RepDistLabel : Rep {
+  using Rep::Rep;
+
+  ~RepDistLabel() override;
+
+  cRep_t type() const override { return cRepLabel; }
+  void render(RenderInfo* info) override;
+
+  float* V = nullptr;
+  int N = 0;
   DistLabel *L;
-  CObject *Obj;
   DistSet *ds;
   int OutlineColor;
-  CGO *shaderCGO;
-  int texture_font_size;
-} RepDistLabel;
+  CGO* shaderCGO = nullptr;
+  int texture_font_size = 0;
+};
 
 #define SHADERCGO I->shaderCGO
 
 #include"ObjectDist.h"
 
-static
-void RepDistLabelFree(RepDistLabel * I)
+RepDistLabel::~RepDistLabel()
 {
+  auto I = this;
   if (I->shaderCGO){
     CGOFree(I->shaderCGO);
   }
   VLAFreeP(I->V);
   VLAFreeP(I->L);
-  RepPurge(&I->R);
-  OOFreeP(I);
 }
 
-static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
+void RepDistLabel::render(RenderInfo* info)
 {
+  auto I = this;
+  auto* obj = getObj();
   CRay *ray = info->ray;
   auto pick = info->pick;
-  PyMOLGlobals *G = I->R.G;
   float *v = I->V;
   int c = I->N;
   DistLabel *l = I->L;
   int n = 0;
-  int color;
-  int font_id = SettingGet_i(G, NULL, I->Obj->Setting, cSetting_label_font_id);
-  float font_size = SettingGet_f(G, NULL, I->Obj->Setting, cSetting_label_size);
-  int float_text = SettingGet_i(G, NULL, I->Obj->Setting, cSetting_float_labels);
+  int font_id = SettingGet_i(G, NULL, obj->Setting.get(), cSetting_label_font_id);
+  float font_size = SettingGet_f(G, NULL, obj->Setting.get(), cSetting_label_size);
+  int float_text = SettingGet_i(G, NULL, obj->Setting.get(), cSetting_float_labels);
   int ok = true;
   short use_shader = SettingGetGlobal_b(G, cSetting_use_shaders);
-  if (I->R.MaxInvalid >= cRepInvRep)
+  if (I->MaxInvalid >= cRepInvRep)
     return;
-  font_id = SettingCheckFontID(G, NULL, I->Obj->Setting, font_id);
+  font_id = SettingCheckFontID(G, NULL, obj->Setting.get(), font_id);
 
   if (I->shaderCGO && font_size < 0.f){
     int size;
@@ -93,14 +96,16 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
     }
   }
 
+  auto color = SettingGet_color(G, nullptr, obj->Setting.get(), cSetting_label_color);
+  if (color < 0               //
+      && color != cColorFront //
+      && color != cColorBack) {
+    color = obj->Color;
+  }
+
   if(ray) {
     TextSetOutlineColor(G, I->OutlineColor);
-    color = SettingGet_color(G, NULL, I->Obj->Setting, cSetting_label_color);
-
-    if((color >= 0) || (color == cColorFront) || (color == cColorBack))
       TextSetColor(G, ColorGet(G, color));
-    else
-      TextSetColor(G, ColorGet(G, I->Obj->Color));
 
     while(c--) {
       TextSetPos(G, v);
@@ -113,25 +118,24 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
       if (I->shaderCGO){
         if(float_text)
           glDisable(GL_DEPTH_TEST);
-	CGORenderGLPicking(I->shaderCGO, info, &I->R.context, NULL, NULL);
+	CGORenderGLPicking(I->shaderCGO, info, &I->context, NULL, NULL);
         if(float_text)
           glEnable(GL_DEPTH_TEST);
 	return;
     } else {
-	Pickable *p = I->R.P;
-	unsigned int i;
+	Pickable *p = I->P;
         TextSetIsPicking(G, true);
 	SceneSetupGLPicking(G);
 	if(c) {
 	  if(float_text)
 	    glDisable(GL_DEPTH_TEST);
 	  
-	  i = pick->begin()->src.index;
 	  while(c--) {
 	    if(*l) {
 	      TextSetPos(G, v);
               p++;
-              AssignNewPickColor(NULL, i, pick, &I->R.context, TextGetColorUChar4uv(G), p->index, p->bond);
+              AssignNewPickColor(nullptr, pick, TextGetColorUChar4uv(G),
+                  &I->context, p->index, p->bond);
               TextSetColorFromUColor(G);
 	      TextSetLabelBkgrdInfo(G, 1.f, 1.2f, NULL);
 	      TextSetLabelPosIsSet(G, 0);
@@ -145,12 +149,11 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
 	  }
 	  if(float_text)
 	    glEnable(GL_DEPTH_TEST);
-	  (*pick)[0].src.index = i;       /* pass the count */
 	}
         TextSetIsPicking(G, false);
       }
     } else {
-	Pickable *p = I->R.P;
+	Pickable *p = I->P;
 	
         if (use_shader){
 	if (!I->shaderCGO){
@@ -161,7 +164,7 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
 	  }
 	} else {
 	    info->texture_font_size = I->texture_font_size;
-	  CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, &I->R);
+	    CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, I);
 	  return;
 	}
 	} else if (I->shaderCGO){
@@ -171,12 +174,7 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
 	}
 
       TextSetOutlineColor(G, I->OutlineColor);
-      color = SettingGet_color(G, NULL, I->Obj->Setting, cSetting_label_color);
-
-      if((color >= 0) || (color == cColorFront) || (color == cColorBack))
         TextSetColor(G, ColorGet(G, color));
-      else
-        TextSetColor(G, ColorGet(G, I->Obj->Color));
       while(c--) {
 	p++;
 	if (ok && I->shaderCGO)
@@ -215,7 +213,7 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
 	}
 	if (ok && I->shaderCGO){
 	  I->shaderCGO->use_shader = true;
-	  RepDistLabelRender(I, info);
+	  I->render(info); // recursion !?
 	  return;
 	}
       }
@@ -226,82 +224,51 @@ static void RepDistLabelRender(RepDistLabel * I, RenderInfo * info)
   if (!ok){
     CGOFree(I->shaderCGO);
     I->ds->Rep[cRepLabel] = NULL;
-    RepDistLabelFree(I);
+    delete I;
   }
 }
 
 Rep *RepDistLabelNew(DistSet * ds, int state)
 {
-  PyMOLGlobals *G = ds->State.G;
+  PyMOLGlobals *G = ds->G;
   int a;
   int n = 0;
   float *v, *v1, *v2, *v3, d[3], di;
   char buffer[255];
   const float *lab_pos =
-    SettingGet_3fv(G, NULL, ds->Obj->Obj.Setting, cSetting_label_position);
+    SettingGet_3fv(G, NULL, ds->Obj->Setting.get(), cSetting_label_position);
   int default_digits =
-    SettingGet_i(G, NULL, ds->Obj->Obj.Setting, cSetting_label_digits);
+    SettingGet_i(G, NULL, ds->Obj->Setting.get(), cSetting_label_digits);
   Pickable *rp = NULL;
-  int ok = true;
 
-  OOAlloc(G, RepDistLabel);
-  CHECKOK(ok, I);
-
-  if(!ok || !(ds->NIndex || ds->NAngleIndex || ds->NDihedralIndex)) {
-    ds->NLabel = 0;
-    VLAFreeP(ds->LabCoord);
-    VLAFreeP(ds->LabPos);
-    OOFreeP(I);
-    return (NULL);
+  if(!(ds->NIndex || ds->NAngleIndex || ds->NDihedralIndex)) {
+    ds->LabCoord.clear();
+    ds->LabPos.clear();
+    return nullptr;
   }
 
-  if(default_digits < 0)
-    default_digits = 0;
-  if(default_digits > 10)
-    default_digits = 10;
+  default_digits = pymol::clamp(default_digits, 0, 10);
 
-  RepInit(G, &I->R);
+  auto I = new RepDistLabel(ds->Obj, state);
 
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepDistLabelRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepDistLabelFree;
-  I->R.fRecolor = NULL;
-
-  I->N = 0;
-  I->V = NULL;
-  I->R.P = NULL;
-  I->Obj = (CObject *) ds->Obj;
-  I->R.obj = I->Obj;
   I->ds = ds;
-  I->R.context.object = (void *) ds->Obj;
-  I->R.context.state = state;
-
-  I->shaderCGO = NULL;
-  I->texture_font_size = 0;
 
   I->OutlineColor =
-    SettingGet_i(G, NULL, I->Obj->Setting, cSetting_label_outline_color);
+    SettingGet_i(G, NULL, ds->Obj->Setting.get(), cSetting_label_outline_color);
 
+  int nLabel = 0;
+  int ok = true;
   if(ds->NIndex || ds->NAngleIndex || ds->NDihedralIndex) {
-    float *lc;
-    ds->NLabel = (ds->NIndex / 2 + ds->NAngleIndex / 5 + ds->NDihedralIndex / 6);
+    nLabel = (ds->NIndex / 2 + ds->NAngleIndex / 5 + ds->NDihedralIndex / 6);
 
-    if(!ds->LabCoord) {         /* store label coordinates */
-      ds->LabCoord = VLAlloc(float, 3 * ds->NLabel);
-    } else {
-      VLACheck(ds->LabCoord, float, 3 * ds->NLabel);
-    }
-    CHECKOK(ok, ds->LabCoord);
-      
-    if(ok && ds->LabPos) {            /* make sure this VLA covers all labels */
-      VLACheck(ds->LabPos, LabPosType, ds->NLabel);
-      CHECKOK(ok, ds->LabPos);
-    }
+    ds->LabCoord.resize(nLabel);
+    ds->LabPos.resize(nLabel);
 
-    if(ok && SettingGet_b(G, NULL, ds->Obj->Obj.Setting, cSetting_pickable)) {
-      I->R.P = pymol::malloc<Pickable>(ds->NLabel + 1);
-      CHECKOK(ok, I->R.P);
+    if(SettingGet_b(G, NULL, ds->Obj->Setting.get(), cSetting_pickable)) {
+      I->P = pymol::malloc<Pickable>(nLabel + 1);
+      CHECKOK(ok, I->P);
       if (ok)
-	rp = I->R.P + 1;          /* skip first record! */
+	rp = I->P + 1;          /* skip first record! */
     }
 
     if (ok)
@@ -312,10 +279,10 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
     CHECKOK(ok, I->L);
 
     n = 0;
-    lc = ds->LabCoord;
+    auto* lc = ds->LabCoord.data();
 
     if(ds->NIndex) {
-      int digits = SettingGet_i(G, NULL, ds->Obj->Obj.Setting,
+      int digits = SettingGet_i(G, NULL, ds->Obj->Setting.get(),
                                 cSetting_label_distance_digits);
       WordType format;
       if(digits < 0)
@@ -341,14 +308,13 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
         v = I->V + 6 * n;
         UtilNCopy(I->L[n], buffer, sizeof(DistLabel));
         copy3f(d, v);
-        *(lc++) = v[0];
-        *(lc++) = v[1];
-        *(lc++) = v[2];
-        if(ds->LabPos) {
-          LabPosType *lp = ds->LabPos + n;
-          switch (lp->mode) {
+        std::copy_n(v, 3, lc->data());
+        lc++;
+        if(!ds->LabPos.empty()) {
+          const auto& lp = ds->LabPos[n];
+          switch (lp.mode) {
           case 1:
-            add3f(lp->offset, v, v);
+            add3f(lp.offset, v, v);
             copy3f(lab_pos, v + 3);
             break;
           default:
@@ -376,7 +342,7 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
 
       float l1, l2;
       float radius;
-      int digits = SettingGet_i(G, NULL, ds->Obj->Obj.Setting,
+      int digits = SettingGet_i(G, NULL, ds->Obj->Setting.get(),
                                 cSetting_label_angle_digits);
       WordType format;
       if(digits < 0)
@@ -405,9 +371,9 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
         else
           radius = l1;
         radius *=
-          SettingGet_f(G, NULL, ds->Obj->Obj.Setting,
+          SettingGet_f(G, NULL, ds->Obj->Setting.get(),
                        cSetting_angle_size) * SettingGet_f(G, NULL,
-                                                           ds->Obj->Obj.Setting,
+                                                           ds->Obj->Setting.get(),
                                                            cSetting_angle_label_position);
 
         normalize3f(avg);
@@ -430,14 +396,13 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
         v = I->V + 6 * n;
         UtilNCopy(I->L[n], buffer, sizeof(DistLabel));
         copy3f(avg, v);
-        *(lc++) = v[0];
-        *(lc++) = v[1];
-        *(lc++) = v[2];
-        if(ds->LabPos) {
-          LabPosType *lp = ds->LabPos + n;
-          switch (lp->mode) {
+        std::copy_n(v, 3, lc->data());
+        lc++;
+        if(!ds->LabPos.empty()) {
+          const auto& lp = ds->LabPos[n];
+          switch (lp.mode) {
           case 1:
-            add3f(lp->offset, v, v);
+            add3f(lp.offset, v, v);
             copy3f(lab_pos, v + 3);
             break;
           default:
@@ -465,13 +430,13 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
       float l1, l2;
       float radius;
       float dihedral_size =
-        SettingGet_f(G, NULL, ds->Obj->Obj.Setting, cSetting_dihedral_size);
-      float dihedral_label_position = SettingGet_f(G, NULL, ds->Obj->Obj.Setting,
+        SettingGet_f(G, NULL, ds->Obj->Setting.get(), cSetting_dihedral_size);
+      float dihedral_label_position = SettingGet_f(G, NULL, ds->Obj->Setting.get(),
                                                    cSetting_dihedral_label_position);
 
       float *v4;
       float avg[3];
-      int digits = SettingGet_i(G, NULL, ds->Obj->Obj.Setting,
+      int digits = SettingGet_i(G, NULL, ds->Obj->Setting.get(),
                                 cSetting_label_dihedral_digits);
       WordType format;
       if(digits < 0)
@@ -529,14 +494,13 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
         v = I->V + 6 * n;
         UtilNCopy(I->L[n], buffer, sizeof(DistLabel));
         copy3f(avg, v);
-        *(lc++) = v[0];
-        *(lc++) = v[1];
-        *(lc++) = v[2];
-        if(ds->LabPos) {
-          LabPosType *lp = ds->LabPos + n;
-          switch (lp->mode) {
+        std::copy_n(v, 3, lc->data());
+        lc++;
+        if(!ds->LabPos.empty()) {
+          const auto& lp = ds->LabPos[n];
+          switch (lp.mode) {
           case 1:
-            add3f(lp->offset, v, v);
+            add3f(lp.offset, v, v);
             copy3f(lab_pos, v + 3);
             break;
           default:
@@ -561,12 +525,12 @@ Rep *RepDistLabelNew(DistSet * ds, int state)
   I->N = n;
 
   if(ok && rp) {
-    I->R.P = ReallocForSure(I->R.P, Pickable, (rp - I->R.P));
-    CHECKOK(ok, I->R.P);
-    I->R.P[0].index = I->N;     /* unnec? */
+    I->P = ReallocForSure(I->P, Pickable, (rp - I->P));
+    CHECKOK(ok, I->P);
+    I->P[0].index = I->N;     /* unnec? */
   }
   if (!ok){
-    RepDistLabelFree(I);
+    delete I;
     I = NULL;
   }
   return (Rep *) I;

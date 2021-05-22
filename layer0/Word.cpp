@@ -52,7 +52,6 @@ struct _CWordMatcher {
 #define cMatchAlphaRange  cWordMatchOptionAlphaRanges
 #define cMatchWildcard 3
 
-#ifndef _PYMOL_INLINE
 int WordCompare(PyMOLGlobals * G, const char *p, const char *q, int ignCase)
 
 
@@ -93,7 +92,6 @@ int WordCompare(PyMOLGlobals * G, const char *p, const char *q, int ignCase)
     return 1;
   return 0;
 }
-#endif
 
 void WordMatchOptionsConfigInteger(CWordMatchOptions * I)
 {
@@ -623,7 +621,7 @@ void WordListFreeP(CWordList * I)
   if(I) {
     FreeP(I->word);
     FreeP(I->start);
-    FreeP(I);
+    OOFreeP(I);
   }
 }
 

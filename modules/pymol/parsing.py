@@ -1,14 +1,14 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
@@ -27,7 +27,7 @@
 # command
 
 # * commands with arguments
-#            
+#
 # command value1
 # command value1,value2
 # command value1,value2,value3
@@ -36,7 +36,7 @@
 #
 # command argument1=value1
 # command argument1=value1,argument2=value2,argument3=value3
-# command argument3=value1,argument2=value2,argument1=value1   
+# command argument3=value1,argument2=value2,argument1=value1
 
 # * mixed...
 #
@@ -44,7 +44,7 @@
 
 # * commands with legacy '=' support for first argument
 #
-# command string1=value1    
+# command string1=value1
 # * which should map to
 # command string1,value1
 
@@ -57,11 +57,7 @@
 # === Burdens placed on API functions...
 #
 # None. However, function must have real arguments for error checking.
-# 
-
-from __future__ import absolute_import
-
-# Don't import __future__.print_function
+#
 
 if True:
 
@@ -71,29 +67,29 @@ if True:
     import types
     import inspect
     from . import colorprinting
-    
-    class QuietException(BaseException):
+
+    class QuietException(Exception):
         pass
 
     # constants for keyword modes
 
     SIMPLE      = 0  # original pymol parsing (deprecated)
     MOVIE       = 1  # ignore ";", treat entire line as a single command
-    RUN         = 2  # run command 
+    RUN         = 2  # run command
     SPAWN       = 3  # for spawn and fork commands
     ABORT       = 4  # terminates command script
     PYTHON      = 5  # pass entire line to python
     EMBED       = 6  # embedded data
     PYTHON_BLOCK = 7 # embedded python block
     SKIP        = 8  # skipping commands
-    NO_CHECK    = 10 # no error checking 
+    NO_CHECK    = 10 # no error checking
     STRICT      = 11 # strict name->argument checking
     SECURE      = 12 # command not available in "secure" mode
     LEGACY      = 13 # support legacy construct str1=val1,... -> str1,val1,...
-    LITERAL     = 20 # argument is to be treated as a literal string 
+    LITERAL     = 20 # argument is to be treated as a literal string
     LITERAL1    = 21 # one regular argument, followed by literal string
     LITERAL2    = 22 # two regular argument, followed by literal string
-    
+
     # key regular expressions
 
     arg_name_re = re.compile(r"[A-Za-z0-9_]+\s*\=")
@@ -107,7 +103,7 @@ if True:
     arg_value_re = re.compile(r"'''[^']*'''|'[^']*'|"+r'"[^"]*"|[^,;]+')
     def trim_nester(st):
         # utility routine, returns single instance of a nested string
-        # should be modified to handle quotes too                  
+        # should be modified to handle quotes too
         pc = 1
         l = len(st)
         c = 1
@@ -129,13 +125,13 @@ if True:
         result = []
         inp_dict = {}
         for a in inp_arg:
-            if a[0] != None:
+            if a[0] is not None:
                 inp_dict[a[0]] = a[1];
         c = 0
         for p in par:
             if c<n_inp:
                 a = inp_arg[c]
-                if a[0] == None:
+                if a[0] is None:
                     result.append(a[1])
                     c = c + 1
                     continue
@@ -150,7 +146,7 @@ if True:
         if len(inp_dict):
             raise QuietException("Error: invalid argument(s).")
         return result
-    
+
     def parse_arg(st,mode=STRICT,_self=None):
         '''
     parse_arg(st)
@@ -159,7 +155,7 @@ if True:
 
     returns list of tuples of strings: [(None,value),(name,value)...]
     '''
-        result = [] 
+        result = []
         # current character
         cc = 0
         a = st.split(None, 1)
@@ -174,7 +170,7 @@ if True:
                 st = st.lstrip()
                 if st == '':
                     break
-                # read argument name, if any         
+                # read argument name, if any
                 mo = arg_name_re.match(st)
                 if mo:
                     nam = mo.group(0)[:-1].strip()
@@ -197,7 +193,7 @@ if True:
                         # special handling for nesters (selections, lists, tuples, etc.)
                         mo = arg_easy_nester_re.match(st[cc:]) # no internal commas
                         if mo:
-                            cnt = len(nester_char_re.findall(mo.group(0))) 
+                            cnt = len(nester_char_re.findall(mo.group(0)))
                             if cnt % 2 == 1: # make sure nesters are matched in count
                                 mo = None
                         if mo:
@@ -214,7 +210,7 @@ if True:
                             mo = arg_hard_nester_re.match(st[cc:])
                             if mo:
                                 se = trim_nester(mo.group(0))
-                                if se==None:
+                                if se is None:
                                     colorprinting.error("Error: "+st)
                                     colorprinting.error("Error: "+" "*cc+"^ syntax error (type 1).")
                                     raise QuietException
@@ -252,7 +248,7 @@ if True:
                                 break
                             argval = argval + mo.group(0)
                             cc=cc+mo.end(0)
-                        if argval!=None:
+                        if argval is not None:
                             result.append((nam, argval.strip()))
                 # clean whitespace
                 st = st[cc:].lstrip()
@@ -330,109 +326,97 @@ if True:
             ac = ac + 1
         print(st + " " + "]"*pc)
 
-    def prepare_call(fn,lst,mode=STRICT,name=None,_self=None): # returns tuple of arg,kw or excepts if error
-        if name==None:
-            name=fn.__name__
-        result = (None,None)
+    def prepare_call(fn, lst, mode=STRICT, name=None, _self=None):
+        """
+        Validates the command arguments. Handles legacy syntax
+        (set name=value) and the "?" usage argument.
+
+        @param fn Function
+        @param lst Argument list with (key, value) items, key may be None for positional arguments
+        @param mode Argument parsing mode
+        @param name Name of the command (only for error reporting)
+        @return Tuple of (args: list, kwargs: dict)
+        @raises QuietException on error
+        """
+        if name is None:
+            name = fn.__name__
+
         arg = []
         kw = {}
         co = fn.__code__
-        if (co.co_flags & 0xC): # disable error checking for *arg or **kw functions
-            mode = NO_CHECK
-        offset = 1 if inspect.ismethod(fn) else 0
-        arg_nam = co.co_varnames[offset:co.co_argcount]
-        narg = len(arg_nam)
-        if fn.__defaults__:
-            ndef = len(fn.__defaults__)
-        else:
-            ndef = 0
-        nreq = narg-ndef
-        if len(lst)==1:
-            if lst[0]==(None,'?'):
-                dump_arg(name,arg_nam,nreq)         
-                raise QuietException
 
-        if mode==NO_CHECK:
+        # disable error checking for *arg or **kw functions
+        if (co.co_flags & 0xC):
+            mode = NO_CHECK
+
+        offset = 1 if inspect.ismethod(fn) else 0
+        arg_nam = co.co_varnames[offset:co.co_argcount + co.co_kwonlyargcount]
+        npositional = co.co_argcount - offset
+        nreq = max(0, npositional - len(fn.__defaults__ or ()))
+
+        # co_posonlyargcount is new in Python 3.8
+        nposonly = max(0, getattr(co, 'co_posonlyargcount', 0) - offset)
+
+        assert nposonly <= npositional
+
+        if lst == [(None, '?')]:
+            dump_arg(name, arg_nam, nreq)
+            raise QuietException
+
+        if mode == NO_CHECK:
             # no error checking
-            for a in lst:
-                if a[0]==None:
-                    arg.append(a[1])
+            for (key, value) in lst:
+                if key is None:
+                    arg.append(value)
                 else:
-                    kw[a[0]]=a[1]
-            # set feedback argument (quiet), if extant, results enabled, and not overridden
-            if "quiet" in arg_nam:
-                if "quiet" not in kw:
-                    if __name__!='__main__':
-                        if _self._feedback(_self.fb_module.cmd, _self.fb_mask.results):
-                            kw["quiet"] = 0
-            if "_self" not in kw: # always send _self in the dictionary
-                kw["_self"]=_self
+                    kw[key] = value
+
+            # always send _self in the dictionary
+            if "_self" not in kw:
+                kw["_self"] = _self
         else:
             # error checking enabled
 
-            # build name dictionary, with required flag
-            arg_dct={}
-            c = 0
-            for a in arg_nam:
-                arg_dct[a]=c<nreq
-                c = c + 1
-            if mode==LEGACY:
-                # handle legacy string=value transformation
+            # handle legacy string=value transformation
+            if mode == LEGACY:
                 tmp_lst = []
                 for a in lst:
-                    if(a[0]!=None):
-                        if a[0] not in arg_dct:
-                            tmp_lst.extend([(None,a[0]),(None,a[1])])
-                        else:
-                            tmp_lst.append(a)
+                    if a[0] is not None and a[0] not in arg_nam:
+                        tmp_lst.append((None, a[0]))
+                        tmp_lst.append((None, a[1]))
                     else:
                         tmp_lst.append(a)
                 lst = tmp_lst
-            # make sure we don't have too many arguments
-            if len(lst)>narg:
-                if not narg:
-                    colorprinting.error("Error: too many arguments for %s; None expected."%(name))
-                elif narg==nreq:
-                    colorprinting.error("Error: too many arguments for %s; %d expected, %d found."%(
-                        name,nreq,len(lst)))
-                    dump_arg(name,arg_nam,nreq)
-                else:
-                    colorprinting.error("Error: too many arguments for %s; %d to %d expected, %d found."%(
-                        name,nreq,narg,len(lst)))
-                    dump_arg(name,arg_nam,nreq)            
-                raise QuietException
+
             # match names to unnamed arguments to create argument dictionary
-            ac = 0
-            val_dct = {}
-            for a in lst:
-                if a[0]==None:
-                    if ac>=narg:
-                        raise QuietException("Parsing-Error: ambiguous argument: '"+str(a[1])+"'")
-                    else:
-                        val_dct[arg_nam[ac]]=a[1]
-                else:
-                    val_dct[a[0]]=a[1]
-                ac = ac + 1
+            for ac, (key, value) in enumerate(lst):
+                if key is None:
+                    if ac < nposonly:
+                        arg.append(value)
+                        continue
+
+                    if ac >= npositional:
+                        dump_arg(name, arg_nam, nreq)
+                        raise QuietException(
+                            f"Error: too many positional arguments for {name}")
+                    key = arg_nam[ac]
+                kw[key] = value
+
             # now check to make sure we don't have any missing arguments
-            for a in arg_nam:
-                if arg_dct[a]:
-                    if a not in val_dct:
-                        raise QuietException("Parsing-Error: missing required argument in function %s : %s" % (name, a))
-            # return all arguments as keyword arguments
-            kw = val_dct
-            # set feedback argument (quiet), if extant, results enabled, and not overridden
-            if "quiet" in arg_dct:
-                if "quiet" not in kw:
-                    if _self._feedback(_self.fb_module.cmd, _self.fb_mask.results):
-                        kw["quiet"] = 0
+            for key in set(arg_nam[nposonly:nreq]).difference(kw):
+                raise QuietException("Parsing-Error: missing required "
+                                     f"argument in function {name} : {key}")
+
             # make sure command knows which PyMOL instance to message
-            if "_self" in arg_nam:
-                if "_self" not in kw:
-                    kw["_self"]=_self
-        if __name__!='__main__':
-            if _self._feedback(_self.fb_module.parser, _self.fb_mask.debugging):
-                _self.fb_debug.write(" parsing-DEBUG: kw: "+str(kw)+"\n")
-        return (arg,kw)
+            if "_self" not in kw and "_self" in arg_nam:
+                kw["_self"] = _self
+
+        # set feedback argument (quiet), if extant, results enabled, and not overridden
+        if "quiet" not in kw and "quiet" in arg_nam and _self._feedback(
+                _self.fb_module.cmd, _self.fb_mask.results):
+            kw["quiet"] = 0
+
+        return arg, kw
 
 
     # launching routines
@@ -536,12 +520,9 @@ SEE ALSO
             # without any further output
             _print_exc()
             raise QuietException
-    
+
     def run_file_as_module(file,spawn=0):
         name = re.sub('[^A-Za-z0-9]','_',file)
-        if not isinstance(name, str):
-            # Python 2 only
-            name = name.encode('ascii', errors='ignore')
         mod = types.ModuleType(name)
         mod.__file__ = file
         mod.__script__ = file
@@ -566,7 +547,7 @@ SEE ALSO
         t.setDaemon(1)
         t.start()
 
-    def split(*arg,**kw): # custom split-and-trim
+    def split(str, tok, mx=0):
         '''
     split(string,token[,count]) -> list of strings
 
@@ -577,12 +558,6 @@ SEE ALSO
     USAGE OF THIS FUNCTION IS DISCOURAGED - THE GOAL IS TO
     MAKE IT UNNECESSARY BY IMPROVING THE BUILT-IN PARSER
     '''
-        str = arg[0]
-        tok = arg[1]
-        if len(arg)>2:
-            mx=arg[2]
-        else:
-            mx=0
         pair = { '(':')','[':']','{':'}',"'":"'",'"':'"' }
         plst = list(pair.keys())
         stack = []

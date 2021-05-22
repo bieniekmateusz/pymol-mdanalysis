@@ -33,50 +33,49 @@ Z* -------------------------------------------------------------------
 #include"CGO.h"
 #include "Lex.h"
 
-typedef struct RepRibbon {
-  Rep R;
+struct RepRibbon : Rep {
+  using Rep::Rep;
+
+  ~RepRibbon() override;
+
+  cRep_t type() const override { return cRepRibbon; }
+  void render(RenderInfo* info) override;
+
   float ribbon_width;
   float radius;
   CGO *shaderCGO;
   CGO *primitiveCGO;
   bool shaderCGO_has_cylinders;
-} RepRibbon;
+};
 
 #include"ObjectMolecule.h"
 
-static
-void RepRibbonFree(RepRibbon * I)
+RepRibbon::~RepRibbon()
 {
-  if (I->primitiveCGO){
-    CGOFree(I->primitiveCGO);
-    I->primitiveCGO = 0;
-  }
-  if (I->shaderCGO){
-    CGOFree(I->shaderCGO);
-    I->shaderCGO = 0;
-  }
-  RepPurge(&I->R);
-  OOFreeP(I);
+  CGOFree(primitiveCGO);
+  CGOFree(shaderCGO);
 }
 
-static void RepRibbonRender(RepRibbon * I, RenderInfo * info)
+void RepRibbon::render(RenderInfo* info)
 {
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  PyMOLGlobals *G = I->R.G;
   int ok = true;
   short use_shader = SettingGetGlobal_b(G, cSetting_ribbon_use_shader) &&
                      SettingGetGlobal_b(G, cSetting_use_shaders);
   bool ribbon_as_cylinders = SettingGetGlobal_b(G, cSetting_render_as_cylinders) &&
-                             SettingGetGlobal_b(G, cSetting_ribbon_as_cylinders);
+                             SettingGet<bool>(G, I->cs->Setting.get(),
+                                                 I->obj->Setting.get(),
+                                                 cSetting_ribbon_as_cylinders);
 
   if(ray) {
 #ifndef _PYMOL_NO_RAY
-    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->R.cs->Setting, I->R.obj->Setting);
+    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->cs->Setting.get(), I->obj->Setting.get());
 #endif
   } else if(G->HaveGUI && G->ValidContext) {
     if(pick) {
-      CGORenderGLPicking(I->shaderCGO ? I->shaderCGO : I->primitiveCGO, info, &I->R.context, I->R.cs->Setting, I->R.obj->Setting, &I->R);
+      CGORenderGLPicking(I->shaderCGO ? I->shaderCGO : I->primitiveCGO, info, &I->context, I->cs->Setting.get(), I->obj->Setting.get(), I);
     } else {
       if (!use_shader && I->shaderCGO){
 	CGOFree(I->shaderCGO);
@@ -123,26 +122,26 @@ static void RepRibbonRender(RepRibbon * I, RenderInfo * info)
           CGOFreeWithoutVBOs(convertcgo);
           I->shaderCGO->use_shader = true;
         }
-        CGORenderGL(I->shaderCGO, NULL, I->R.cs->Setting, I->R.obj->Setting, info, &I->R);
+        CGORenderGL(I->shaderCGO, NULL, I->cs->Setting.get(), I->obj->Setting.get(), info, I);
         return;
       } else {
-        CGORenderGL(I->primitiveCGO, NULL, I->R.cs->Setting, I->R.obj->Setting, info, &I->R);
+        CGORenderGL(I->primitiveCGO, NULL, I->cs->Setting.get(), I->obj->Setting.get(), info, I);
         return;
       }
     }
   }
   if (!ok){
     CGOFree(I->shaderCGO);
-    I->R.fInvalidate(&I->R, I->R.cs, cRepInvPurge);
-    I->R.cs->Active[cRepRibbon] = false;
+    I->invalidate(cRepInvPurge);
+    I->cs->Active[cRepRibbon] = false;
   }
 }
 
 Rep *RepRibbonNew(CoordSet * cs, int state)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   ObjectMolecule *obj;
-  int a, b, a1, a2, c1, c2, *i, *s, *at, *seg, nAt, *atp;
+  int a, b, a1, a2, *i, *s, *at, *seg, nAt, *atp;
   float *v, *v1, *v2, *v3;
   float *pv = NULL;
   float *dv = NULL;
@@ -169,40 +168,33 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
   if(!cs->hasRep(cRepRibbonBit))
     return NULL;
 
-  OOAlloc(G, RepRibbon);
+  auto I = new RepRibbon(cs, state);
 
   obj = cs->Obj;
 
-  RepInit(G, &I->R);
-  power_a = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_power);
-  power_b = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_power_b);
-  throw_ = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_throw);
-  int trace_ostate = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_trace_atoms);
-  trace_mode = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_trace_atoms_mode);
+  power_a = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_power);
+  power_b = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_power_b);
+  throw_ = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_throw);
+  int trace_ostate = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_trace_atoms);
+  trace_mode = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_trace_atoms_mode);
   na_mode =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_nucleic_acid_mode);
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_nucleic_acid_mode);
 
   ribbon_color =
-    SettingGet_color(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_color);
+    SettingGet_color(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_color);
 
-  sampling = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_sampling);
+  sampling = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_sampling);
   if(sampling < 1)
     sampling = 1;
-  I->radius = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_radius);
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepRibbonRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepRibbonFree;
-  I->R.fRecolor = NULL;
-  I->R.obj = (CObject *) obj;
-  I->R.cs = cs;
-  I->ribbon_width = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_width);
-  I->R.context.object = (void *) obj;
-  I->R.context.state = state;
+  I->radius = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_radius);
+  I->ribbon_width = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_width);
 
   /* find all of the CA points */
 
-  at = pymol::malloc<int>(cs->NAtIndex * 2);
-  pv = pymol::malloc<float>(cs->NAtIndex * 6);
-  seg = pymol::malloc<int>(cs->NAtIndex * 2);
+  auto const nAtIndex = cs->getNIndex(); // was NAtIndex
+  at = pymol::malloc<int>(nAtIndex * 2);
+  pv = pymol::malloc<float>(nAtIndex * 6);
+  seg = pymol::malloc<int>(nAtIndex * 2);
 
   i = at;
   v = pv;
@@ -211,14 +203,8 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
   nAt = 0;
   nSeg = 0;
   a2 = -1;
-  for(a1 = 0; a1 < cs->NAtIndex; a1++) {
-    if(obj->DiscreteFlag) {
-      if(cs == obj->DiscreteCSet[a1])
-        a = obj->DiscreteAtmToIdx[a1];
-      else
-        a = -1;
-    } else
-      a = cs->AtmToIdx[a1];
+  for(a1 = 0; a1 < obj->NAtom; ++a1) {
+    a = cs->atmToIdx(a1);
     if(a >= 0) {
       ai = obj->AtomInfo + a1;
       if(GET_BIT(obj->AtomInfo[a1].visRep,cRepRibbon)) {
@@ -254,7 +240,7 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
           *(s++) = nSeg;
           nAt++;
           *(i++) = a;
-          v1 = cs->Coord + 3 * a;
+          v1 = cs->coordPtr(a);
           *(v++) = *(v1++);
           *(v++) = *(v1++);
           *(v++) = *(v1++);
@@ -273,7 +259,7 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
                 *(s++) = nSeg;
                 nAt++;
                 *(i++) = trailing_O3p_a;
-                v1 = cs->Coord + 3 * trailing_O3p_a;
+                v1 = cs->coordPtr(trailing_O3p_a);
                 *(v++) = *(v1++);
                 *(v++) = *(v1++);
                 *(v++) = *(v1++);
@@ -291,7 +277,7 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
               *(s++) = nSeg;
               nAt++;
               *(i++) = leading_O5p_a;
-              v1 = cs->Coord + 3 * leading_O5p_a;
+              v1 = cs->coordPtr(leading_O5p_a);
               *(v++) = *(v1++);
               *(v++) = *(v1++);
               *(v++) = *(v1++);
@@ -305,7 +291,7 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
           *(s++) = nSeg;
           nAt++;
           *(i++) = a;
-          v1 = cs->Coord + 3 * a;
+          v1 = cs->coordPtr(a);
           *(v++) = *(v1++);
           *(v++) = *(v1++);
           *(v++) = *(v1++);
@@ -339,7 +325,7 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
     *(s++) = nSeg;
     nAt++;
     *(i++) = trailing_O3p_a;
-    v1 = cs->Coord + 3 * trailing_O3p_a;
+    v1 = cs->coordPtr(trailing_O3p_a);
     *(v++) = *(v1++);
     *(v++) = *(v1++);
     *(v++) = *(v1++);
@@ -434,38 +420,38 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
     I->primitiveCGO = CGONew(G);
     CGOSpecialWithArg(I->primitiveCGO, LINE_LIGHTING, 0.f);
 
-    float alpha = 1.f - SettingGet_f(G, NULL, I->R.obj->Setting, cSetting_ribbon_transparency);
+    float alpha = 1.f - SettingGet_f(G, NULL, I->obj->Setting.get(), cSetting_ribbon_transparency);
     if(fabs(alpha-1.0) < R_SMALL4)
       alpha = 1.0F;
     CGOAlpha(I->primitiveCGO, alpha);  // would be good to set these at render time instead
     CGOSpecial(I->primitiveCGO, LINEWIDTH_DYNAMIC_WITH_SCALE_RIBBON);
 
+    if (alpha < 1) {
+      I->setHasTransparency();
+    }
+
     // This is required for immediate mode rendering
     CGOBegin(I->primitiveCGO, GL_LINES);
 
-    bool first = true;
-    int atm1, atm2;
+    auto const get_color = [&](AtomInfoType const* ai) {
+      auto c = AtomSettingGetWD(G, ai, cSetting_ribbon_color, ribbon_color);
+      return (c != cColorDefault) ? c : ai->color;
+    };
+
     float origV1[14], origV2[14], *origV = origV2;
     bool origVis1 = false;
     for(a = 0; a < (nAt - 1); a++) {
-      atm1 = *atp;
-      atm2 = *(atp + 1);
-      int at1 = cs->IdxToAtm[atm1];
-      int at2 = cs->IdxToAtm[atm2];
-
-      PRINTFD(G, FB_RepRibbon)
-        " RepRibbon: seg %d *s %d , *(s+1) %d\n", a, *s, *(s + 1)
-        ENDFD;
-
       if(*s == *(s + 1)) {
-        AtomInfoType *ai1 = obj->AtomInfo + at1;
-        AtomInfoType *ai2 = obj->AtomInfo + at2;
+        int const atm[2] = {cs->IdxToAtm[atp[0]], cs->IdxToAtm[atp[1]]};
 
-        c1 = AtomSettingGetWD(G, ai1, cSetting_ribbon_color, ribbon_color);
-        c2 = AtomSettingGetWD(G, ai2, cSetting_ribbon_color, ribbon_color);
+        AtomInfoType const *ai1 = obj->AtomInfo + atm[0];
+        AtomInfoType const *ai2 = obj->AtomInfo + atm[1];
 
-        if (c1 < 0) c1 = ai1->color;
-        if (c2 < 0) c2 = ai2->color;
+        int const color[2] = {get_color(ai1), get_color(ai2)};
+        int const atmpk[2] = {
+            ai1->masked ? cPickableNoPick : cPickableAtom,
+            ai2->masked ? cPickableNoPick : cPickableAtom,
+        };
 
         dev = throw_ * (*d);
         for(b = 0; b < sampling; b++) { /* needs optimization */
@@ -475,6 +461,10 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
           } else {
             origV = origV2;
           }
+
+          size_t const i1 = (b + 0) * 2 < sampling ? 0 : 1;
+          size_t const i2 = (b + 1) * 2 > sampling ? 1 : 0;
+          assert(i1 <= i2);
 
           /* 
              14 floats per v:
@@ -502,8 +492,8 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
           origV[5] = f1 * v1[1] + f0 * v1[4] + f4 * (f3 * v2[1] - f2 * v2[4]);
           origV[6] = f1 * v1[2] + f0 * v1[5] + f4 * (f3 * v2[2] - f2 * v2[5]);
 
-          bool isRamped = false;
-          isRamped = ColorGetCheckRamped(G, c1, origV + 4, origV + 1, state);
+          bool isRamped =
+              ColorGetCheckRamped(G, color[i1], origV + 4, origV + 1, state);
 
           f0 = ((float) b + 1) / sampling;
           f0 = smooth(f0, power_a);
@@ -520,15 +510,14 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
           origV[12] = f1 * v1[1] + f0 * v1[4] + f4 * (f3 * v2[1] - f2 * v2[4]);
           origV[13] = f1 * v1[2] + f0 * v1[5] + f4 * (f3 * v2[2] - f2 * v2[5]);
 
-          isRamped = ColorGetCheckRamped(G, c2, origV + 11, origV + 8, state) || isRamped;
+          if (ColorGetCheckRamped(G, color[i2], origV + 11, origV + 8, state)) {
+            isRamped = true;
+          }
 
-          if (first || I->primitiveCGO->interpolated!=isRamped)
-            CGOInterpolated(I->primitiveCGO, isRamped );
-          int atm1pk = ai1->masked ? cPickableNoPick : cPickableAtom;
-          int atm2pk = ai2->masked ? cPickableNoPick : cPickableAtom;
-          CGOPickColor(I->primitiveCGO, at1, atm1pk);
+          CGOPickColor(I->primitiveCGO, atm[i1], atmpk[i1]);
           CGOColorv(I->primitiveCGO, origV + 1);
-          I->primitiveCGO->add<cgo::draw::splitline>(origV + 4, origV + 11, origV + 8, at2, atm2pk, false, false, false);
+          I->primitiveCGO->add<cgo::draw::splitline>(origV + 4, origV + 11,
+              origV + 8, atm[i2], atmpk[i2], isRamped, false, false);
         }
       }
       v1 += 3;
@@ -547,7 +536,7 @@ Rep *RepRibbonNew(CoordSet * cs, int state)
     FreeP(tv);
     FreeP(nv);
   } else {
-    RepRibbonFree(I);
+    delete I;
     I = NULL;
   }
 
@@ -563,24 +552,23 @@ void RepRibbonRenderImmediate(CoordSet * cs, RenderInfo * info)
 #ifndef PURE_OPENGL_ES_2
   /* performance optimized to provide a simple C-alpha trace -- no smoothing */
 
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   if(info->ray || info->pick || (!(G->HaveGUI && G->ValidContext)))
     return;
   else {
     ObjectMolecule *obj = cs->Obj;
     int active = false;
-    int nAtIndex = cs->NAtIndex;
-    int a;
-    AtomInfoType *obj_AtomInfo = obj->AtomInfo;
-    AtomInfoType *ai, *last_ai = NULL;
+    int nAtIndex = obj->NAtom;
+    const AtomInfoType *obj_AtomInfo = obj->AtomInfo.data();
+    const AtomInfoType *ai, *last_ai = NULL;
     int trace, trace_ostate =
-      SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_trace_atoms);
+      SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_trace_atoms);
     int trace_mode =
-      SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_trace_atoms_mode);
+      SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_trace_atoms_mode);
     int na_mode =
-      SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_nucleic_acid_mode);
+      SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_nucleic_acid_mode);
     float ribbon_width =
-      SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_width);
+      SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_width);
     int a1, a2 = -1;
     int color, last_color = -9;
 
@@ -590,13 +578,7 @@ void RepRibbonRenderImmediate(CoordSet * cs, RenderInfo * info)
       glDisable(GL_LIGHTING);
     glBegin(GL_LINE_STRIP);
     for(a1 = 0; a1 < nAtIndex; a1++) {
-      if(obj->DiscreteFlag) {
-        if(cs == obj->DiscreteCSet[a1])
-          a = obj->DiscreteAtmToIdx[a1];
-        else
-          a = -1;
-      } else
-        a = cs->AtmToIdx[a1];
+      auto a = cs->atmToIdx(a1);
       if(a >= 0) {
         ai = obj_AtomInfo + a1;
         if(GET_BIT(ai->visRep,cRepRibbon)) {
@@ -624,7 +606,7 @@ void RepRibbonRenderImmediate(CoordSet * cs, RenderInfo * info)
               last_color = color;
               glColor3fv(ColorGet(G, color));
             }
-            glVertex3fv(cs->Coord + 3 * a);
+            glVertex3fv(cs->coordPtr(a));
             active = true;
             last_ai = ai;
             a2 = a1;
@@ -649,7 +631,7 @@ void RepRibbonRenderImmediate(CoordSet * cs, RenderInfo * info)
               last_color = color;
               glColor3fv(ColorGet(G, color));
             }
-            glVertex3fv(cs->Coord + 3 * a);
+            glVertex3fv(cs->coordPtr(a));
             active = true;
             last_ai = ai;
             a2 = a1;

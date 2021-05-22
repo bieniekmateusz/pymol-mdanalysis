@@ -26,22 +26,22 @@ Z* -------------------------------------------------------------------
 #include"Map.h"
 
 #include"Shaker.h"
+#include"vla.h"
+#include<memory>
 
-CShaker *ShakerNew(PyMOLGlobals * G)
+CShaker::CShaker(PyMOLGlobals * G)
 {
-  OOAlloc(G, CShaker);
-  I->G = G;
-  I->DistCon = VLAlloc(ShakerDistCon, 1000);
-  I->PyraCon = VLAlloc(ShakerPyraCon, 1000);
-  I->PlanCon = VLAlloc(ShakerPlanCon, 1000);
-  I->TorsCon = VLAlloc(ShakerTorsCon, 1000);
-  I->LineCon = VLAlloc(ShakerLineCon, 100);
-  I->NDistCon = 0;
-  I->NPyraCon = 0;
-  I->NPlanCon = 0;
-  I->NLineCon = 0;
-  I->NTorsCon = 0;
-  return (I);
+  this->G = G;
+  this->DistCon = pymol::vla<ShakerDistCon>(1000);
+  this->PyraCon = pymol::vla<ShakerPyraCon>(1000);
+  this->PlanCon = pymol::vla<ShakerPlanCon>(1000);
+  this->TorsCon = pymol::vla<ShakerTorsCon>(1000);
+  this->LineCon = pymol::vla<ShakerLineCon>(100);
+  this->NDistCon = 0;
+  this->NPyraCon = 0;
+  this->NPlanCon = 0;
+  this->NLineCon = 0;
+  this->NTorsCon = 0;
 }
 
 void ShakerReset(CShaker * I)
@@ -67,7 +67,8 @@ void ShakerAddDistCon(CShaker * I, int atom0, int atom1, float target, int type,
   I->NDistCon++;
 }
 
-float ShakerGetPyra(float *targ2, float *v0, float *v1, float *v2, float *v3)
+float ShakerGetPyra(float *targ2,
+    const float *v0, const float *v1, const float *v2, const float *v3)
 {
   float d0[3], cp[3], d2[3], d3[3];
   float av[3], t0[3];
@@ -87,7 +88,7 @@ float ShakerGetPyra(float *targ2, float *v0, float *v1, float *v2, float *v3)
 }
 
 float ShakerDoPyra(float targ1, float targ2,
-                   float *v0, float *v1, float *v2, float *v3,
+                   const float *v0, const float *v1, const float *v2, const float *v3,
                    float *p0, float *p1, float *p2, float *p3, float wt, float inv_wt)
 {
   float d0[3], cp[3], d2[3], d3[3];
@@ -141,7 +142,7 @@ float ShakerDoPyra(float targ1, float targ2,
   return result1 + result2;
 }
 
-float ShakerDoLine(float *v0, float *v1, float *v2,
+float ShakerDoLine(const float *v0, const float *v1, const float *v2,
                    float *p0, float *p1, float *p2, float wt)
 {
   /* v0-v1-v2 */
@@ -184,7 +185,11 @@ float ShakerDoLine(float *v0, float *v1, float *v2,
 
 }
 
-float ShakerDoPlan(float *v0, float *v1, float *v2, float *v3,
+float ShakerDoPlan(
+    const float *v0,
+    const float *v1,
+    const float *v2,
+    const float *v3,
                    float *p0, float *p1, float *p2, float *p3,
                    float target, int fixed, float wt)
 {
@@ -345,12 +350,3 @@ void ShakerAddLineCon(CShaker * I, int atom0, int atom1, int atom2)
   I->NLineCon++;
 }
 
-void ShakerFree(CShaker * I)
-{
-  VLAFreeP(I->PlanCon);
-  VLAFreeP(I->PyraCon);
-  VLAFreeP(I->DistCon);
-  VLAFreeP(I->LineCon);
-  VLAFreeP(I->TorsCon);
-  OOFreeP(I);
-}

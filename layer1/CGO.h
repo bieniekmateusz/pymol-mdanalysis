@@ -21,8 +21,9 @@ Z* -------------------------------------------------------------------
 #include"Ray.h"
 #include"Setting.h"
 #include"os_gl.h"
+#include"os_gl_cgo.h"
 #include"Rep.h"
-#include"ObjectGadgetRamp.h"
+#include"MemoryDebug.h"
 #include <vector>
 #include <unordered_map>
 #include <typeinfo>
@@ -30,6 +31,8 @@ Z* -------------------------------------------------------------------
 #include <memory>
 #include "GenericBuffer.h"
 #include <set>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 /* Compiled Graphics Library for simple graphics objects
    in floating point three-space, with the goal of achieving
@@ -221,7 +224,6 @@ inline uchar CLIP_NORMAL_VALUE(float cv){ return ((cv>1.f) ? 127 :
 
 #define CGO_DRAW_TRILINES        0x32
 #define CGO_DRAW_TRILINES_SZ     2
-#define CGO_DRAW_TRILINES_HEADER 3
 
 #define CGO_UNIFORM3F            0x33
 #define CGO_UNIFORM3F_SZ         4
@@ -257,9 +259,6 @@ inline uchar CLIP_NORMAL_VALUE(float cv){ return ((cv>1.f) ? 127 :
 
 #define CGO_CUSTOM_CYLINDER_ALPHA      0x41
 
-#define CGO_MASK                0x7F
-
-
 #define CGO_LIGHTING             0x0B50
 
 #define CGO_VERTEX_ARRAY         0x01
@@ -270,16 +269,44 @@ inline uchar CLIP_NORMAL_VALUE(float cv){ return ((cv>1.f) ? 127 :
 #define CGO_TEX_COORD_ARRAY      0x20
 
 extern int CGO_sz[];
+size_t CGO_sz_size();
 
 // CGOs are floating point arrays so we need to work with sizes in terms of floats
 template <typename T>
 static size_t fsizeof() { return sizeof(T) / sizeof(float); }
+
+struct ObjectGadgetRamp;
 
 class CGO;
 
 // These are only the optimized operations
 namespace cgo {
   namespace draw {
+    struct begin {
+      static const int op_code = CGO_BEGIN;
+      int mode;
+      begin(int mode) : mode(mode) {}
+    };
+
+    struct enable {
+      static const int op_code = CGO_ENABLE;
+      int mode;
+      enable(int mode) : mode(mode) {}
+    };
+
+    struct disable {
+      static const int op_code = CGO_DISABLE;
+      int mode;
+      disable(int mode) : mode(mode) {}
+    };
+
+    struct trilines {
+      static const int op_code = CGO_DRAW_TRILINES;
+      unsigned nverts;
+      unsigned buffer; // GLuint
+      trilines(unsigned nverts, unsigned buffer) : nverts(nverts), buffer(buffer) {}
+    };
+
     struct op_with_data {
       float * floatdata { nullptr };
       void set_data(float * data) { floatdata = data; };
@@ -415,6 +442,8 @@ namespace cgo {
     };
 
     struct label {
+      using vec3 = glm::vec3;
+      using vec4 = glm::vec4;
       static const int op_code = CGO_DRAW_LABEL;
       label(const vec3& _world_pos, const vec3& _screen_world_offset, const vec3& _screen_min,
             const vec3& _screen_max, const vec4& _text_extent, float _relative_mode,
@@ -456,7 +485,7 @@ namespace cgo {
 
     struct line {
       static const int op_code = CGO_LINE;
-      line(float *v1, float *v2) {
+      line(const float *v1, const float *v2) {
         copy3f(v1, vertex1);
         copy3f(v2, vertex2);
       };
@@ -585,7 +614,7 @@ namespace cgo {
       static const int op_code = CGO_SHADER_CYLINDER_WITH_2ND_COLOR;
       shadercylinder2ndcolor(CGO *I, const float *_origin, const float *_axis, const float _radius,
                              int _cap, const float *_color2, Pickable *pickcolor2 = NULL,
-                             const float alpha = 1.0f);
+                             const float alpha = -1.f);
       float origin[3], axis[3], tube_size;
       int cap;
       float color2[3];
@@ -629,6 +658,9 @@ namespace cgo {
       };
       float vertex1[3], vertex2[3], radius, color1[3], color2[3];
       float cap1, cap2;
+
+      cCylCap get_cap1() const { return static_cast<cCylCap>(int(cap1)); }
+      cCylCap get_cap2() const { return static_cast<cCylCap>(int(cap2)); }
     };
 
     struct custom_cylinder_alpha {
@@ -646,16 +678,24 @@ namespace cgo {
       };
       float vertex1[3], vertex2[3], radius, color1[4], color2[4];
       float cap1, cap2;
+
+      cCylCap get_cap1() const { return static_cast<cCylCap>(int(cap1)); }
+      cCylCap get_cap2() const { return static_cast<cCylCap>(int(cap2)); }
     };
   };
 };
 
 class CGO {
 public:
+  CGO(PyMOLGlobals* G, int size = 0);
+  ~CGO();
+
+  CGO(CGO const& other) = delete;
+
   PyMOLGlobals *G { nullptr };
   float *op { nullptr };
-  int c { 0 };
-  int z_flag { 0 };
+  size_t c = 0;
+  bool z_flag = false;
   float z_min { 0 }, z_max { 0 };
   float z_vector[3];
   float alpha { 1.f };
@@ -663,8 +703,10 @@ public:
   unsigned int current_pick_color_index { 0 };
   int current_pick_color_bond { cPickableNoPick };
   float current_accessibility { 1.f };
-  float normal[3], color[3], texture[2];
-  uchar pickColor[4];
+  float normal[3]{0.f, 0.f, 1.f};
+  float color[3]{};
+  float texture[2];
+  uchar pickColor[4]{0, 0, 0, 0xff};
   bool has_begin_end { false };
   bool has_draw_buffers { false }, has_draw_cylinder_buffers { false }, has_draw_sphere_buffers { false };
   bool use_shader { false }, cgo_shader_ub_color { false }, cgo_shader_ub_normal { false };
@@ -690,8 +732,8 @@ public:
       const float * m_pc;
       const float * m_stop;
     public:
-      int op_code() const {
-        return CGO_MASK & *reinterpret_cast<const int*>(m_pc);
+      unsigned op_code() const {
+        return *reinterpret_cast<const unsigned*>(m_pc);
       }
       operator int() const { return op_code(); }
 
@@ -705,10 +747,7 @@ public:
         m_stop = cgo->op + cgo->c;
       }
 
-      const_iterator& operator++() {
-        m_pc += CGO_sz[op_code()] + 1;
-        return *this;
-      }
+      const_iterator& operator++();
 
       bool is_stop() const {
         return m_pc == m_stop || op_code() == CGO_STOP;
@@ -719,6 +758,7 @@ public:
     public:
       iterator(CGO * cgo) : const_iterator(cgo) {}
       float * data() { return const_cast<float*>(m_pc + 1); }
+      template <typename T> T* cast() { return reinterpret_cast<T*>(data()); }
   };
 
   const_iterator begin() const { return this; }
@@ -760,8 +800,9 @@ public:
   }
 
   // Appends the source CGO onto this CGO
-  int append(const CGO * source, bool stopAtEnd);
-  void move_append(CGO * source);
+  bool append(const CGO& source, bool stopAtEnd = false);
+  void move_append(CGO&& source);
+  void free_append(CGO * &&source);
   void free_append(CGO * &source);
 
   // Allocates in our CGO data pool
@@ -824,36 +865,37 @@ private:
 
 int CGORendererInit(PyMOLGlobals * G);
 void CGORendererFree(PyMOLGlobals * G);
-CGO *CGONew(PyMOLGlobals * G, int size=0);
+#define CGONew new CGO
 #define CGONewSized CGONew
-int CGOGetExtent(CGO * I, float *mn, float *mx);
-int CGOHasNormals(CGO * I);
+int CGOGetExtent(const CGO * I, float *mn, float *mx);
+int CGOHasNormals(const CGO * I);
 
 void CGOFree(CGO * &I, bool withVBOs=true);
 #define CGOFreeWithoutVBOs(I) CGOFree(I, false)
 
-CGO *CGODrawText(CGO * I, int est, float *camera);
+CGO *CGODrawText(const CGO * I, int est, float *camera);
 
-CGO *CGOSimplify(const CGO * I, int est, short sphere_quality = -1, bool stick_round_nub = true);
+CGO* CGOSimplify(const CGO* I, int est = 0, short sphere_quality = -1,
+    bool stick_round_nub = true);
 CGO *CGOSimplifyNoCompress(const CGO * I, int est, short sphere_quality = -1, bool stick_round_nub = true);
 
 // -1 - no lines, 0 - some no interpolation, 1 - all interpolation, 2 - all no interpolation
 bool CGOCombineBeginEnd(CGO ** I, bool do_not_split_lines = false);
-CGO *CGOCombineBeginEnd(const CGO * I, int est, bool do_not_split_lines = false);
+CGO* CGOCombineBeginEnd(const CGO* I, int est = 0, bool do_not_split_lines = false);
 
 void CGOFreeVBOs(CGO *I);
-void CGOFreeStruct(CGO * I, bool freevbos = true);
 
-CGO *CGOOptimizeToVBOIndexed(CGO * I, int est=0, const float *color=NULL, bool addshaders=true, bool embedTransparencyInfo=false);
+CGO *CGOOptimizeToVBOIndexed(const CGO * I, int est=0, const float *color=NULL, bool addshaders=true, bool embedTransparencyInfo=false);
 #define CGOOptimizeToVBOIndexedWithColorEmbedTransparentInfo(I, est, color, addshaders) CGOOptimizeToVBOIndexed(I, est, color, addshaders, true)
 #define CGOOptimizeToVBOIndexedWithColor CGOOptimizeToVBOIndexed
 #define CGOOptimizeToVBOIndexedNoShader(I, est) CGOOptimizeToVBOIndexed(I, est, NULL, false)
 
 bool CGOOptimizeToVBONotIndexed(CGO ** I);
-CGO *CGOOptimizeToVBONotIndexed(const CGO * I, int est, bool addshaders=true, float **returnedData=NULL);
+CGO* CGOOptimizeToVBONotIndexed(const CGO* I, int est = 0,
+    bool addshaders = true, float** returnedData = nullptr);
 
 #define CGOOptimizeToVBONotIndexedWithReturnedData CGOOptimizeToVBONotIndexed
-#define CGOOptimizeToVBONotIndexedNoShader(I, est) CGOOptimizeToVBONotIndexed(I, est, false)
+#define CGOOptimizeToVBONotIndexedNoShader(I) CGOOptimizeToVBONotIndexed(I, 0, false)
 
 
 CGO *CGOOptimizeSpheresToVBONonIndexed(const CGO * I, int est=0, bool addshaders=false, CGO *leftOverCGO=NULL);
@@ -871,12 +913,9 @@ int CGOEnd(CGO * I);
 
 int CGOSphere(CGO * I, const float *v1, float r);
 int CGOEllipsoid(CGO * I, const float *v1, float r, const float *n1, const float *n2, const float *n3);
-int CGOQuadric(CGO * I, const float *v1, float r, const float *p); /* NOT WORKING YET */
 int CGOVertex(CGO * I, float v1, float v2, float v3);
 int CGOVertexv(CGO * I, const float *v);
 int CGOVertexCrossv(CGO * I, const float *v);
-int CGOVertexBeginLineStripv(CGO * I, const float *v);
-int CGOInterpolated(CGO * I, const bool interp);
 int CGOAlpha(CGO * I, float alpha);
 int CGOColor(CGO * I, float v1, float v2, float v3);
 int CGOColorv(CGO * I, const float *v);
@@ -917,9 +956,7 @@ int CGOSpecialWithArg(CGO * I, int v, float arg);
 #define LINE_LIGHTING  2
 
 int CGODotwidth(CGO * I, float v);
-int CGOChar(CGO * I, char c);
 int CGOFontVertex(CGO * I, float x, float y, float z);
-int CGOFontVertexv(CGO * I, const float *v);
 int CGOFontScale(CGO * I, float v1, float v2);
 int CGOIndent(CGO * I, char c, float dir);
 int CGOWrite(CGO * I, const char *str);
@@ -935,12 +972,11 @@ int CGOBoundingBox(CGO *I, const float *min, const float *max);
 int CGOAccessibility(CGO * I, const float a);
 
 int CGODrawTexture(CGO *I, int texture_id, float *worldPos, float *screenMin, float *screenMax, float *textExtent);
-int CGODrawLabel(CGO *I, int texture_id, float *targetPos, float *worldPos, float *screenWorldOffset, float *screenMin, float *screenMax, float *textExtent, short relativeMode);
 int CGODrawConnector(CGO *I, float *targetPt3d, float *labelCenterPt3d, float text_width, float text_height, float *screenOffset, float *screenWorldOffset, float *connectorColor, short relativeMode, int draw_bkgrd, float bkgrd_transp, float *bkgrd_color, float rel_ext_length, float connectorWidth);
-CGO *CGOOptimizeLabels(CGO * I, int est, bool addshaders=false);
-CGO *CGOOptimizeTextures(CGO * I, int est);
+CGO *CGOOptimizeLabels(const CGO * I, int est, bool addshaders=false);
+CGO *CGOOptimizeTextures(const CGO * I, int est);
 CGO *CGOExpandDrawTextures(const CGO * I, int est);
-CGO *CGOOptimizeConnectors(CGO * I, int est);
+CGO *CGOOptimizeConnectors(const CGO * I, int est);
 
 /*void CGOFontScale(CGO *I,float v);
   void CGOFont(CGO *I,float size,int face,int style);*/
@@ -958,9 +994,6 @@ int CGOEnable(CGO * I, int mode);
 int CGODisable(CGO * I, int mode);
 
 int CGOStop(CGO * I);
-
-int CGOConev(CGO * I, const float *p1, const float *p2, float r1, float r2, const float *c1, const float *c2,
-              float cap1, float cap2);
 
 int CGOAlphaTriangle(CGO * I,
 		     const float *v1, const float *v2, const float *v3,
@@ -981,11 +1014,10 @@ void CGOSetUseShader(CGO *I, int use_shader);
 
 PyObject *CGOAsPyList(CGO * I);
 CGO *CGONewFromPyList(PyMOLGlobals * G, PyObject * list, int version, bool shouldCombine=true);
-void SetCGOPickColor(float *colorVals, int nverts, int pl, unsigned int index, int bond);
 int CGOPickColor(CGO * I, unsigned int index, int bond);
 
-float *CGOGetNextDrawBufferedIndex(float *cgo_op, int optype=CGO_DRAW_BUFFERS_INDEXED);
-#define CGOGetNextDrawBufferedNotIndex(cgo_op) CGOGetNextDrawBufferedIndex(cgo_op, CGO_DRAW_BUFFERS_NOT_INDEXED)
+const cgo::draw::buffers_not_indexed* CGOGetNextDrawBufferedNotIndex(
+    const CGO*);
 
 float *CGOGetNextOp(float *cgo_op, int optype);
 
@@ -994,9 +1026,8 @@ inline int CGOAppendNoStop(CGO *dest, const CGO *source) {
   return CGOAppend(dest, source, false);
 }
 
-int CGOCountNumberOfOperationsOfTypeDEBUG(const CGO *I, int optype);
 int CGOCountNumberOfOperationsOfType(const CGO *I, int op);
-int CGOCountNumberOfOperationsOfTypeN(const CGO *I, const std::set<int> &optype, bool debug=false);
+int CGOCountNumberOfOperationsOfTypeN(const CGO *I, const std::set<int> &optype);
 int CGOCountNumberOfOperationsOfTypeN(const CGO *I, const std::map<int, int> &optype);
 bool CGOHasOperations(const CGO *I);
 bool CGOHasOperationsOfType(const CGO *I, int optype);
@@ -1008,14 +1039,12 @@ bool CGOFilterOutCylinderOperationsInto(const CGO *I, CGO *cgo);
 bool CGOCheckWhetherToFree(PyMOLGlobals * G, CGO *I);
 
 CGO *CGOConvertLinesToShaderCylinders(const CGO * I, int est);
-CGO *CGOSplitUpLinesForPicking(const CGO * I);
 CGO *CGOConvertLinesToTrilines(const CGO * I, bool addshaders=true);
 CGO *CGOConvertToLabelShader(const CGO *I, CGO * addTo);
 
-int CGOChangeShadersTo(CGO *I, int frommode, int tomode);
-void CGOCountNumVerticesDEBUG(const CGO *I);
+void CGOChangeShadersTo(CGO *I, int frommode, int tomode);
 CGO *CGOOptimizeScreenTexturesAndPolygons(CGO * I, int est);
-CGO *CGOColorByRamp(PyMOLGlobals * G, CGO *I, ObjectGadgetRamp *ramp, int state, CSetting * set1);
+CGO *CGOColorByRamp(PyMOLGlobals * G, const CGO *I, ObjectGadgetRamp *ramp, int state, CSetting * set1);
 
 #define CGOLineAsTriangleStrips(CGO, minx, miny, maxx, maxy) \
 	CGOBegin(CGO, GL_TRIANGLE_STRIP);         \
@@ -1049,25 +1078,19 @@ int CGOHasTransparency(const CGO *I, bool checkTransp=true, bool checkOpaque=fal
 CGO *CGOConvertTrianglesToAlpha(const CGO * I);
 CGO *CGOGenerateNormalsForTriangles(const CGO * I);
 
-bool CGOHasAnyTriangleVerticesWithoutNormals(CGO *I, bool checkTriangles=true);
+bool CGOHasAnyTriangleVerticesWithoutNormals(const CGO *I, bool checkTriangles=true);
 #define CGOHasAnyLineVerticesWithoutNormals(I) CGOHasAnyTriangleVerticesWithoutNormals(I, false)
 
-CGO *CGOTurnLightingOnLinesOff(CGO * I);
+CGO* CGOTurnLightingOnLinesOff(const CGO* I, bool use_shader);
+inline CGO* CGOTurnLightingOnLinesOff(const CGO* I)
+{
+  return CGOTurnLightingOnLinesOff(I, I->use_shader);
+}
 
 // returns offset of floats in CGO array
 int CGOUniform3f(CGO *I, int uniform_id, const float *value);
 
-void SetUCColorFromIndex_32bit(uchar *color, unsigned int idx);
-void SetUCColorFromIndex_16bit(uchar *color, unsigned int idx);
-
-void SetUCColorToZero_32bit(uchar *color);
-void SetUCColorToZero_16bit(uchar *color);
-
-CGO *CGOConvertSpheresToPoints(CGO *I);
-
-#ifdef _PYMOL_ARB_SHADERS
-void CGORenderSpheresARB(RenderInfo *info, CGO *I, float *fog_info);
-#endif
+CGO *CGOConvertSpheresToPoints(const CGO *I);
 
 CGO *CGOConvertToShader(const CGO *I, AttribDataDesc &attrData, AttribDataDesc &pickData, int mode, const VertexBuffer::buffer_layout layout=VertexBuffer::INTERLEAVED, bool check_attr_for_data=true, int *idx_array=NULL, int nindicesperfrag=0, int nfragspergroup = 1);
 
@@ -1082,6 +1105,7 @@ CGO *CGOConvertCrossesToLinesShader(const CGO *I, CGO *addTo, float cross_size);
 CGO *CGOConvertCrossesToTrilinesShader(const CGO *I, CGO *addTo, float cross_size);
 CGO *CGOConvertShaderCylindersToCylinderShader(const CGO *I, CGO *addTo);
 
-bool AssignNewPickColor(CGO *cgo, unsigned int &i, std::vector<Picking>* pick, PickContext * context, unsigned char *color, unsigned int index, int bond);
+void AssignNewPickColor(CGO* cgo, PickColorManager*, unsigned char* color,
+    const PickContext* context, unsigned int index, int bond);
 
 #endif

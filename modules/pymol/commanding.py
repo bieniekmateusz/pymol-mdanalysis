@@ -1,26 +1,21 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function, absolute_import
 
 if True:
 
     import sys
-    if sys.version_info[0] == 2:
-        import thread
-        import urllib2
-    else:
+    if True:
         import _thread as thread
         import urllib.request as urllib2
         from io import FileIO as file
@@ -30,10 +25,11 @@ if True:
     import time
     import threading
     import traceback
+    from . import colorprinting
     from . import parsing
     cmd = sys.modules["pymol.cmd"]
     import pymol
-    
+
     from .cmd import _cmd, Shortcut, QuietException, \
           fb_module, fb_mask, is_list, \
           DEFAULT_ERROR, DEFAULT_SUCCESS, is_ok, is_error, is_string
@@ -92,7 +88,7 @@ SEE ALSO
         def write(self, s):
             s = re_fetch.sub(self._append_async0, s)
             file.write(self, s.encode())
- 
+
     def log_open(filename='log.pml', mode='w', _self=cmd):
         '''
 DESCRIPTION
@@ -101,7 +97,13 @@ DESCRIPTION
 
 USAGE
 
-    log_open filename
+    log_open [ filename [, mode ]]
+
+ARGUMENTS
+
+    filename = str: file to write to (.pml or .py) {default: log.pml}
+
+    mode = w/a: "w" to open an empty log file, "a" to append {default: w}
 
 SEE ALSO
 
@@ -116,7 +118,7 @@ SEE ALSO
             try:
                 try:
                     if hasattr(pymol,"_log_file"):
-                        if pymol._log_file!=None:
+                        if pymol._log_file is not None:
                             pymol._log_file.close()
                             del pymol._log_file
                 except:
@@ -201,17 +203,17 @@ SEE ALSO
     log, log_open
     
         '''
-        pymol=_self._pymol        
+        pymol=_self._pymol
         cmd=_self
         if hasattr(pymol,"_log_file"):
-            if pymol._log_file!=None:
+            if pymol._log_file is not None:
                 pymol._log_file.close()
                 del pymol._log_file
                 _self.set("logging",0,quiet=1)
                 if _self._feedback(fb_module.cmd,fb_mask.details): # redundant
                     print(" Cmd: log closed.")
 
-    def cls(_self=cmd): 
+    def cls(_self=cmd):
         '''
 DESCRIPTION
 
@@ -337,7 +339,7 @@ USAGE
         'original_settings' : 3,
         'purge_defaults' : 4,
     }
-    
+
     reinit_sc = Shortcut(reinit_code.keys())
 
     def reinitialize(what='everything', object='', _self=cmd):
@@ -393,10 +395,11 @@ SEE ALSO
                 e.wait(poll)
                 del e
                 if (timeout>=0.0) and ((time.time()-now)>timeout):
+                    colorprinting.warning('cmd.sync() timed out (wait_queue)')
                     break
-        if _cmd.wait_deferred(_self._COb): 
+        if _cmd.wait_deferred(_self._COb):
             # deferred tasks waiting for a display event?
-            if thread.get_ident() == pymol.glutThread:
+            if _self.is_gui_thread():
                 _self.refresh()
             else:
                 while 1:
@@ -406,6 +409,7 @@ SEE ALSO
                     e.wait(poll)
                     del e
                     if (timeout>=0.0) and ((time.time()-now)>timeout):
+                        colorprinting.warning('cmd.sync() timed out (wait_deferred)')
                         break
         # then make sure we can grab the API
         while 1:
@@ -416,8 +420,9 @@ SEE ALSO
             e.wait(poll)
             del e
             if (timeout>=0.0) and ((time.time()-now)>timeout):
+                colorprinting.warning('cmd.sync() timed out (lock_attempt)')
                 break
-                    
+
     def do(commands,log=1,echo=1,flush=0,_self=cmd):
         # WARNING: don't call this routine if you already have the API lock
         # use cmd._do instead
@@ -436,43 +441,23 @@ USAGE (PYTHON)
     from pymol import cmd
     cmd.do("load file.pdb")
         '''
-        r = DEFAULT_SUCCESS
         log = int(log)
-        if is_list(commands):
-            cmmd_list = commands
-        else:
-            cmmd_list = [ commands ]
+        cmmd_list = commands if is_list(commands) else [commands]
+        cmmd_list = [a for cmmd in cmmd_list for a in cmmd.splitlines() if a]
         n_cmmd = len(cmmd_list)
         if n_cmmd>1: # if processing a list of commands, defer updates
             defer = _self.get_setting_int("defer_updates")
             _self.set('defer_updates',1)
-        for cmmd in cmmd_list:
-            lst = cmmd.splitlines()
-            if len(lst)<2:
-                for a in lst:
-                    if(len(a)):
-                        try:
-                            _self.lock(_self)
-                            r = _cmd.do(_self._COb,a,log,echo)
-                        finally:
-                            _self.unlock(r,_self)
-            else:
-                try:
-                    _self.lock(_self)
-                    do_flush = flush or ((thread.get_ident() == _self._pymol.glutThread)
-                                         and _self.lock_api_allow_flush)
-                    for a in lst:
-                        if len(a):
-                            r = _cmd.do(_self._COb,a,log,echo)
-                            if do_flush:
-                                _self.unlock(r,_self) # flushes
-                                _self.lock(_self)
-                finally:
-                    _self.unlock(r,_self)
+        if flush or (_self.is_gui_thread() and _self.lock_api_allow_flush):
+            for a in cmmd_list:
+                with _self.lockcm:
+                    _cmd.do(_self._COb,a,log,echo)
+        else:
+            with _self.lockcm:
+                for a in cmmd_list:
+                    _cmd.do(_self._COb,a,log,echo)
         if n_cmmd>1:
             _self.set('defer_updates',defer)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
 
     def quit(code=0, _self=cmd):
         '''
@@ -493,7 +478,7 @@ PYMOL API
     cmd.quit(int code)
         '''
         code = int(code)
-        if thread.get_ident() == pymol.glutThread:
+        if _self.is_gui_thread():
             _self._quit(code, _self)
         else:
             try:
@@ -537,15 +522,15 @@ SEE ALSO
         '''
         r = DEFAULT_ERROR
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             r = _cmd.delete(_self._COb,str(name))
         finally:
             _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException      
+        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
     def extend(name, function=None, _self=cmd):
-        
+
         '''
 DESCRIPTION
 
@@ -590,7 +575,7 @@ SEE ALSO
 
         # for aliasing compound commands to a single keyword
 
-    def extendaa(*arg, **kw):
+    def extendaa(*arg, _self=cmd):
         '''
 DESCRIPTION
 
@@ -603,7 +588,6 @@ EXAMPLE
     def zoom_organic(selection='*'):
         cmd.zoom('organic & (%s)' % selection)
         '''
-        _self = kw.get('_self', cmd)
         auto_arg = _self.auto_arg
         def wrapper(func):
             name = func.__name__
@@ -616,7 +600,7 @@ EXAMPLE
             return func
         return wrapper
 
-    def alias(name, command, _self=cmd): 
+    def alias(name, command, _self=cmd):
         '''
 DESCRIPTION
 
@@ -648,21 +632,19 @@ SEE ALSO
 
     cmd.extend, api
             '''
-        _self.keyword[name] = [eval("lambda :do('''%s ''')"%command.replace("'''","")), 
+        _self.keyword[name] = [eval("lambda :do('''%s ''')"%command.replace("'''","")),
                                0,0,',',parsing.STRICT]
         _self.kwhash.append(name)
 
     async_threads = []
 
-    def async_(func, *args, **kwargs):
+    def async_(func, *args, _self=cmd, **kwargs):
         '''
 DESCRIPTION
 
     Run function threaded and show "please wait..." message.
         '''
         from .wizard.message import Message
-
-        _self = kwargs.pop('_self', cmd)
 
         wiz = Message(['please wait ...'], dismiss=0, _self=_self)
 

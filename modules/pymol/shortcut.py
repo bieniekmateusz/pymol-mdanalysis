@@ -1,18 +1,16 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function
 
 if __name__=='pymol.shortcut':
     from . import parsing
@@ -152,30 +150,24 @@ if True:
         def auto_err(self,kee,descrip=None):
             result = None
             if kee not in self.shortcut:
-                if descrip!=None:
-                    print("Error: unknown %s: '%s'." % (descrip, kee), end=' ')
+                if descrip is not None:
+                    msg = "Error: unknown %s: '%s'." % (descrip, kee)
                     lst = self.interpret('')
                     if is_list(lst):
                         if len(lst)<100:
                             lst.sort()
-                            print("Choices:")
                             lst = parsing.list_to_str_list(lst)
-                            for a in lst: print(a)
-                        else:
-                            print()
-                    else:
-                        print()
-                    raise parsing.QuietException
+                            msg += " Choices:\n"
+                            msg += "\n".join(lst)
+                    raise parsing.QuietException(msg)
 
             else:
                 result = self.interpret(kee)
                 if not is_string(result):
-                    if descrip!=None:
-                        print("Error: ambiguous %s:"%descrip)
+                    if descrip is not None:
                         lst = parsing.list_to_str_list(result)
-                        for a in lst:
-                            print(a)
-                        raise parsing.QuietException
+                        msg = "Error: ambiguous %s:\n%s" % (descrip, '\n'.join(lst))
+                        raise parsing.QuietException(msg)
             return result
 
 if __name__=='__main__':

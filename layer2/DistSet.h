@@ -16,12 +16,19 @@ Z* -------------------------------------------------------------------
 #ifndef _H_DistSet
 #define _H_DistSet
 
-#include"Base.h"
-#include"Rep.h"
-#include"Setting.h"
-#include"ObjectDist.h"
+#include "Base.h"
+#include "pymol/math_defines.h"
+#include "PyMOLObject.h"
+#include "Rep.h"
+#include "Result.h"
+#include "vla.h"
 
-typedef struct CMeasureInfo {
+#include <array>
+#include <forward_list>
+
+struct ObjectDist;
+
+struct CMeasureInfo {
   /* AtomInfoType.unique_id */
   int id[4];
   /* offset into this distance set's Coord list */
@@ -30,41 +37,43 @@ typedef struct CMeasureInfo {
   int state[4];
   /* distance, angle, or dihedral */
   int measureType;
-  struct CMeasureInfo* next;
-} CMeasureInfo;
+};
 
-typedef struct DistSet {
-  // methods (not fully refactored yet)
-  void fFree();
+struct DistSet : CObjectState {
+  DistSet(PyMOLGlobals *);
 
   // methods
   void update(int state);
   void render(RenderInfo *);
-  void invalidateRep(int type, int level);
+  void invalidateRep(cRep_t type, cRepInv_t level);
 
-  CObjectState State;
-  struct ObjectDist *Obj;
-  float *Coord;
-  int NIndex;
-  ::Rep **Rep;                    /* an array of pointers to representations */
-  int NRep;
-  /* extended for mobile distance labels */
-  float *LabCoord;
-  LabPosType *LabPos;
-  int NLabel;
-  /* extended for angles and torsions, with labels embedded with coordinates */
-  float *AngleCoord;
-  int NAngleIndex;
-  float *DihedralCoord;
-  int NDihedralIndex;
-  /* -- JV */
-  CMeasureInfo* MeasureInfo;
-  /* -- JV end */
-} DistSet;
+  ObjectDist *Obj = nullptr;
 
-DistSet *DistSetNew(PyMOLGlobals * G);
+  pymol::vla<float> Coord;
+  int NIndex = 0;
+
+  /* an array of pointers to representations */
+  std::array<pymol::cache_ptr<::Rep>, cRepCnt> Rep;
+  static int getNRep() { return cRepCnt; }
+
+  std::vector<pymol::Vec3> LabCoord;
+  std::vector<LabPosType> LabPos;
+
+  pymol::vla<float> AngleCoord;
+  int NAngleIndex = 0;
+
+  pymol::vla<float> DihedralCoord;
+  int NDihedralIndex = 0;
+
+  std::forward_list<CMeasureInfo> MeasureInfo;
+
+  pymol::Result<pymol::Vec3> getLabelOffset(int atm) const;
+  pymol::Result<> setLabelOffset(int atm, const float* pos);
+};
+
+#define DistSetNew(G) (new DistSet(G))
 PyObject *DistSetAsPyList(DistSet * I);
-int DistSetFromPyList(PyMOLGlobals * G, PyObject * list, DistSet ** cs);
+DistSet* DistSetFromPyList(PyMOLGlobals * G, PyObject * list);
 int DistSetGetExtent(DistSet * I, float *mn, float *mx);
 int DistSetMoveLabel(DistSet * I, int at, float *v, int mode);
 int DistSetGetLabelVertex(DistSet * I, int at, float *v);

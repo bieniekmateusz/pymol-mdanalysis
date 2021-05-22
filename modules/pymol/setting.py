@@ -1,21 +1,29 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
-from __future__ import print_function
+# must match layer1/Setting.h
+cSetting_tuple = -1
+cSetting_blank = 0
+cSetting_boolean = 1
+cSetting_int = 2
+cSetting_float = 3
+cSetting_float3 = 4
+cSetting_color = 5
+cSetting_string = 6
 
 if True:
-    
+
     import traceback
     from . import selector
     from .shortcut import Shortcut
@@ -23,7 +31,7 @@ if True:
     from .cmd import _cmd,lock,lock_attempt,unlock,QuietException, \
           is_string, \
           _feedback,fb_module,fb_mask, \
-          DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error        
+          DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error
 
     # name -> index mapping
     index_dict = _cmd.get_setting_indices()
@@ -36,11 +44,6 @@ if True:
 
     # legacy
     index_dict['ray_shadows'] =     index_dict['ray_shadow']
-
-    # legacy, in case someone used that in a script
-    class SettingIndex:
-        def __getattr__(self, name):
-            return index_dict[name]
 
     boolean_dict = {
         "true" : 1,
@@ -76,29 +79,29 @@ if True:
         return name_list
 
     def _validate_value(type, value):
-        if type==1: # boolean (also support non-zero float for truth)
+        if type == cSetting_boolean:  # (also support non-zero float for truth)
             try: # number, non-zero, then interpret as TRUE
                 return 1 if float(value) else 0
             except:
                 pass
             return boolean_dict[boolean_sc.auto_err(str(value), "boolean")]
-        if type < 4:
+        if type in (cSetting_int, cSetting_float):
             if is_string(value) and boolean_sc.has_key(value):
                 value = boolean_dict[boolean_sc.auto_err(str(value), "boolean")]
-            if type == 2:
+            if type == cSetting_int:
                 return int(value)
             return float(value)
-        if type==4: # float3 - some legacy handling req.
+        if type == cSetting_float3:  # some legacy handling req.
             if not is_string(value):
                 v = value
             elif ',' in value:
-                v = eval(value)
+                v = cmd.safe_eval(value)
             else:
                 v = value.split()
             return (float(v[0]), float(v[1]), float(v[2]))
-        if type==5: # color
+        if type == cSetting_color:
             return str(value)
-        if type==6: # string
+        if type == cSetting_string:
             v = str(value)
             # strip outermost quotes (cheesy approach)
             if len(v) > 1 and v[0] == v[-1] and v[0] in ('"', "'"):
@@ -160,42 +163,26 @@ PYMOL API
                    int state, int updates, log=0, quiet=1)
 
        '''
-        r = DEFAULT_ERROR
         selection1 = selector.process(selection1)
         selection2 = selector.process(selection2) if selection2 else selection1
         index = _get_index(str(name))
+        type = _cmd.get_setting_type(index)
+        v = (type, _validate_value(type, value))
         if log:
             name = name_dict.get(index, name)
-            _self.log('', "cmd.set_bond('%s',%s,%s,%s,%s)\n" % (name, repr(value),
-                repr(selection1), repr(selection2), state))
-        if True:
-            try:
-                _self.lock(_self)
-                type = _cmd.get_setting_type(index)
-                if type < 0:
-                    print("Error: unable to get setting type.")
-                    raise QuietException
-                try:
-                    v = (type, _validate_value(type, value))
-                    r = _cmd.set_bond(_self._COb,int(index),v,
-                                 "("+selection1+")","("+selection2+")",
-                                 int(state)-1,int(quiet),
-                                 int(updates))
-                except QuietException:
-                    pass
-                except:
-                    if(_feedback(fb_module.cmd,fb_mask.debugging,_self)):
-                        traceback.print_exc()
-                    raise _self.pymol.CmdException("invalid value: %s" % repr(value))
-            finally:
-                _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException            
+            _self.log(
+                '',
+                f"cmd.set_bond({name!r},{value!r},{selection1!r},{selection2!r},{state})\n"
+            )
+        with _self.lockcm:
+            r = _cmd.set_bond(_self._COb, index, v, selection1, selection2,
+                              int(state) - 1, int(quiet), int(updates))
         return r
 
-        
+
     def set(name, value=1, selection='', state=0, updates=1, log=0,
             quiet=1,_self=cmd):
-        
+
         '''
 DESCRIPTION
 
@@ -268,41 +255,29 @@ SEE ALSO
     get, set_bond
     
 '''
-        r = DEFAULT_ERROR
         selection = selector.process(selection)
         index = _get_index(name)
+        type = _cmd.get_setting_type(index)
+        v = (type, _validate_value(type, value))
         if log:
             name = name_dict.get(index, name)
-            _self.log('', "cmd.set('%s',%s,%s,%s)\n" % (name, repr(value), repr(selection), state))
-        if True:
-            try:
-                _self.lock(_self)
-                type = _cmd.get_setting_type(index)
-                if type < 0:
-                    print("Error: unable to get setting type.")
-                    raise QuietException
-                try:
-                    v = (type, _validate_value(type, value))
-                    r = _cmd.set(_self._COb,int(index),v,
-                                     selection,
-                                     int(state)-1,int(quiet),
-                                     int(updates))
-                except QuietException:
-                    pass
-                except:
-                    if(_feedback(fb_module.cmd,fb_mask.debugging,_self)):
-                        traceback.print_exc()
-                    raise _self.pymol.CmdException("invalid value: %s" % repr(value))
-            finally:
-                _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException            
+            _self.log('',
+                      f"cmd.set({name!r},{value!r},{selection!r},{state})\n")
+        with _self.lockcm:
+            r = _cmd.set(_self._COb, index, v, selection,
+                         int(state) - 1, int(quiet), int(updates))
         return r
 
     def unset(name, selection='', state=0, updates=1, log=0, quiet=1, _self=cmd):
         '''
 DESCRIPTION
 
-    "unset" clear non-global settings and zeros out global settings.
+    "unset" clears a setting and restores its default value.
+
+    WARNING: The behavior for global settings changed in PyMOL 2.5.
+    Previously, "unset settingname" would set the global value of
+    "settingname" to zero/off instead of the default value.
+    To set a setting to zero, do "set settingname, 0".
 
 USAGE
 
@@ -319,7 +294,7 @@ EXAMPLE
 NOTES
 
     If selection is not provided, unset changes the named global
-    setting to a zero or off value.
+    setting to its default value.
 
     If a selection is provided, then "unset" undefines per-object,
     per-state, or per-atom settings.
@@ -331,31 +306,19 @@ PYMOL API
 
 SEE ALSO
 
-    set, set_bond
+    unset_deep, set, set_bond
     
         '''
-        r = DEFAULT_ERROR
         selection = selector.process(selection)
         index = _get_index(str(name))
         if log:
             name = name_dict.get(index, name)
-            _self.log('', "cmd.unset('%s',%s,%s)\n" % (name, repr(selection), state))
-        if True:
-                try:
-                    _self.lock(_self)
-                    try:
-                        r = _cmd.unset(_self._COb,int(index),selection,
-                                            int(state)-1,int(quiet),
-                                            int(updates))
-                    except:
-                        if(_feedback(fb_module.cmd,fb_mask.debugging,_self)):
-                            traceback.print_exc()
-                            raise QuietException
-                        print("Error: unable to unset setting value.")
-                finally:
-                    _self.unlock(r,_self)
+            _self.log('', f"cmd.unset({name!r},{selection!r},{state})\n")
+        with _self.lockcm:
+            r = _cmd.unset(_self._COb, index, selection,
+                           int(state) - 1, int(quiet), int(updates))
         return r
-    
+
     def unset_bond(name,selection1,selection2=None,state=0,updates=1,log=0,quiet=1,_self=cmd):
         '''
 DESCRIPTION
@@ -367,53 +330,23 @@ USAGE
     unset name [,selection [, selection [,state ]]]
 
         '''
-        r = DEFAULT_ERROR
         selection1 = selector.process(selection1)
         selection2 = selector.process(selection2) if selection2 else selection1
         index = _get_index(str(name))
         if log:
             name = name_dict.get(index, name)
-            _self.log('', "cmd.unset_bond('%s',%s,%s,%s)\n" % (name,
-                repr(selection1), repr(selection2), state))
-        if True:
-            try:
-                _self.lock(_self)
-                try:
-                    r = _cmd.unset_bond(_self._COb,int(index),selection1,selection2,
+            _self.log(
+                '',
+                f"cmd.unset_bond({name!r},{selection1!r},{selection2!r},{state})\n"
+            )
+        with _self.lockcm:
+            r = _cmd.unset_bond(_self._COb,int(index),selection1,selection2,
                                    int(state)-1,int(quiet),
                                    int(updates))
-                except:
-                    if(_feedback(fb_module.cmd,fb_mask.debugging,_self)):
-                        traceback.print_exc()
-                        raise QuietException
-                    print("Error: unable to unset setting value.")
-            finally:
-                _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException            
         return r
 
     def get_setting(name,object='',state=0,_self=cmd): # INTERNAL
-        r = DEFAULT_ERROR
-        i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_tuple(_self._COb,i,str(object),int(state)-1)
-            typ = r[0]
-            if typ<3: # boolean, int
-                value = int(r[1][0])
-            elif typ<4: # float
-                value = r[1][0]
-            elif typ<5: # vector
-                value = r[1]
-            else:
-                value = r[1] # color or string
-        finally:
-            _self.unlock(r,_self)
-        if is_ok(r):
-            return value
-        elif _self._raising(r,_self):
-            raise QuietException                     
-        return r
+        return get_setting_tuple_new(name, object, state, _self)[1]
 
     def get(name, selection='', state=0, quiet=1, _self=cmd):
         '''
@@ -452,16 +385,11 @@ SEE ALSO
     set, set_bond, get_bond
 
     '''
-        
-        r = DEFAULT_ERROR
+
         state = int(state)
         i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_text(_self._COb,i,str(selection),state-1)
-        finally:
-            _self.unlock(r,_self)
-        if is_ok(r) and (r!=None):
+        r = get_setting_text(i, str(selection), state, _self)
+        if is_ok(r) and (r is not None):
             if not int(quiet):
                 name = name_dict.get(i, name)
                 r_str = str(r)
@@ -473,69 +401,39 @@ SEE ALSO
                     print(" get: %s = %s in object %s"%(name,r_str,selection))
                 else:
                     print(" get: %s = %s in object %s state %d"%(name,r_str,selection,state))
-        if _self._raising(r,_self): raise QuietException
         return r
-    
+
     def get_setting_tuple_new(name,object='',state=0,_self=cmd): # INTERNAL
-        r = DEFAULT_ERROR
         i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_tuple(_self._COb,i,str(object),int(state)-1)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException
-        return r
+        with _self.lockcm:
+            return _cmd.get_setting_of_type(_self._COb, i, str(object), int(state) - 1, cSetting_tuple)
 
     def get_setting_tuple(name,object='',state=0,_self=cmd): # INTERNAL
         r = get_setting_tuple_new(name, object, state, _self)
-        if r[0] != 4:
+        if r[0] != cSetting_float3:
             # legacy API
             r = (r[0], (r[1],))
         return r
-    
+
     def get_setting_boolean(name,object='',state=0,_self=cmd): # INTERNAL
-        r = DEFAULT_ERROR
         i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_of_type(_self._COb,i,str(object),int(state)-1,1)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException
-        return r
-    
+        with _self.lockcm:
+            return _cmd.get_setting_of_type(_self._COb, i, str(object), int(state) - 1, cSetting_boolean)
+
     def get_setting_int(name,object='',state=0,_self=cmd): # INTERNAL
-        r = DEFAULT_ERROR
         i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_of_type(_self._COb,i,str(object),int(state)-1,2)
-        finally:
-            _self.unlock(r,_self)
-        return r
-    
+        with _self.lockcm:
+            return _cmd.get_setting_of_type(_self._COb, i, str(object), int(state) - 1, cSetting_int)
+
     def get_setting_float(name,object='',state=0,_self=cmd): # INTERNAL
-        r = DEFAULT_ERROR
         i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_of_type(_self._COb,i,str(object),int(state)-1,3)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException
-        return r
+        with _self.lockcm:
+            return _cmd.get_setting_of_type(_self._COb, i, str(object), int(state) - 1, cSetting_float)
 
     def get_setting_text(name,object='',state=0,_self=cmd):  # INTERNAL
-        r = DEFAULT_ERROR
         i = _get_index(name)
-        try:
-            _self.lock(_self)
-            r = _cmd.get_setting_text(_self._COb,i,str(object),int(state)-1)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException
-        return r
+        with _self.lockcm:
+            return _cmd.get_setting_of_type(_self._COb, i, str(object), int(state) - 1, cSetting_string)
 
     def get_setting_updates(object='', state=0, _self=cmd): # INTERNAL
         r = []
@@ -593,28 +491,14 @@ PYMOL API
 
        '''
         state, quiet = int(state), int(quiet)
-        r = DEFAULT_ERROR
         selection1 = selector.process(selection1)
         selection2 = selector.process(selection2) if selection2 else selection1
 
         index = _get_index(str(name))
-        if True:
-            try:
-                _self.lock(_self)
-                try:
-                    r = _cmd.get_bond(_self._COb,int(index),
-                                 "("+selection1+")","("+selection2+")",
-                                 int(state)-1,int(quiet),
-                                 int(updates))
-                except:
-                    traceback.print_exc()
-                    if(_feedback(fb_module.cmd,fb_mask.debugging,_self)):
-                        traceback.print_exc()
-                        print("Error: unable to get_bond info.")
-                    raise QuietException
-            finally:
-                _self.unlock(r,_self)
-        if _self._raising(r,_self): raise QuietException            
+        with _self.lockcm:
+            r = _cmd.get_bond(_self._COb, index, selection1, selection2,
+                              state - 1, quiet, int(updates))
+
         if not quiet:
             name = name_dict.get(index, name)
             suffix = ' state %d' % state if state > 0 else ''
@@ -635,7 +519,7 @@ DESCRIPTION
 
     Note: Does currently NOT unset atom-state level settings. Check for
     atom-state level settings with:
-    PyMOL> iterate_state 1, *, print list(s)
+    PyMOL> iterate_state 1, *, print(list(s))
     Unset e.g. atom-state level "label_screen_point" (index 728) with:
     PyMOL> alter_state 1, *, del s[728]
 

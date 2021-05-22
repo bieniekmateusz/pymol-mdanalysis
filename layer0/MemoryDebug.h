@@ -30,7 +30,7 @@ Z* -------------------------------------------------------------------
 typedef struct VLARec {
   ov_size size, unit_size;
   float grow_factor;
-  int auto_zero;
+  bool auto_zero;
 } VLARec;
 
 
@@ -46,8 +46,26 @@ typedef struct VLARec {
 #define VLAInsert(ptr,type,index,count) {ptr=(type*)VLAInsertRaw(ptr,index,count);}
 #define VLADelete(ptr,type,index,count) {ptr=(type*)VLADeleteRaw(ptr,index,count);}
 
+#if defined(_PYMOL_IOS) && !defined(_WEBGL)
+#include "MemoryUsage.h"
+extern "C" void fireMemoryWarning();
+#define PYMOL_IOS_MEMORY_CHECK                                                 \
+  if (pymol::memory_available() < sizeof(T) * num) {                           \
+    fireMemoryWarning();                                                       \
+    return nullptr;                                                            \
+  }
+#else
+#define PYMOL_IOS_MEMORY_CHECK
+#endif
+
 namespace pymol
 {
+using ::free;
+
+struct default_free {
+  void operator()(void* ptr) const { free(ptr); }
+};
+
 template <typename T> T* malloc(size_t num)
 {
   return (T*) ::malloc(num * sizeof(T));
@@ -69,8 +87,8 @@ template <typename T> T* realloc(T* ptr, size_t num)
 #define DeleteAP(ptr) {if(ptr) {delete[] ptr;ptr=NULL;}}
 
 void *VLAExpand(void *ptr, ov_size rec);        /* NOTE: rec is index (total-1) */
-void *MemoryReallocForSure(void *ptr, unsigned int newSize);
-void *MemoryReallocForSureSafe(void *ptr, unsigned int newSize, unsigned int oldSize);
+void *MemoryReallocForSure(void *ptr, size_t newSize);
+void *MemoryReallocForSureSafe(void *ptr, size_t newSize, size_t oldSize);
 
 void *VLADeleteRaw(void *ptr, int index, unsigned int count);
 void *VLAInsertRaw(void *ptr, int index, unsigned int count);
@@ -78,25 +96,25 @@ void *VLAInsertRaw(void *ptr, int index, unsigned int count);
 void *VLAMalloc(ov_size init_size, ov_size unit_size, unsigned int grow_factor, int auto_zero); /*growfactor 1-10 */
 
 void VLAFree(void *ptr);
-void *VLASetSize(void *ptr, unsigned int newSize);
-void *VLASetSizeForSure(void *ptr, unsigned int newSize);
+void *VLASetSize(void *ptr, size_t newSize);
+void *VLASetSizeForSure(void *ptr, size_t newSize);
 
-unsigned int VLAGetSize(const void *ptr);
+size_t VLAGetSize(const void *ptr);
 void *VLANewCopy(const void *ptr);
 void MemoryZero(char *p, char *q);
 
 
-#define mfree free
+#define mfree pymol::free
 #define mstrdup strdup
 #define ReallocForSure(ptr,type,size) (type*)MemoryReallocForSure(ptr,sizeof(type)*(size))
 
 
-inline unsigned int VLAGetByteSize(const void *ptr) {
+inline size_t VLAGetByteSize(const void *ptr) {
   const VLARec *vla = ((const VLARec *) ptr) - 1;
   return vla->size * vla->unit_size;
 }
 
-/*
+/**
  * Templated version of the `VLACopy` macro
  */
 template <typename T>
@@ -104,7 +122,7 @@ T * VLACopy2(const T * vla) {
   return VLACopy((void*)vla, T);
 }
 
-/*
+/**
  * @brief std::vector version of VLACheck. Checks to see if index i is valid for insertion.
  *        If not, a resize will be attempted.
  * @param vec: vector whose size will be check for valid insertion at index i
@@ -116,6 +134,24 @@ template <typename T>
 void VecCheck(std::vector<T> &vec, std::size_t i){
   if(i >= vec.size()){
     vec.resize(i + 1);
+  }
+}
+
+/**
+ * @brief Similar to VecCheck but constructs objects with arguments. Useful when
+ * no default constructor available.
+ * @tparam T type of elements in vector and also created during resize
+ * @tparam Ts types of T's constructor arguments
+ * @param vec: vector whose size will be check for valid insertion at index i
+ * @param i: index for position where an element may be inserted into vec
+ * @param args: constructor arguments of T
+ */
+template <typename T, typename... Ts>
+void VecCheckEmplace(std::vector<T>& vec, std::size_t i, Ts... args)
+{
+  vec.reserve(i + 1);
+  for (auto s = vec.size(); s <= i; s++) {
+    vec.emplace_back(args...);
   }
 }
 

@@ -1,18 +1,16 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
 #-* Peter Haebel, Byron DeLaBarre
-#-* 
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function
 
 import sys
 cmd = sys.modules["pymol.cmd"]
@@ -21,6 +19,7 @@ import os
 import glob
 import threading
 import time
+from . import colorprinting
 
 def get_movie_fps(_self):
     r = _self.get_setting_float('movie_fps')
@@ -51,20 +50,14 @@ def pause(pause=15,cycles=1,_self=cmd):
     movie_list = [ pass_string ] * cycles
     movie_string = " ".join(movie_list)
     _self.mset(movie_string)
-                
-def load(*args,**kw):
-    _self = kw.get('_self',cmd)
-    nam = "mov"
-    if len(args)>1:
-        nam = args[1]
-    fils = glob.glob(args[0])
-    fils.sort()
-    if not len(fils):
+
+def load(pattern, nam = "mov", _self=cmd, **kw):
+    fils = glob.glob(pattern)
+    if not fils:
         print("Error: no matching files")
-    else:
-        for a in fils:
-            _self.load(*(a,nam), **kw)
-#         _self.load(a,nam)
+        return
+    for a in sorted(fils):
+        _self.load(a, nam, **kw)
 
 def rock(first=1,last=-1,angle=30,phase=0,loop=1,axis='y',_self=cmd):
     first=int(first)
@@ -92,7 +85,7 @@ def rock(first=1,last=-1,angle=30,phase=0,loop=1,axis='y',_self=cmd):
         diff = disp-last
         # com = "mdo %d:turn %s,%8.3f" % (first+a,axis,diff)
         # _self.do(com)
-        _self.mdo("%d"%(first+a),"turn %s,%8.3f"% (axis,diff))      
+        _self.mdo("%d"%(first+a),"turn %s,%8.3f"% (axis,diff))
         a = a + 1
 
 def roll(first=1,last=-1,loop=1,axis='y',_self=cmd):
@@ -106,7 +99,7 @@ def roll(first=1,last=-1,loop=1,axis='y',_self=cmd):
     if loop:
         step = 2*math.pi/(n+1)
     else:
-        step = 2*math.pi/n   
+        step = 2*math.pi/n
     a = 0
     invert = 1
     if axis[0:1]=='-':
@@ -209,7 +202,7 @@ def nutate(first,last,angle=30,phase=0,loop=1,shift=math.pi/2.0,_self=cmd):
         lasty = angle*math.sin(ang_cur+shift)/2
         ang_cur = ang_cur + ang_inc
         nextx = angle*math.sin(ang_cur)/2
-        nexty = angle*math.sin(ang_cur+shift)/2      
+        nexty = angle*math.sin(ang_cur+shift)/2
         # com = "mdo %d:turn %s,%8.3f" % (first+a,axis,diff)
         # _self.do(com)
         _self.mdo("%d"%(first+a),"turn x,%8.3f;turn y,%8.3f;turn y,%8.3f;turn x,%8.3f"%
@@ -255,7 +248,7 @@ def timed_roll(period=12.0,cycles=1,axis='y',_self=cmd):
         frames_per_sec=30.0
     frames_per_cycle = int(period*frames_per_sec)
     total = frames_per_cycle * cycles
-    
+
     _self.mset("1 x%d"%total)
     step = 2*math.pi/(frames_per_cycle)
     deg = (180*step/math.pi)
@@ -330,7 +323,7 @@ ARGUMENTS
         if loop:
             if (start == 1):
                 cmd.mview("interpolate",wrap=1)
-                cmd.turn(axis,120)                
+                cmd.turn(axis,120)
                 cmd.mview("store",start+n_frame-1,power=1,freeze=1)
                 cmd.turn(axis,120)
             else:
@@ -338,7 +331,7 @@ ARGUMENTS
                 cmd.turn(axis,120 - adjustment)
                 cmd.mview("store",start+n_frame-1,power=1,freeze=1)
                 cmd.mview("interpolate")
-                cmd.turn(axis,adjustment) 
+                cmd.turn(axis,adjustment)
         else:
             cmd.turn(axis,120)
             cmd.mview("store",start+n_frame-1,power=1,freeze=1)
@@ -347,7 +340,7 @@ ARGUMENTS
         # PYMOL-2881
         if cmd.get_setting_int('movie_auto_interpolate'):
             cmd.mview("reinterpolate")
-        
+
 def add_rock(duration=8.0,angle=30.0,loop=1,axis='y',start=0,_self=cmd):
     '''
 DESCRIPTION
@@ -435,7 +428,7 @@ def add_state_loop(factor=1,pause=2.0,first=-1,last=-1,loop=1,start=0,_self=cmd)
         if cmd.get_setting_int('movie_auto_interpolate'):
             cmd.mview("reinterpolate")
 
-def add_nutate(duration=8.0, angle=30.0, spiral=0, loop=1, 
+def add_nutate(duration=8.0, angle=30.0, spiral=0, loop=1,
                offset=0, phase=0, shift=math.pi/2.0, start=0,
                _self=cmd):
     '''
@@ -482,7 +475,7 @@ ARGUMENTS
                 sp_angle = angle
             ang_cur = math.pi*phase/180.0 + (2*math.pi*index)/n_frame
             x_rot = sp_angle * math.sin(ang_cur)/2
-            y_rot = sp_angle * math.sin(ang_cur+shift)/2      
+            y_rot = sp_angle * math.sin(ang_cur+shift)/2
             cmd.turn('x',x_rot)
             cmd.turn('y',y_rot)
             cmd.mview('store',start+index,freeze=1)
@@ -491,7 +484,7 @@ ARGUMENTS
     # PYMOL-2881
     if cmd.get_setting_int('movie_auto_interpolate'):
         cmd.mview("reinterpolate")
-    
+
 def _rock(mode,axis,first,last,period,pause,_self=cmd):
     cmd = _self
     n_frame = last - first + 1
@@ -519,7 +512,7 @@ def _rock(mode,axis,first,last,period,pause,_self=cmd):
         cmd.mview("store",last,power=-1,freeze=1)
         cmd.mview("interpolate",first,last)
 
-def _nutate_sub(start_frame, stop_frame, angle=15.0, spiral=0, loop=1, 
+def _nutate_sub(start_frame, stop_frame, angle=15.0, spiral=0, loop=1,
                 offset=0, phase=0, shift=math.pi/2.0, _self=cmd):
     cmd = _self
     angle = float(angle)
@@ -538,13 +531,13 @@ def _nutate_sub(start_frame, stop_frame, angle=15.0, spiral=0, loop=1,
                 sp_angle = angle
             ang_cur = math.pi*phase/180.0 + (2*math.pi*index)/n_frame
             x_rot = sp_angle * math.sin(ang_cur)/2
-            y_rot = sp_angle * math.sin(ang_cur+shift)/2      
+            y_rot = sp_angle * math.sin(ang_cur+shift)/2
             cmd.turn('x',x_rot)
             cmd.turn('y',y_rot)
             cmd.mview('store',start_frame+index,freeze=1)
             cmd.turn('y',-y_rot)
             cmd.turn('x',-x_rot)
-    
+
 def _nutate(mode,first,last,period,pause,_self=cmd):
     cmd = _self
     n_frame = last - first + 1
@@ -563,7 +556,7 @@ def _nutate(mode,first,last,period,pause,_self=cmd):
     for frame in frame_list:
         _nutate_sub(frame[0], frame[1], angle, spiral, _self=_self)
         spiral = 0
-        
+
 def add_scenes(names=None, pause=8.0, cut=0.0, loop=1,
                rock=-1, period=8.0, animate=-1, start=0,
                _self=cmd):
@@ -575,7 +568,7 @@ DESCRIPTION
 
 ARGUMENTS
 
-    names = str: list of scenes names {default: all scenes}
+    names = list: list of scenes names {default: all scenes}
 
     pause = float: display time per scene in seconds {default: 8}
 
@@ -606,9 +599,9 @@ ARGUMENTS
     rock = int(rock)
     if animate<0:
         animate = float(cmd.get("scene_animation_duration"))
-    if names == None:
+    if names is None:
         names = cmd.get_scene_list()
-    elif cmd.is_str(names):
+    elif cmd.is_string(names):
         names = cmd.safe_alpha_list_eval(names)
     n_scene = len(names)
     duration = n_scene*(pause+animate)
@@ -642,7 +635,7 @@ ARGUMENTS
                     if sweep_mode==1: # x-axis rock
                         _rock(sweep_mode, 'x', sweep_first, sweep_last,
                                 period, pause, _self=_self)
-                    elif sweep_mode<3: # y-axis rock                        
+                    elif sweep_mode<3: # y-axis rock
                         _rock(sweep_mode, 'y', sweep_first, sweep_last,
                                 period, pause, _self=_self)
                     elif sweep_mode == 3:
@@ -670,7 +663,7 @@ def _watch(filename,done_event):
         tries = tries - 1
         if tries < 0:
             break
-        time.sleep(1) 
+        time.sleep(1)
     if os.path.exists(filename):
         tries = 5
     while os.path.exists(filename):
@@ -688,7 +681,7 @@ def _watch(filename,done_event):
         time.sleep(2)
         if done_event.isSet():
             break
-            
+
 def _encode(filename,first,last,preserve,
             encoder,tmp_path,prefix,img_ext,quality,quiet,_self=cmd):
     import os
@@ -705,7 +698,7 @@ def _encode(filename,first,last,preserve,
             break
         elif _self.get_modal_draw(): # keep looping so long as we're rendering...
             tries = 10
-        else: 
+        else:
             tries = tries - 1
             if tries < 0:
                 done = 0
@@ -719,23 +712,34 @@ def _encode(filename,first,last,preserve,
     # by changing directory
     fn_rel = os.path.relpath(filename, tmp_path)
     old_cwd = os.getcwd()
+    fps = get_movie_fps(_self)
 
     if done and ok and (encoder == 'mpeg_encode'):
         try:
-            from freemol import mpeg_encode
+            from pymol import mpeg_encode
         except:
             ok = 0
-            print("produce-error: Unable to import module freemol.mpeg_encode.")
+            print("produce-error: Unable to import module pymol.mpeg_encode.")
         if ok:
             if not mpeg_encode.validate():
                 ok = 0
-                print("produce-error: Unable to validate freemol.mpeg_encode.")
+                print("produce-error: Unable to validate pymol.mpeg_encode.")
         if not ok:
-            print("produce-error: Unable to create mpeg file.")            
+            print("produce-error: Unable to create mpeg file.")
         else:
             mpeg_quality = 1+int(((100-quality)*29)/100) # 1 to 30
             input = mpeg_encode.input(fn_rel, '.',
                                       prefix,first,last,mpeg_quality);
+
+            FPS_LEGAL_VALUES = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60]
+            fps_legal = min(FPS_LEGAL_VALUES, key=lambda v: abs(v - fps))
+            if fps_legal != round(fps, 3):
+                colorprinting.warning(
+                    " Warning: Adjusting frame rate to {} fps (legal values are: {})"
+                    .format(fps_legal, FPS_LEGAL_VALUES))
+            input = input.replace('FRAME_RATE 30',
+                                  'FRAME_RATE {:.3f}'.format(fps_legal))
+
             if not quiet:
                 print(" produce: creating '%s' (in background)..."%(filename))
 
@@ -750,24 +754,31 @@ def _encode(filename,first,last,preserve,
                 result = mpeg_encode.run(input)
             finally:
                 os.chdir(old_cwd)
-                if done_event != None:
+                if done_event is not None:
                     done_event.set()
     elif encoder == 'ffmpeg':
-        fps = get_movie_fps(_self)
         import subprocess
         os.chdir(tmp_path)
         try:
             args = ['ffmpeg',
                 '-f', 'image2',
-                '-framerate', '%d' % fps, # framerate
+                '-framerate', '{:.3f}'.format(fps),
                 '-i', prefix + '%04d' + img_ext,
             ]
-            if not fn_rel.endswith('.gif'):
+            if fn_rel.endswith('.webm'):
+                args_crf = ['-crf', '{:.0f}'.format(65 - (quality / 2))]
+                args += ['-c:v', 'libvpx-vp9', '-b:v', '0'] + args_crf
+            elif not fn_rel.endswith('.gif'):
                 args += [
                 '-crf', '10' if quality > 90 else '15' if quality > 80 else '20',
                 '-pix_fmt', 'yuv420p', # needed for Mac support
                 ]
-            subprocess.check_call(args + [fn_rel])
+            process = subprocess.Popen(args + [fn_rel], stderr=subprocess.PIPE)
+            stderr = process.communicate()[1]
+            colorprinting.warning(stderr.strip().decode(errors='replace'))
+            if process.returncode != 0:
+                colorprinting.error('ffmpeg failed with '
+                        'exit status {}'.format(process.returncode))
         finally:
             os.chdir(old_cwd)
     elif encoder == 'convert':
@@ -775,13 +786,14 @@ def _encode(filename,first,last,preserve,
         exe = find_exe(encoder)
         try:
             subprocess.check_call([exe,
+                '-delay', '{:.3f}'.format(100. / fps), # framerate
                 os.path.join(tmp_path, prefix) + '*' + img_ext,
                 filename])
         finally:
             pass
     if not quiet:
                 if not os.path.exists(filename):
-                    if result != None:
+                    if result is not None:
                         print(input, result[0], result[1])
                     print(" produce: compression failed")
                 else:
@@ -792,7 +804,7 @@ def _encode(filename,first,last,preserve,
             for fil in glob.glob(os.path.join(tmp_path,prefix+"*")):
                 os.unlink(fil)
             os.rmdir(tmp_path)
-    
+
 produce_mode_dict = {
     'normal'  : 0,
     'draw'    : 1,
@@ -807,22 +819,21 @@ def find_exe(exe):
     Excludes C:\Windows\System32\convert.exe
     Tests .exe extension on Unix (e.g. for legacy "mpeg_encode.exe" name).
     '''
-    from distutils.spawn import find_executable
-
-    path = os.getenv('PATH', '')
+    from shutil import which
 
     if exe.startswith('convert') and sys.platform == 'win32':
         # filter out C:\Windows\System32
         path = os.pathsep.join(p
-                for p in path.split(os.pathsep)
-                if not r'\windows\system32' in p.lower())
+                for p in os.getenv('PATH', '').split(os.pathsep)
+                if r'\windows\system32' not in p.lower())
+        return which(exe, path=path)
 
-    e = find_executable(exe, path)
+    if exe == 'mpeg_encode':
+        legacy = which(exe + '.exe')
+        if legacy:
+            return legacy
 
-    if not e and sys.platform != 'win32':
-        e = find_executable(exe + '.exe', path)
-
-    return e
+    return which(exe)
 
 
 def produce(filename, mode='', first=0, last=0, preserve=0,
@@ -831,13 +842,14 @@ def produce(filename, mode='', first=0, last=0, preserve=0,
     '''
 DESCRIPTION
 
-    Export a movie to an MPEG file.
+    Export a movie to an MPEG, WEBM, or GIF file.
 
-    Requires FREEMOL.
+    Which video formats and codecs are available depends on the availability
+    and feature set of your ffmpeg and ImageMagick installations.
 
 ARGUMENTS
 
-    filename = str: filename of MPEG file to produce
+    filename = str: filename of movie file to produce
 
     mode = draw or ray: {default: check "ray_trace_frames" setting}
 
@@ -847,7 +859,18 @@ ARGUMENTS
 
     preserve = 0 or 1: don't delete temporary files {default: 0}
 
+    encoder = ffmpeg|convert|mpeg_encode: Tool used for video encoding
+
     quality = 0-100: encoding quality {default: 90 (movie_quality setting)}
+
+    width = int: Width in pixels {default: from viewport}
+
+    height = int: Height in pixels {default: from viewport}
+
+EXAMPLE
+
+    movie.produce video.mp4, height=1080
+    movie.produce video.webm, height=720
     '''
     from pymol import CmdException
 
@@ -897,11 +920,6 @@ ARGUMENTS
     # check encoder
     if encoder == 'mpeg_encode':
         img_ext = '.ppm'
-        try:
-            from freemol import mpeg_encode
-        except ImportError:
-            print(" Error: This PyMOL build is not set up with FREEMOL (freemol.mpeg_encode import failed)")
-            return _self.DEFAULT_ERROR
     elif encoder not in ('ffmpeg', 'convert'):
         raise CmdException('unknown encoder "%s"' % encoder)
     elif not has_exe(encoder):
@@ -911,7 +929,7 @@ ARGUMENTS
         _self.set('opaque_background', quiet=quiet)
 
     # MP4 needs dimensions divisible by 2
-    if splitext[1] in ('.mp4', '.mov'):
+    if splitext[1] in ('.mp4', '.mov', '.webm'):
         if width < 1 or height < 1:
             w, h = _self.get_viewport()
             if width > 0:
@@ -964,4 +982,3 @@ ARGUMENTS
         return _self.DEFAULT_SUCCESS
     else:
         return _self.DEFAULT_ERROR
-    

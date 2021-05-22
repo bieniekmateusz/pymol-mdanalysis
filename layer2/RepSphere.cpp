@@ -40,6 +40,11 @@
 #define SPHERE_NORMAL_RANGE 6.f
 #define SPHERE_NORMAL_RANGE2 (SPHERE_NORMAL_RANGE*SPHERE_NORMAL_RANGE)
 
+enum {
+  cSphereModeCube = 10,
+  cSphereModeTetrahedron = 11,
+};
+
 /* defer_builds_mode = 5 : Immediate mode for any sphere_mode
 
    sphere_mode :
@@ -50,15 +55,15 @@
       maxed by a multiple of sphere_point_max_size (set it below 1 to see it influence, 3*pixel_scale max)
    3) same as 2 but with circles
    4) no longer available
-   5) Uses the fast ARB Shader that approximates spheres as circles
+   5) no longer available (was ARB impostor shader)
    6-8) same as 1-3 but with normals computed from close atoms to mimic nice lighting
    9) GLSL Shader Spheres (only when shaders are available)
 
  */
 
-static
-void RepSphereFree(RepSphere * I)
+RepSphere::~RepSphere()
 {
+  auto I = this;
   if (I->primitiveCGO == I->renderCGO) {
     I->primitiveCGO = 0;
   }
@@ -67,12 +72,7 @@ void RepSphereFree(RepSphere * I)
   CGOFree(I->spheroidCGO);
   FreeP(I->LastColor);
   FreeP(I->LastVisib);
-  RepPurge(&I->R);
-  OOFreeP(I);
 }
-
-/* MULTI-INSTSANCE TODO:  isn't this a conflict? */
-CShaderPrg *sphereARBShaderPrg = NULL;
 
 void RenderSphereComputeFog(PyMOLGlobals *G, RenderInfo *info, float *fog_info)
 {
@@ -98,14 +98,14 @@ static int RepSphereRenderRay(PyMOLGlobals *G, RepSphere * I, RenderInfo * info)
 {
   CRay *ray = info->ray;
   float alpha = 1.0F - 
-    SettingGet_f(G, I->R.cs->Setting, I->R.obj->Setting, cSetting_sphere_transparency);
+    SettingGet_f(G, I->cs->Setting.get(), I->obj->Setting.get(), cSetting_sphere_transparency);
   if(fabs(alpha - 1.0) < R_SMALL4)
     alpha = 1.0F;
   ray->transparentf(1.0 - alpha);
   if (I->spheroidCGO){
-    CGORenderRay(I->spheroidCGO, ray, info, NULL, NULL, I->R.cs->Setting, I->R.obj->Setting);
+    CGORenderRay(I->spheroidCGO, ray, info, NULL, NULL, I->cs->Setting.get(), I->obj->Setting.get());
   } else {
-    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->R.cs->Setting, I->R.obj->Setting);
+    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->cs->Setting.get(), I->obj->Setting.get());
   }
   ray->transparentf(0.0);
   return true;
@@ -114,67 +114,43 @@ static int RepSphereRenderRay(PyMOLGlobals *G, RepSphere * I, RenderInfo * info)
 
 static void RepSphereRenderPick(RepSphere * I, RenderInfo * info, int sphere_mode)
 {
-  PyMOLGlobals *G = I->R.G;
+  assert(I->renderCGO);
 
-  if (!I->renderCGO){
-    // only for sphere_mode 5, where we don't use a renderCGO (yet) ARB: immediate mode GL_QUADS
-    short use_shader = SettingGetGlobal_b(G, cSetting_sphere_use_shader) &&
-      SettingGetGlobal_b(G, cSetting_use_shaders);
-    CGO *convertcgo = CGOSimplify(I->primitiveCGO, 0, 0);
-    CGO *convertcgo2 = CGOCombineBeginEnd(convertcgo, 0);
-    if (use_shader){
-      I->renderCGO = CGOOptimizeToVBONotIndexed(convertcgo2, 0);
-      CGOFree(convertcgo2);
-    } else {
-      I->renderCGO = convertcgo2;
-    }
-    I->renderCGO->use_shader = use_shader;
-    CGOFree(convertcgo);
-  }
-  CGORenderGLPicking(I->renderCGO, info, &I->R.context, I->R.cs->Setting, I->R.obj->Setting);
+  CGORenderGLPicking(I->renderCGO, info, &I->context, I->cs->Setting.get(), I->obj->Setting.get());
 }
 
 static int RepGetSphereMode(PyMOLGlobals *G, RepSphere * I, bool use_shader){
-  int sphere_mode = SettingGet_i(G, I->R.cs->Setting,
-				 I->R.obj->Setting,
+  int sphere_mode = SettingGet_i(G, I->cs->Setting.get(),
+				 I->obj->Setting.get(),
 				 cSetting_sphere_mode);
-  if (sphere_mode == 4) // sphere_mode 4 no longer exists, use default
-    sphere_mode = -1;
-    switch (sphere_mode) {
-    case 5:
-#ifdef _PYMOL_ARB_SHADERS
-      if (!sphereARBShaderPrg && G->HaveGUI && G->ValidContext) {
-      sphereARBShaderPrg = CShaderPrg::NewARB(G, "sphere_arb",
-                                              G->ShaderMgr->GetShaderSource("sphere_arb_vs.vs"),
-                                              G->ShaderMgr->GetShaderSource("sphere_arb_fs.fs"));
-      }
-      if (!sphereARBShaderPrg)
-#endif
-      {
+  switch (sphere_mode) {
+  case 5:
+    // no longer exists, use default
+    {
+      static bool warn_once = true;
+      if (warn_once) {
         PRINTFB(G, FB_ShaderMgr, FB_Warnings)
-          " Warning: ARB shaders (sphere_mode=5) not supported.\n" ENDFB(G);
-        if (!use_shader || !G->ShaderMgr->ShaderPrgExists("sphere")) {
-        sphere_mode = 9;
-        } else {
-          sphere_mode = 0;
-        }
-      }
-      break;
-    case -1:
-      sphere_mode = 9;
-    case 9:
-    if (!use_shader || !G->ShaderMgr->ShaderPrgExists("sphere")) {
-        sphere_mode = 0;
+          " Warning: sphere_mode=5 was removed, use sphere_mode=9.\n" ENDFB(G);
+        warn_once = false;
       }
     }
+  case 4:
+    // no longer exists, use default
+  case -1:
+    sphere_mode = 9;
+  case 9:
+    if (!use_shader || !G->ShaderMgr->ShaderPrgExists("sphere")) {
+      sphere_mode = 0;
+    }
+  }
   return sphere_mode;
 }
 
-static void RepSphereRender(RepSphere * I, RenderInfo * info)
+void RepSphere::render(RenderInfo* info)
 {
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  PyMOLGlobals *G = I->R.G;
   int ok = true;
   bool use_shader = SettingGetGlobal_b(G, cSetting_sphere_use_shader) &&
                     SettingGetGlobal_b(G, cSetting_use_shaders);
@@ -189,27 +165,25 @@ static void RepSphereRender(RepSphere * I, RenderInfo * info)
     if(pick) {
       RepSphereRenderPick(I, info, sphere_mode);
     } else {                    /* not pick, render! */
-#ifdef _PYMOL_ARB_SHADERS
-      if (sphere_mode == 5){
-        // we need to check sphere_mode 5 here until
-        // we implement the CGO ARB operation, since 
-        // picking uses the I->renderCGO
-        RepSphere_Generate_ARB_Spheres(G, I, info);
-        return; // sphere_mode 5 does not use I->renderCGO yet
+      if (I->spheroidCGO) {
+        CGORenderGL(I->spheroidCGO, NULL, NULL, NULL, info, I);
+        return;
       }
-#endif
+
       if (I->renderCGO){
         if (I->renderCGO->use_shader != use_shader){
           CGOFree(I->renderCGO);
           I->renderCGO = 0;
         } else {
-          CGORenderGL(I->renderCGO, NULL, NULL, NULL, info, &I->R);
+          CGORenderGL(I->renderCGO, NULL, NULL, NULL, info, I);
           return;
         }
       }
       // Generate renderCGO for sphere_mode
       switch (sphere_mode) {
       case 0:              /* memory-efficient sphere rendering */
+      case cSphereModeCube:
+      case cSphereModeTetrahedron:
         RepSphere_Generate_Triangles(G, I, info);
         break;
       case 9: // use GLSL impostor shader
@@ -224,39 +198,32 @@ static void RepSphereRender(RepSphere * I, RenderInfo * info)
       CHECKOK(ok, I->renderCGO);
       if (!ok){
         CGOFree(I->renderCGO);
-        I->R.fInvalidate(&I->R, I->R.cs, cRepInvPurge);
-        I->R.cs->Active[cRepSphere] = false;
+        I->invalidate(cRepInvPurge);
+        I->cs->Active[cRepSphere] = false;
       }
 
       if (I->renderCGO)
-        CGORenderGL(I->renderCGO, NULL, NULL, NULL, info, &I->R);
+        CGORenderGL(I->renderCGO, NULL, NULL, NULL, info, I);
     }
   }
 }
 
-static
-int RepSphereSameVis(RepSphere * I, CoordSet * cs)
+bool RepSphere::sameVis() const
 {
-  bool *lv;
-  int *lc;
-  int a;
-  AtomInfoType *ai;
-  if(I->LastVisib && I->LastColor) {
-    lv = I->LastVisib;
-    lc = I->LastColor;
+  if (!LastVisib || !LastColor) {
+        return false;
+      }
 
-    for(a = 0; a < cs->NIndex; a++) {
-      ai = cs->getAtomInfo(a);
-      if(*(lv++) != GET_BIT(ai->visRep, cRepSphere)) {
+  for (int idx = 0; idx < cs->NIndex; ++idx) {
+    const auto* ai = cs->getAtomInfo(idx);
+    if (LastVisib[idx] != GET_BIT(ai->visRep, cRepSphere)) {
         return false;
       }
-      if(*(lc++) != ai->color) {
-        return false;
-      }
-    }
-  } else {
+    if (LastColor[idx] != ai->color) {
     return false;
   }
+  }
+
   return true;
 }
 
@@ -294,12 +261,12 @@ static bool RepSphereDetermineAtomVisibility(PyMOLGlobals *G,
 static void RepSphereAddAtomVisInfoToStoredVC(RepSphere *I, ObjectMolecule *obj,
     CoordSet * cs, int state, int a1, AtomInfoType *ati1, int a,
     float sphere_scale, int sphere_color, float transp,
-    int *variable_alpha, float sphere_add)
+    int *variable_alpha, float sphere_add, int const sphere_mode)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   float at_transp = transp;
   int c1;
-  float *v0, vc[3];
+  float vc[3];
   const float *vcptr;
 
   float at_sphere_scale = AtomSettingGetWD(G, ati1, cSetting_sphere_scale, sphere_scale);
@@ -307,14 +274,25 @@ static void RepSphereAddAtomVisInfoToStoredVC(RepSphere *I, ObjectMolecule *obj,
 
   if(AtomSettingGetIfDefined(G, ati1, cSetting_sphere_transparency, &at_transp))
     *variable_alpha = true;
-  
-  CGOPickColor(I->primitiveCGO, a1, ati1->masked ? cPickableNoPick : cPickableAtom);
-  
+
+  int trans_pick_mode = SettingGet<int>(
+      G, cs->Setting.get(), obj->Setting.get(), cSetting_transparency_picking_mode);
+
+  int pickmode = cPickableAtom;
+  if (trans_pick_mode != cTransparencyPickingModePickable &&
+      at_transp > PICKABLE_THROUGH_CUTOFF) {
+    pickmode = cPickableThrough;
+  } else if (ati1->masked) {
+    pickmode = cPickableNoPick;
+  }
+
+  CGOPickColor(I->primitiveCGO, a1, pickmode);
+
   if(at_sphere_color == -1)
     c1 = ati1->color;
   else
     c1 = at_sphere_color;
-  v0 = cs->Coord + 3 * a;
+  const float* v0 = cs->coordPtr(a);
 
   if(ColorCheckRamped(G, c1)) {
     ColorGetRamped(G, c1, v0, vc, state);
@@ -326,6 +304,11 @@ static void RepSphereAddAtomVisInfoToStoredVC(RepSphere *I, ObjectMolecule *obj,
   CGOAlpha(I->primitiveCGO, alpha);
   CGOColorv(I->primitiveCGO, vcptr);
   float radius = obj->AtomInfo[a1].vdw * at_sphere_scale + sphere_add;
+
+  if (alpha < 1) {
+    I->setHasTransparency();
+  }
+
   CGOSphere(I->primitiveCGO, v0, radius);
 }
 
@@ -344,13 +327,13 @@ static float SphereComputeCutMultiplier(SphereRec *sr){
   return cut_mult;
 }
 
-/*
+/**
  * for the spheroid implementation, this function sets color
  * and pickcolor in the CGO given the atom idx
  *
  */
 static void RepSphereCGOSetSphereColorAndPick(ObjectMolecule *obj, CoordSet * cs, CGO *cgo, int idx, int state, float transp, int sphere_color){
-  PyMOLGlobals *G = obj->Obj.G;
+  PyMOLGlobals *G = obj->G;
   int a1 = cs->IdxToAtm[idx];
   float at_transp;
   AtomInfoType *ati1 = obj->AtomInfo + a1;
@@ -367,7 +350,7 @@ static void RepSphereCGOSetSphereColorAndPick(ObjectMolecule *obj, CoordSet * cs
   else
     c1 = at_sphere_color;
   if(ColorCheckRamped(G, c1)) {
-    float *v0 = cs->Coord + 3 * idx;
+    const float* v0 = cs->coordPtr(idx);
     float color[3];
     ColorGetRamped(G, c1, v0, color, state);
     CGOColorv(cgo, color);
@@ -384,12 +367,12 @@ CGO *RepSphereGeneratespheroidCGO(ObjectMolecule * I, CoordSet *cs, SphereRec *s
   int *q, *s;
   bool ok = true;
   float spheroid_scale =
-    SettingGet_f(I->Obj.G, cs->Setting, I->Obj.Setting, cSetting_spheroid_scale);
+    SettingGet_f(I->G, cs->Setting.get(), I->Setting.get(), cSetting_spheroid_scale);
   int sphere_color =
-    SettingGet_color(I->Obj.G, cs->Setting, I->Obj.Setting, cSetting_sphere_color);
-  float transp = SettingGet_f(I->Obj.G, cs->Setting, I->Obj.Setting, cSetting_sphere_transparency);
+    SettingGet_color(I->G, cs->Setting.get(), I->Setting.get(), cSetting_sphere_color);
+  float transp = SettingGet_f(I->G, cs->Setting.get(), I->Setting.get(), cSetting_sphere_transparency);
 
-  CGO *cgo = CGONew(I->Obj.G);
+  CGO *cgo = CGONew(I->G);
   for(idx = 0; idx < cs->NIndex; idx++) {
     float *v0 = &cs->Coord[3 * idx];
     a = cs->IdxToAtm[idx];
@@ -397,8 +380,8 @@ CGO *RepSphereGeneratespheroidCGO(ObjectMolecule * I, CoordSet *cs, SphereRec *s
     s = sp->StripLen;
     RepSphereCGOSetSphereColorAndPick(I, cs, cgo, idx, state, transp, sphere_color);
     for(b = 0; ok && b < sp->NStrip; b++) {
-      float *sphLen = cs->Spheroid + (sp->nDot * a);
-      float *sphNorm = cs->SpheroidNormal + (3 * sp->nDot * a);
+      float *sphLen = cs->Spheroid.data() + (sp->nDot * a);
+      float *sphNorm = cs->SpheroidNormal.data() + (3 * sp->nDot * a);
       CGOBegin(cgo, GL_TRIANGLE_STRIP);
       for(c = 0; c < (*s); c++) {
         float sphTmp, *sphTmpN = sphNorm + 3 * (*q);
@@ -412,7 +395,7 @@ CGO *RepSphereGeneratespheroidCGO(ObjectMolecule * I, CoordSet *cs, SphereRec *s
       }
       CGOEnd(cgo);
       s++;
-      ok &= !I->Obj.G->Interrupt;
+      ok &= !I->G->Interrupt;
     }
   }
   CGOStop(cgo);
@@ -422,7 +405,7 @@ CGO *RepSphereGeneratespheroidCGO(ObjectMolecule * I, CoordSet *cs, SphereRec *s
   return cgo;
 }
 
-/*
+/**
  * when normals are needed (sphere_mode 6-8), 
  * this function computes the normal for an atom
  * and pickcolor in the CGO given the atom idx
@@ -485,7 +468,7 @@ static void RepSphereSetNormalForSphere(RepSphere *I, MapType *map, float *v_tmp
 
 Rep *RepSphereNew(CoordSet * cs, int state)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   ObjectMolecule *obj;
   int ok = true;
   int a, a1;
@@ -506,57 +489,34 @@ Rep *RepSphereNew(CoordSet * cs, int state)
   if(!cs->hasRep(cRepSphereBit))
     return NULL;
 
-  OOCalloc(G, RepSphere);
-  CHECKOK(ok, I);
-  if (!ok)
-    return NULL;
   obj = cs->Obj;
-
   marked = pymol::calloc<bool>(obj->NAtom);
-  CHECKOK(ok, marked);
-  if (ok)
-    RepInit(G, &I->R);
-  I->renderCGO = NULL;
-  I->primitiveCGO = NULL;
-  if (cs->Spheroid)
-    I->spheroidCGO = RepSphereGeneratespheroidCGO(obj, cs, G->Sphere->Sphere[1], state);
+  if (!marked)
+    return NULL;
 
-  if (ok){
-    sphere_mode = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_sphere_mode);
-    if (!use_shader && (sphere_mode == 5 || sphere_mode == 9)){
-      sphere_mode = 0;
-    }
-  }
+  auto I = new RepSphere(cs, state);
+  if (!cs->Spheroid.empty())
+    I->spheroidCGO = RepSphereGeneratespheroidCGO(obj, cs, GetSpheroidSphereRec(G), state);
+
   if (ok){
     sphere_color =
-      SettingGet_color(G, cs->Setting, obj->Obj.Setting, cSetting_sphere_color);
+      SettingGet_color(G, cs->Setting.get(), obj->Setting.get(), cSetting_sphere_color);
     cartoon_side_chain_helper =
-      SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_cartoon_side_chain_helper);
+      SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_cartoon_side_chain_helper);
     ribbon_side_chain_helper =
-      SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_side_chain_helper);
-    transp = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_sphere_transparency);
-    sphere_scale = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_sphere_scale);
+      SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_side_chain_helper);
+    transp = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_sphere_transparency);
+    sphere_scale = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_sphere_scale);
   }
 
   if (ok){
-    I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepSphereRender;
-    I->R.fFree = (void (*)(struct Rep *)) RepSphereFree;
-    I->R.fSameVis = (int (*)(struct Rep *, struct CoordSet *)) RepSphereSameVis;
-    I->R.obj = (CObject *) obj;
-    I->R.cs = cs;
-    I->R.context.object = (void *) obj;
-    I->R.context.state = state;
+    sphere_mode = RepGetSphereMode(G, I, use_shader);
   }
   /* raytracing primitives */
 
   if (ok){
-    if(SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_sphere_solvent)) { /* are we generating a solvent surface? */
-      sphere_add = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_solvent_radius);       /* if so, get solvent radius */
-    }
-    
-    if(SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_pickable)) {
-      I->R.P = pymol::malloc<Pickable>(cs->NIndex + 1);
-      CHECKOK(ok, I->R.P);
+    if(SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_sphere_solvent)) { /* are we generating a solvent surface? */
+      sphere_add = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_solvent_radius);       /* if so, get solvent radius */
     }
   }
   I->primitiveCGO = CGONew(G);
@@ -576,7 +536,7 @@ Rep *RepSphereNew(CoordSet * cs, int state)
         int cnc = nspheres * 3;
         nspheres++;
         VLACheck(v_tmp, float, cnc + 3);
-        copy3f(cs->Coord + 3 * a, &v_tmp[cnc]);
+        copy3f(cs->coordPtr(a), &v_tmp[cnc]);
     }
     ok &= !G->Interrupt;
   }
@@ -592,7 +552,9 @@ Rep *RepSphereNew(CoordSet * cs, int state)
       if(marked[a1]) {
       ati1 = obj->AtomInfo + a1;
         RepSphereSetNormalForSphere(I, map, v_tmp, &v_tmp[a * 3], cut_mult, a, active, dot, n_dot);
-        RepSphereAddAtomVisInfoToStoredVC(I, obj, cs, state, a1, ati1, a, sphere_scale, sphere_color, transp, &variable_alpha, sphere_add);
+        RepSphereAddAtomVisInfoToStoredVC(I, obj, cs, state, a1, ati1, a,
+            sphere_scale, sphere_color, transp, &variable_alpha, sphere_add,
+            sphere_mode);
       }
 	ok &= !G->Interrupt;
       }
@@ -609,7 +571,9 @@ Rep *RepSphereNew(CoordSet * cs, int state)
                                          cartoon_side_chain_helper, ribbon_side_chain_helper);
       if(marked[a1]) {
         nspheres++;
-        RepSphereAddAtomVisInfoToStoredVC(I, obj, cs, state, a1, ati1, a, sphere_scale, sphere_color, transp, &variable_alpha, sphere_add);
+        RepSphereAddAtomVisInfoToStoredVC(I, obj, cs, state, a1, ati1, a,
+            sphere_scale, sphere_color, transp, &variable_alpha, sphere_add,
+            sphere_mode);
       }
       ok &= !G->Interrupt;
     }
@@ -627,7 +591,7 @@ Rep *RepSphereNew(CoordSet * cs, int state)
       lv = I->LastVisib;
       lc = I->LastColor;
       obj = cs->Obj;
-      AtomInfoType *ai2 = obj->AtomInfo;
+      const AtomInfoType *ai2 = obj->AtomInfo.data();
       if(sphere_color == -1){
 	for(a = 0; a < cs->NIndex; a++) {
           int at = cs->IdxToAtm[a];
@@ -645,7 +609,7 @@ Rep *RepSphereNew(CoordSet * cs, int state)
 
   FreeP(marked);
   if(nspheres == 0 || !ok) {
-    RepSphereFree(I);
+    delete I;
     I = NULL;
   }
   return (Rep *) I;

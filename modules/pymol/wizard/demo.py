@@ -15,7 +15,7 @@ class Demo(Wizard):
         self.last = None
         if 'last' in saved:
             self.last = saved['last']
-        if name!=None:
+        if name is not None:
             demo = DemoInfo(_self=_self)
             if self.last:
                 if hasattr(demo,self.last):
@@ -30,7 +30,7 @@ class Demo(Wizard):
             else:
                 self.last = None
             saved['last']=self.last
-        
+
     def get_prompt(self):
         saved['last']=self.last
         self.prompt = self.message
@@ -41,7 +41,7 @@ class Demo(Wizard):
             [ 1, 'Demonstrations', '' ],
             [ 2, 'Representations', 'replace_wizard demo,reps'],
             [ 2, 'Cartoon Ribbons', 'replace_wizard demo,cartoon'],
-            [ 2, 'Roving Detail', 'replace_wizard demo,roving'],         
+            [ 2, 'Roving Detail', 'replace_wizard demo,roving'],
             [ 2, 'Roving Density', 'replace_wizard demo,roving_density'],
             [ 2, 'Transparency', 'replace_wizard demo,trans'],
             [ 2, 'Ray Tracing', 'replace_wizard demo,ray'],
@@ -63,9 +63,9 @@ class DemoInfo:
 
     def __init__(self,_self=cmd):
         self.cmd=_self
-        
+
     message_dict = {
-        'roving' : [ 
+        'roving' : [
         "Middle-Click to rove...         CTRL-SHIFT-Middle-Click to center...",],
         'roving_density' : [
         "Middle-Click to rove...         CTRL-SHIFT-Middle-Click to center...",],
@@ -74,7 +74,7 @@ class DemoInfo:
         'sculpt' : [
         "CTRL-Left-Click to drag atoms...       CTRL-Right-Click to rotate bonds...",],
         }
-                                          
+
     def rep_old(self,cleanup=0):
         if not cleanup:
             try:
@@ -119,7 +119,7 @@ class DemoInfo:
                 util.cbac("rep3",_self=self.cmd)
                 util.cbas("rep4",_self=self.cmd)
                 util.cbab("rep5",_self=self.cmd)
-                util.cbaw("rep6",_self=self.cmd)            
+                util.cbaw("rep6",_self=self.cmd)
                 util.cbay("rep8",_self=self.cmd)
 
 
@@ -170,7 +170,7 @@ class DemoInfo:
                 self.cmd.set("movie_panel",1)
         except:
             traceback.print_exc()
-            
+
     def raster3d(self,cleanup=0):
         if not cleanup:
             self.cmd.disable()
@@ -219,7 +219,7 @@ class DemoInfo:
                     self.cmd.torsion("2")
                     self.cmd.unpick()
                 finally:
-                    self.cmd.set("suspend_updates",0,quiet=1)         
+                    self.cmd.set("suspend_updates",0,quiet=1)
                 self.cmd.refresh()
             self.cmd.feedback('ena','sel','res')
         else:
@@ -270,7 +270,7 @@ class DemoInfo:
                 self.cmd.move('z',2)
                 self.cmd.move('y',-0.12)
                 self.cmd.refresh()
-                                
+
         else:
             self.cmd.delete("1hpv_*")
 
@@ -304,7 +304,7 @@ class DemoInfo:
             self.cmd.set("roving_detail",0)
             self.cmd.refresh()
             self.cmd.delete("rov_*")
-            
+
     def roving_density(self,cleanup=0):
         if not cleanup:
             try:
@@ -325,7 +325,7 @@ class DemoInfo:
                 self.cmd.set("roving_map1_name","map")
                 self.cmd.isomesh("rov_m1","map",9999.0,"il2")
                 self.cmd.color("density","rov_m1")
-                
+
                 self.cmd.set_view ((\
           0.132852688,   -0.729740858,    0.670686543,\
           -0.228543565,    0.635894477,    0.737154961,\
@@ -348,13 +348,13 @@ class DemoInfo:
             self.cmd.set("roving_detail",0)
             self.cmd.delete("rov_*")
             self.cmd.sync()
-            
+
     def cartoon(self,cleanup=0):
         if not cleanup:
             try:
                 self.cmd.set("suspend_updates",1,quiet=1)
                 self.cmd.disable()
-                self.cmd.delete("1tii")      
+                self.cmd.delete("1tii")
                 self.cmd.load("$PYMOL_DATA/demo/1tii.pdb")
                 self.cmd.hide("(1tii)")
                 self.cmd.show("cartoon","1tii")
@@ -370,6 +370,7 @@ class DemoInfo:
 
     def elec(self,cleanup=0):
         if not cleanup:
+            self.cmd.config_mouse('three_button_viewing')
             self.cmd.disable()
             self.cmd.delete("pept")
             self.cmd.delete("e_pot")
@@ -386,7 +387,7 @@ class DemoInfo:
             self.cmd.delete("pept")
             self.cmd.delete("e_pot")
             self.cmd.delete("e_lvl")
-            
+
     def trans(self,cleanup=0):
         if not cleanup:
             try:
@@ -423,7 +424,7 @@ class DemoInfo:
             self.cmd.do("ray")
         else:
             self.cmd.delete("ray")
-            
+
     def finish(self,cleanup=0):
         self.cmd.do("_ wizard")
 
@@ -435,7 +436,8 @@ class DemoInfo:
             self.cmd.load("$PYMOL_DATA/demo/pept.pdb","sculpt")
             self.cmd.hide("everything","sculpt")
             self.cmd.show("sticks","sculpt")
-            self.cmd.show("spheres","sculpt")
+            if self.cmd.get_setting_boolean("use_shaders"):
+                self.cmd.show("spheres","sculpt")
             self.cmd.set("sphere_transparency","0.75","sculpt")
             self.cmd.set("sphere_color","grey","sculpt")
             self.cmd.frame(1)
@@ -452,4 +454,3 @@ class DemoInfo:
             self.cmd.set("auto_sculpt",0)
             self.cmd.delete("sculpt")
             self.cmd.mouse()
-

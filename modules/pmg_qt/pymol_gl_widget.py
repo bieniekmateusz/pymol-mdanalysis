@@ -1,5 +1,4 @@
-from __future__ import absolute_import
-
+import os
 import sys
 from pymol2 import SingletonPyMOL as PyMOL
 
@@ -12,13 +11,16 @@ Gesture = QtCore.QEvent.Gesture
 Qt = QtCore.Qt
 
 from .keymapping import get_modifiers
+from .keymapping import get_wheel_button
 
 # don't import the heavy OpenGL (PyOpenGL) module
 from pymol._cmd import glViewport
 
 # QOpenGLWidget is supposed to supersede QGLWidget, but has issues (e.g.
 # no stereo support)
-USE_QOPENGLWIDGET = pymol.IS_MACOS and QtCore.QT_VERSION >= 0x50400
+USE_QOPENGLWIDGET = int(
+    os.getenv("PYMOL_USE_QOPENGLWIDGET") or
+    (pymol.IS_MACOS and QtCore.QT_VERSION >= 0x50400))
 
 if USE_QOPENGLWIDGET:
     BaseGLWidget = QtWidgets.QOpenGLWidget
@@ -34,6 +36,8 @@ else:
 class PyMOLGLWidget(BaseGLWidget):
     '''
     PyMOL OpenGL Widget
+
+    Can be used as a context manager to make OpenGL context current.
     '''
 
     # mouse button map
@@ -42,6 +46,19 @@ class PyMOLGLWidget(BaseGLWidget):
         Qt.MidButton: 1,
         Qt.RightButton: 2,
     }
+
+    def __enter__(self):
+        '''
+        Context manager to make the OpenGL context "current".
+
+        Fixes depth-buffer issue with QOpenGLWidget
+        https://github.com/schrodinger/pymol-open-source/issues/25
+        '''
+        self.makeCurrent()
+        pymol._cmd._pushValidContext(self.cmd._COb)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pymol._cmd._popValidContext(self.cmd._COb)
 
     def __init__(self, parent):
         self.gui = parent
@@ -73,6 +90,7 @@ class PyMOLGLWidget(BaseGLWidget):
         if USE_QOPENGLWIDGET:
             super(PyMOLGLWidget, self).__init__(parent=parent)
             self.setFormat(f)
+            self.setUpdateBehavior(QtWidgets.QOpenGLWidget.PartialUpdate)
         else:
             super(PyMOLGLWidget, self).__init__(f, parent=parent)
 
@@ -148,41 +166,30 @@ class PyMOLGLWidget(BaseGLWidget):
 
         return True
 
+    def _event_x_y_mod(self, ev):
+        return (
+            int(self.fb_scale * ev.x()),
+            int(self.fb_scale * (self.height() - ev.y())),
+            get_modifiers(ev),
+        )
+
     def mouseMoveEvent(self, ev):
-        self.pymol.drag(int(self.fb_scale * ev.x()),
-                        int(self.fb_scale * (self.height() - ev.y())),
-                        get_modifiers(ev))
+        self.pymol.drag(*self._event_x_y_mod(ev))
 
     def mousePressEvent(self, ev, state=0):
         if ev.button() not in self._buttonMap:
             return
         self.pymol.button(self._buttonMap[ev.button()], state,
-                          int(self.fb_scale * ev.x()),
-                          int(self.fb_scale * (self.height() - ev.y())),
-                          get_modifiers(ev))
+                          *self._event_x_y_mod(ev))
 
     def mouseReleaseEvent(self, ev):
         self.mousePressEvent(ev, 1)
 
     def wheelEvent(self, ev):
-        pymolmod = get_modifiers(ev)
-        try:
-            delta = ev.delta()
-        except AttributeError:
-            # Qt5
-            angledelta = ev.angleDelta()
-            delta = angledelta.y()
-            if abs(delta) < abs(angledelta.x()):
-                # Shift+Wheel emulates horizontal scrolling
-                if not (ev.modifiers() & Qt.ShiftModifier):
-                    return
-                delta = angledelta.x()
-        if not delta:
+        button = get_wheel_button(ev)
+        if not button:
             return
-        button = 3 if delta > 0 else 4
-        args = (int(self.fb_scale * ev.x()),
-                int(self.fb_scale * (self.height() - ev.y())),
-                pymolmod)
+        args = self._event_x_y_mod(ev)
         self.pymol.button(button, 0, *args)
         self.pymol.button(button, 1, *args)
 

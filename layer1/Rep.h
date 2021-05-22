@@ -20,6 +20,7 @@ Z* -------------------------------------------------------------------
 #include"Base.h"
 #include"Ray.h"
 
+#define cCartoon_skip_helix -2
 #define cCartoon_skip -1
 #define cCartoon_auto 0
 #define cCartoon_loop 1
@@ -30,10 +31,7 @@ Z* -------------------------------------------------------------------
 #define cCartoon_dumbbell 6
 #define cCartoon_putty 7
 #define cCartoon_dash 8
-
-#define cCartoon_skip_helix -2
-#define cRepAll       -1
-#define cRepNone      -2
+#define cCartoon_cylinder 9
 
 // show/hide/... codes
 enum {
@@ -46,8 +44,10 @@ enum {
 /* WARNING: don't change these -- you'll break sessions!
    (you can add to them however, I think) */
 
-enum {
-  cRepCyl,             // 0
+enum cRep_t {
+  cRepNone = -2,
+  cRepAll = -1,
+  cRepCyl = 0,         // 0
   cRepSphere,          // 1
   cRepSurface,         // 2
   cRepLabel,           // 3
@@ -71,6 +71,14 @@ enum {
   // rep count
   cRepCnt
 };
+
+inline cRep_t& operator++(cRep_t& rep)
+{
+  assert(0 <= rep && rep < cRepCnt);
+  return (rep = cRep_t(rep + 1));
+}
+
+using cRepBitmask_t = int;
 
 #define cRepCylBit             (1 << 0)
 #define cRepSphereBit          (1 << 1)
@@ -104,12 +112,12 @@ enum {
 #define cRepBitmask        ((1 << cRepCnt) - 1)
 
 // all reps which can be shown for atoms
-const int cRepsAtomMask = (cRepCylBit | cRepSphereBit | cRepSurfaceBit | \
+constexpr cRepBitmask_t cRepsAtomMask = (cRepCylBit | cRepSphereBit | cRepSurfaceBit |
     cRepLabelBit | cRepNonbondedSphereBit | cRepCartoonBit | cRepRibbonBit | \
     cRepLineBit | cRepMeshBit | cRepDotBit | cRepNonbondedBit | cRepEllipsoidBit);
 
 // all reps which can be shown for objects
-const int cRepsObjectMask = (cRepSurfaceBit | cRepMeshBit | cRepDotBit | \
+constexpr cRepBitmask_t cRepsObjectMask = (cRepSurfaceBit | cRepMeshBit | cRepDotBit |
     cRepCellBit | cRepCGOBit | cRepCallbackBit | cRepExtentBit | cRepSliceBit | \
     cRepAngleBit | cRepDihedralBit | cRepVolumeBit | cRepDashBit);
 
@@ -121,75 +129,112 @@ const int cRepsObjectMask = (cRepSurfaceBit | cRepMeshBit | cRepDotBit | \
 
 /* invalite display (list) */
 
-#define cRepInvDisplay 1
+enum cRepInv_t {
+  cRepInvNone = 0,
+  cRepInvDisplay = 1,
 
 /* precomputed extents (can change if matrix changes) */
-#define cRepInvExtents 5
+  cRepInvExtents = 5,
 
 /* invalidate pickable atoms */
-#define cRepInvPick  9
+  cRepInvPick = 9,
 
 /* invalidate external atom colors */
-#define cRepInvExtColor  10
+  cRepInvExtColor = 10,
 
 /* invalidate atom colors */
-#define cRepInvColor  15
+  cRepInvColor = 15,
 
 /* invalidate label text */
-#define cRepInvText   16
+  cRepInvText = 16,
 
 /* invalidate visible atoms */
-#define cRepInvVisib  20
-#define cRepInvVisib2 21
+  cRepInvVisib = 20,
+  cRepInvVisib2 = 21,
 
 /* invalidate atomic properties */
-#define cRepInvProp   22
+  cRepInvProp = 22,
 
 /* invalidate coordinates */
-#define cRepInvCoord  30
+  cRepInvCoord = 30,
 
 /* invalidate graphic representation */
-#define cRepInvRep    35
+  cRepInvRep = 35,
+
+/* don't call ObjectMoleculeUpdateNonbonded */
+  cRepInvBondsNoNonbonded = 38,
 
 /* invalidate bond structure */
-#define cRepInvBonds  40
+  cRepInvBonds = 40,
 
 /* invalidate atomic structure */
-#define cRepInvAtoms  50
+  cRepInvAtoms = 50,
 
 /* invalidate everything about a structure */
-#define cRepInvAll    100
+  cRepInvAll = 100,
 
 /* invalidate and furthermore, purge existing representations */
-#define cRepInvPurge  110
+  cRepInvPurgeMask = 0x80,
+  cRepInvPurgeRep = cRepInvRep | cRepInvPurgeMask,
+  cRepInvPurgeAll = cRepInvAll | cRepInvPurgeMask,
+
+/* (alias) */
+  cRepInvPurge = cRepInvPurgeRep,
+};
 
 struct CoordSet;
 struct Object;
 
-typedef struct Rep {
+struct Rep {
   PyMOLGlobals *G;
-  void (*fRender) (struct Rep * I, RenderInfo * info);
-  struct Rep *(*fUpdate) (struct Rep * I, struct CoordSet * cs, int state, int rep);
-  void (*fInvalidate) (struct Rep * I, struct CoordSet * cs, int level);
-  void (*fFree) (struct Rep * I);
-  int MaxInvalid, Active;
-  CObject *obj;
-  struct CoordSet *cs;
-  Pickable *P;
-  PickContext context;
-  /* private */
-  void (*fRecolor) (struct Rep * I, struct CoordSet * cs);
-  int (*fSameVis) (struct Rep * I, struct CoordSet * cs);
-  int (*fSameColor) (struct Rep * I, struct CoordSet * cs);
-  struct Rep *(*fRebuild) (struct Rep * I, struct CoordSet * cs, int state, int rep);
-  struct Rep *(*fNew) (struct CoordSet * cs, int state);
-} Rep;
 
-void RepInit(PyMOLGlobals * G, Rep * I);
-void RepPurge(Rep * I);
-void RepInvalidate(struct Rep *I, struct CoordSet *cs, int level);
+  virtual cRep_t type() const = 0;
+  virtual void render(RenderInfo* info);
+  virtual void invalidate(cRepInv_t level);
 
-int RepGetAutoShowMask(PyMOLGlobals * G);
+  virtual ~Rep();
+
+  pymol::CObject* obj = nullptr; // TODO redundant, use getObj()
+  CoordSet* cs = nullptr;
+
+  Pickable* P = nullptr; //!< only used by labels
+  PickContext context{};
+
+  //! Object state (>=0, 0-indexed) for picking and ramp colors
+  int getState() const { return context.state; }
+  pymol::CObject* getObj() const { return context.object; }
+
+  //! True if this rep should be rendered in RenderPass::Transparent. Default is
+  //! false, change the flag with setHasTransparency().
+  bool hasTransparency() const { return m_has_transparency; }
+  //! Sets the hasTransparency() flag.
+  void setHasTransparency(bool has = true) { m_has_transparency = has; }
+
+protected:
+  cRepInv_t MaxInvalid = cRepInvNone;
+
+private:
+  Rep* rebuild();
+  virtual Rep* recolor() { return rebuild(); }
+  virtual bool sameVis() const { return false; }
+  virtual bool sameColor() const { return false; }
+
+  bool m_has_transparency = false;
+
+public:
+  Rep* update();
+
+  /** Pointer to static factory function (Only used with molecular
+   * representations, DistSet e.g. doesn't use it)
+   * @param state Object state for picking and ramp colors
+   */
+  Rep* (*fNew)(CoordSet* cs, int state) = nullptr;
+
+  Rep(pymol::CObject*, int state);
+  Rep(CoordSet*, int state);
+};
+
+cRepBitmask_t RepGetAutoShowMask(PyMOLGlobals * G);
 
 class RepIterator {
   int end;

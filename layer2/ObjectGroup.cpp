@@ -38,15 +38,18 @@ int ObjectGroupNewFromPyList(PyMOLGlobals * G, PyObject * list, ObjectGroup ** r
     ok = PyList_Check(list);
   if(ok)
     ll = PyList_Size(list);
-  I = ObjectGroupNew(G);
+  I = new ObjectGroup(G);
   if(ok)
     ok = (I != NULL);
+  if(ok){
+    auto *val = PyList_GetItem(list, 0);
+    ok = ObjectFromPyList(G, val, I);
+  }
   if(ok)
-    ok = ObjectFromPyList(G, PyList_GetItem(list, 0), &I->Obj);
-  if(ok)
-    ok = PConvPyIntToInt(PyList_GetItem(list, 1), &I->OpenOrClosed);
-  if(ok && (ll > 2))
-    ok = ObjectStateFromPyList(G, PyList_GetItem(list, 2), &I->State);
+    ok = CPythonVal_PConvPyIntToInt_From_List(G, list, 1, &I->OpenOrClosed);
+  if(ok && (ll > 2)){
+    // State removed because it was unused
+  }
   if(ok) {
     *result = I;
   } else {
@@ -60,66 +63,27 @@ PyObject *ObjectGroupAsPyList(ObjectGroup * I)
   PyObject *result = NULL;
 
   result = PyList_New(3);
-  PyList_SetItem(result, 0, ObjectAsPyList(&I->Obj));
+  PyList_SetItem(result, 0, ObjectAsPyList(I));
   PyList_SetItem(result, 1, PyInt_FromLong(I->OpenOrClosed));
-  PyList_SetItem(result, 2, ObjectStateAsPyList(&I->State));
+
+  // State removed in PyMOL 2.4.0
+  CObjectState tmp_state(I->G);
+  PyList_SetItem(result, 2, ObjectStateAsPyList(&tmp_state));
+
   return (PConvAutoNone(result));
 }
 
 
 /*========================================================================*/
 
-static void ObjectGroupFree(ObjectGroup * I)
+ObjectGroup::~ObjectGroup()
 {
-  ObjectStatePurge(&I->State);
-  ObjectPurge(&I->Obj);
-  OOFreeP(I);
 }
 
 
 /*========================================================================*/
-static CObjectState *ObjectGroupGetObjectState(ObjectGroup * I, int state)
+ObjectGroup::ObjectGroup(PyMOLGlobals * G) : pymol::CObject(G)
 {
-  return &I->State;
-}
-
-
-/*========================================================================*/
-ObjectGroup *ObjectGroupNew(PyMOLGlobals * G)
-{
-  OOAlloc(G, ObjectGroup);
-
-  ObjectInit(G, (CObject *) I);
-
-  I->Obj.type = cObjectGroup;
-  I->Obj.fFree = (void (*)(CObject *)) ObjectGroupFree;
-  I->Obj.fRender = NULL;
-  I->OpenOrClosed = false;
-  I->Obj.fGetObjectState = (CObjectState * (*)(CObject *, int state))
-    ObjectGroupGetObjectState;
-
-  ObjectStateInit(G, &I->State);
-  return (I);
-}
-
-void ObjectGroupResetMatrix(ObjectGroup * I, int state)
-{
-  ObjectStateResetMatrix(&I->State);
-}
-
-int ObjectGroupGetMatrix(ObjectGroup * I, int state, double **matrix)
-{
-  *matrix = ObjectStateGetMatrix(&I->State);
-  return true;
-}
-
-int ObjectGroupSetMatrix(ObjectGroup * I, int state, double *matrix)
-{
-  ObjectStateSetMatrix(&I->State, matrix);
-  return true;
-}
-
-void ObjectGroupTransformMatrix(ObjectGroup * I, int state, double *matrix)
-{
-  ObjectStateTransformMatrix(&I->State, matrix);
+  auto I = this;
+  I->type = cObjectGroup;
 }

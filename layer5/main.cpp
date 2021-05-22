@@ -61,176 +61,6 @@ int MainSavingUnderWhileIdle(void)
   return 0;
 }
 
-#ifdef _MACPYMOL_XCODE
-
-void MainBlock(void)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PBlock(G);
-}
-
-void MainUnblock(void)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PUnblock(G);
-}
-
-int MainLockAPIAsGlut(int a)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  return PLockAPIAsGlut(G, a);
-}
-
-void MainUnlockAPIAsGlut()
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PUnlockAPIAsGlut(G);
-}
-
-int MainFeedbackOut(char *st)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  return OrthoFeedbackOut(G, *G->Ortho);
-}
-
-void MainRunCommand(const char *str1)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-
-  if(PLockAPIAsGlut(G, true)) {
-
-    if(str1[0] != '_') {        /* suppress internal call-backs */
-      if(strncmp(str1, "cmd._", 5)) {
-        OrthoAddOutput(G, "PyMOL>");
-        OrthoAddOutput(G, str1);
-        OrthoNewLine(G, NULL, true);
-        if(WordMatch(G, str1, "quit", true) == 0)       /* don't log quit */
-          PLog(G, str1, cPLog_pml);
-      }
-      PParse(G, str1);
-    } else if(str1[1] == ' ') { /* "_ command" suppresses echoing of command, but it is still logged */
-      if(WordMatch(G, str1 + 2, "quit", true) >= 0)     /* don't log quit */
-        PLog(G, str1 + 2, cPLog_pml);
-      PParse(G, str1 + 2);
-    } else {
-      PParse(G, str1);
-    }
-    PUnlockAPIAsGlut(G);
-  }
-}
-
-PyObject *MainGetStringResult(const char *str)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PyObject *result;
-  result = PyRun_String(str, Py_eval_input, G->P_inst->dict, G->P_inst->dict);
-  return (result);
-}
-
-void MainRunString(const char *str)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PBlock(G);
-  PLockStatus(G);
-  PRunStringModule(G, str);
-  PUnlockStatus(G);
-  PUnblock(G);
-}
-
-void MainMovieCopyPrepare(int *width, int *height, int *length)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  if(PLockAPIAsGlut(G, true)) {
-    MovieCopyPrepare(G, width, height, length);
-    MovieSetRealtime(G, false);
-    PUnlockAPIAsGlut(G);
-  }
-}
-
-int MainMovieCopyFrame(int frame, int width, int height, int rowbytes, void *ptr)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  int result = false;
-  if(PLockAPIAsGlut(G, true)) {
-    result = MovieCopyFrame(G, frame, width, height, rowbytes, ptr);
-    PUnlockAPIAsGlut(G);
-  }
-  return result;
-}
-
-int MainMoviePurgeFrame(int frame)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  int result = false;
-  if(PLockAPIAsGlut(G, true)) {
-    result = MoviePurgeFrame(G, frame);
-    PUnlockAPIAsGlut(G);
-  }
-  return result;
-}
-
-void MainMovieCopyFinish(void)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  if(PLockAPIAsGlut(G, true)) {
-    MovieCopyFinish(G);
-    MovieSetRealtime(G, true);
-    PUnlockAPIAsGlut(G);
-  }
-}
-
-void MainFlushAsync(void)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  if(PLockAPIAsGlut(G, true)) {
-    PFlush(G);
-    PUnlockAPIAsGlut(G);
-  }
-}
-
-int MainCheckRedundantOpen(char *file)
-{
-  int result = false;
-#ifndef _PYMOL_NOPY
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PBlock(G);
-  result = PTruthCallStr(G->P_inst->cmd, "check_redundant_open", file);
-  PUnblock(G);
-#endif
-  return result;
-}
-
-void MainSceneGetSize(int *width, int *height)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  if(PLockAPIAsGlut(G, true)) {
-    SceneGetImageSize(G, width, height);
-    PUnlockAPIAsGlut(G);
-  }
-}
-
-int MainSceneCopy(int width, int height, int rowbytes, void *ptr)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-
-  int result = false;
-  if(PLockAPIAsGlut(G, true)) {
-    result = SceneCopyExternal(G, width, height, rowbytes, (unsigned char *) ptr, 0x1);
-    PUnlockAPIAsGlut(G);
-  }
-  return result;
-}
-
-PyObject *MainComplete(const char *str)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-  PyObject *result = NULL;
-  result = PYOBJECT_CALLFUNCTION(G->P_inst->complete, "s", str);
-  return (result);
-}
-
-#endif
-
 #else
 
 
@@ -595,12 +425,6 @@ static void MainDrawLocked(void)
     if(PyErr_Occurred())
       PyErr_Print();
 
-#ifdef _PYMOL_SHARP3D
-    /*PParse("load $TUT/1hpv.pdb;hide;show sticks;show surface;set surface_color,white;set transparency,0.5;stereo on"); */
-    /*PParse("stereo on");
-       PParse("wizard demo,cartoon"); */
-#endif
-
     if(G->HaveGUI)
       MainPopValidContext(G);
 
@@ -959,6 +783,9 @@ void MainReshape(int width, int height)
 
 
 /*========================================================================*/
+/**
+ * only called from CmdViewport(), and only with !_PYMOL_NO_MAIN
+ */
 void MainDoReshape(int width, int height)
 {                               /* called internally */
   int internal_feedback;
@@ -1132,10 +959,6 @@ void MainRefreshNow(void)
 
 /*========================================================================*/
 
-#ifdef _PYMOL_SHARP3D
-static int Sharp3DLastWindowX = -1000;
-#endif
-
 static void MainBusyIdle(void)
 {
   PyMOLGlobals *G = SingletonPyMOLGlobals;
@@ -1219,10 +1042,6 @@ static void MainBusyIdle(void)
     /* the following code enables PyMOL to avoid busy-idling 
      * even though we're using GLUT! */
 
-#ifndef _PYMOL_WX_GLUT
-    /* however, don't spend any extra time sleeping in PYMOL if we're
-       running under wxPython though... */
-
     switch (I->IdleMode) {
     case 2:                    /* avoid racing the CPU */
       if((UtilGetSeconds(G) - I->IdleTime) > (SettingGetGlobal_f(G, cSetting_idle_delay) / 5.0)) {
@@ -1240,8 +1059,6 @@ static void MainBusyIdle(void)
         break;
       }
     }
-
-#endif
 
     PRINTFD(G, FB_Main)
       " MainBusyIdle: unlocking.\n" ENDFD;
@@ -1425,10 +1242,6 @@ BOOL WINAPI HandlerRoutine(DWORD dwCtrlType     /*  control signal type */
 }
 #endif
 
-#ifdef _PYMOL_SHARP3D
-void sharp3d_prepare_context(void);
-#endif
-
 static void launch(CPyMOLOptions * options, int own_the_options)
 {
 
@@ -1439,12 +1252,10 @@ static void launch(CPyMOLOptions * options, int own_the_options)
   PyMOLInstance = PyMOL_NewWithOptions(options);
   G = PyMOL_GetGlobals(PyMOLInstance);
 
-  /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
-#ifdef _MACPYMOL_XCODE
-  MacPyMOLOption = G->Option;
-  MacPyMOLReady = &G->Ready;
-#endif
-  /* END PROPRIETARY CODE SEGMENT */
+  G->HaveGUI = options->pmgui;
+
+  assert(!SingletonPyMOLGlobals);
+  SingletonPyMOLGlobals = G;
 
   if(G->Option->multisample)
     multisample_mask = P_GLUT_MULTISAMPLE;
@@ -1473,12 +1284,8 @@ static void launch(CPyMOLOptions * options, int own_the_options)
     SetConsoleTitle(_T("PyMOL"));
 #endif
 
-#ifdef _PYMOL_SHARP3D
-    sharp3d_prepare_context();
-#endif
-
     int myArgc = 0;
-    char *myArgv[8] = {"pymol"};
+    char* myArgv[8] = {strdup("pymol")};
     p_glutInit(&myArgc, myArgv);
 
     {
@@ -1493,9 +1300,6 @@ static void launch(CPyMOLOptions * options, int own_the_options)
       case 1:                  /* force quad buffer stereo (if possible) */
         G->Option->stereo_mode = cStereo_quadbuffer;
       case 0:                  /* default/autodetect */
-#ifdef _PYMOL_SHARP3D
-        G->Option->stereo_mode = cStereo_stencil_custom;
-#endif
         switch (G->Option->stereo_mode) {
         case cStereo_default:
         case cStereo_quadbuffer:
@@ -1602,11 +1406,6 @@ static void launch(CPyMOLOptions * options, int own_the_options)
       p_glutEnterGameMode();
     }
   }
-#ifdef _PYMOL_SHARP3D
-  /* Setup OpenGL */
-  glEnable(GL_DEPTH_TEST);
-  glDepthFunc(GL_LESS);
-#endif
   MainInit(G);
   if(own_the_options)
     G->Main->OwnedOptions = options;
@@ -1617,10 +1416,6 @@ static void launch(CPyMOLOptions * options, int own_the_options)
     I->TheWindow = theWindow;
 
     PInit(G, true);
-
-#ifdef _PYMOL_SHARP3D
-    SettingSetGlobal_f(G, cSetting_stereo_shift, 2.5);  /* increase strength */
-#endif
 
     if(G->HaveGUI) {
       p_glutDisplayFunc(MainDraw);
@@ -1658,20 +1453,7 @@ static void launch(CPyMOLOptions * options, int own_the_options)
 
 /*========================================================================*/
 
-static int main_common(void);
 static int decoy_input_hook(void) { return 0; }
-
-int main_exec(int argc, char **argv)
-{
-  PyMOLGlobals *G = SingletonPyMOLGlobals;
-
-  fflush(stdout);
-  PSetupEmbedded(G, argc, argv);
-
-  return PyRun_SimpleString(
-      "import pymol\n"
-      "pymol.launch()\n");
-}
 
 int main_shared(int block_input_hook)
 {
@@ -1682,11 +1464,6 @@ int main_shared(int block_input_hook)
   dlopen("libGL.so.1", RTLD_LAZY | RTLD_GLOBAL);
 #endif
 
-  return main_common();
-}
-
-static int main_common(void)
-{
   {                             /* no matter how PyMOL was built, we always come through here... */
 
     CPyMOLOptions *options = PyMOLOptions_New();

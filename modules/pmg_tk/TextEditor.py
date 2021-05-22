@@ -5,12 +5,7 @@ Simple Text Editor
 import os
 import sys
 
-if sys.version_info[0] == 2:
-    import Tkinter
-    import tkFileDialog
-    import tkMessageBox
-    import tkSimpleDialog
-else:
+if True:
     import tkinter as Tkinter
     import tkinter.filedialog as tkFileDialog
     import tkinter.messagebox as tkMessageBox
@@ -26,7 +21,7 @@ class TextEditor:
     def _open(self, filename):
         self.filename = filename or ''
         if filename and os.path.exists(filename):
-            with open(filename, 'rU') as handle:
+            with open(filename, 'r') as handle:
                 content = handle.read()
         else:
             content = ''

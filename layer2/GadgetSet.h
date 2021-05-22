@@ -18,42 +18,42 @@ Z* -------------------------------------------------------------------
 #define _H_GadgetSet
 
 #include"Rep.h"
-#include"Setting.h"
 
-typedef struct GadgetSet {
-  // methods (not fully refactored yet)
-  void fFree();
+#include <vector>
+
+struct ObjectGadget;
+
+struct GadgetSet {
+  ~GadgetSet();
 
   // methods
   void update();
   void render(RenderInfo * info);
-  void invalidateRep(int type, int level);
+  void invalidateRep(cRep_t type, cRepInv_t level);
 
   PyMOLGlobals *G;
-  struct ObjectGadget *Obj;     /* NOT pickled -- restore manually */
-  int State;                    /* NOT pickled -- restore manually */
-  float *Coord;
-  float *Normal;
-  float *Color;
-  int NCoord;
-  int NNormal;
-  int NColor;
+  ObjectGadget* Obj = nullptr;        /* NOT pickled -- restore manually */
+  int State = 0;                      /* NOT pickled -- restore manually */
+  float *Coord = nullptr;
+  float *Normal = nullptr;
+  float *Color = nullptr;
+  int NCoord = 0;
+  int NNormal = 0;
+  int NColor = 0;
 
-  Pickable *P;
-  CGO *PickShapeCGO;
-  CGO *PickCGO;
-  CGO *StdCGO;
-  CGO *ShapeCGO;
-  CSetting *Setting;
-  int offsetPtOP, offsetPtOPick;
-} GadgetSet;
-
-#include"ObjectGadget.h"
+  CGO *PickShapeCGO = nullptr;
+  CGO *PickCGO = nullptr;
+  CGO *StdCGO = nullptr;
+  CGO *ShapeCGO = nullptr;
+  int offsetPtOP = 0;
+  int offsetPtOPick = 0;
+};
 
 GadgetSet *GadgetSetNew(PyMOLGlobals * G);
 PyObject *GadgetSetAsPyList(GadgetSet * I, bool incl_cgos);
 int GadgetSetFromPyList(PyMOLGlobals * G, PyObject * list, GadgetSet ** cs, int version);
 int GadgetSetGetExtent(GadgetSet * I, float *mn, float *mx);
-int GadgetSetGetVertex(GadgetSet * I, int index, int base, float *v);
-int GadgetSetSetVertex(GadgetSet * I, int index, int base, float *v);
+int GadgetSetGetVertex(const GadgetSet * I, int index, int base, float *v);
+int GadgetSetSetVertex(GadgetSet * I, int index, int base, const float *v);
+std::vector<float> GadgetSetGetCoord(const GadgetSet* I);
 #endif

@@ -1,9 +1,4 @@
-from __future__ import print_function
-
-try:
-    import cStringIO
-except ImportError:
-    import io as cStringIO
+import io as cStringIO
 
 import sys, os
 import time
@@ -42,7 +37,8 @@ class openw(object):
         if self.out.closed:
             return
         if self.filename:
-            oldcontents = open(self.filename).read()
+            with open(self.filename) as handle:
+                oldcontents = handle.read()
             newcontents = self.out.getvalue()
             if oldcontents != newcontents:
                 self.out = open(self.filename, "w")
@@ -76,12 +72,12 @@ def create_shadertext(shaderdir, shaderdir2, outputheader, outputfile):
     outputheader.write('extern const char * %s[];\n' % varname)
     outputfile.write('const char * %s[] = {\n' % varname)
 
-    for filename in shaderfiles:
+    for filename in sorted(shaderfiles):
         shaderfile = os.path.join(shaderdir, filename)
         if not os.path.exists(shaderfile):
             shaderfile = os.path.join(shaderdir2, filename)
 
-        with open(shaderfile, 'rU') as handle:
+        with open(shaderfile, 'r') as handle:
             contents = handle.read()
 
         if True:

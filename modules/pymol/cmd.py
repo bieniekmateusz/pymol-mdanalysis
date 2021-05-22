@@ -1,54 +1,24 @@
 
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
-# cmd.py 
+# cmd.py
 # Python interface module for PyMol
 #
-# **This is the only module which should be/need be imported by 
+# **This is the only module which should be/need be imported by
 # ** PyMol API Based Programs
 
-# NEW CALL RETURN CONVENTIONS for _cmd.so C-layer
-#
-
-# (1) Calls into C (_cmd) should return results/status and print
-#     errors and feedback (according to mask) BUT NEVER RAISE EXCEPTIONS
-#     from within the C code itself.
-
-# (2) Effective with version 0.99, standard Python return conventions
-# apply, but haven't yet been fully implemented.  In summary:
-
-#     Unless explicitly specified in the function:
-
-#     ==> Success with no information should return None
-
-#     ==> Failure should return a negative number as follows:
-#        -1 = a general, unspecified failure
-          
-#     Upon an error, exceptions will be raised by the Python wrapper
-#     layer if the "raise_exceptions" setting is on.
-
-#     ==> Boolean queries should return 1 for true/yes and 0 for false/no.
-
-#     ==> Count queries should return 0 or a positive number
-
-# (3) If _cmd produces a specific return result, be sure to include an
-#     error result as one of the possibilities outside the range of the
-#     expected return value.  For example, a negative distance
-#
-# (4) cmd.py API wrappers can then raise exceptions and return values.
-#
 # NOTE: Output tweaking via the "quiet" parameter of API functions.
 #
 # Many PyMOL API functions have a "quiet" parameter which is used to
@@ -63,8 +33,6 @@
 #
 # In rare cases, certain nonserious error or warning output should
 # also be suppressed.  Set "quiet" to 2 for this behavior.
-
-from __future__ import print_function
 
 def _deferred_init_pymol_internals(_pymol):
     # set up some global session tasks
@@ -87,9 +55,8 @@ def _deferred_init_pymol_internals(_pymol):
     # take care of some deferred initialization
 
     _pymol._view_dict_sc = Shortcut({})
-    _pymol._scene_dict_sc = Shortcut({})
 
-    # 
+    #
 if True:
 
     import sys
@@ -99,7 +66,7 @@ if True:
     _weakrefproxy = sys.modules[__name__]
 
     if True:
-        
+
         import re
         from pymol import _cmd
         import string
@@ -110,7 +77,7 @@ if True:
         import time
 
         _pymol = pymol
-        
+
         from .shortcut import Shortcut
 
         from chempy import io
@@ -129,23 +96,23 @@ if True:
 
         from .checking import *
         from .checking import _raising
-        
+
         #-------------------------------------------------------------------
         # path expansion, including our fixes for Win32
 
         def _nt_expandvars(path): # allow for //share/folder$/file
             path = nt_hidden_path_re.sub(r"$$\\",path)
             return os.path.expandvars(path)
-        
+
         if "nt" in sys.builtin_module_names:
             _expandvars = _nt_expandvars
         else:
             _expandvars = os.path.expandvars
-        
+
         def exp_path(path):
             path = as_pathstr(path)
             return _expandvars(os.path.expanduser(path))
-        
+
         def as_pathstr(path):
             # On Windows, always work with unicode file names. On Unix,
             # UTF-8 byte strings seem to be fine, so keep them for now.
@@ -163,23 +130,22 @@ if True:
         reaper = None
 
         # the following locks are used by both C and Python to insure that no more than
-        # one active thread enters PyMOL at a given time. 
-        
+        # one active thread enters PyMOL at a given time.
+
         lock_api = pymol.lock_api
-        lock_api_c = pymol.lock_api_c
         lock_api_status = pymol.lock_api_status
         lock_api_glut = pymol.lock_api_glut
         lock_api_data = pymol.lock_api_data
         lock_api_allow_flush = 1
-        
+
         from .locking import *
         lockcm = LockCM()
 
         #--------------------------------------------------------------------
         # status monitoring
-        
+
         from .monitoring import *
-        
+
         #--------------------------------------------------------------------
         # Feedback
 
@@ -195,6 +161,8 @@ if True:
         _coordset_update_spawn = internal._coordset_update_spawn
         _coordset_update_thread = internal._coordset_update_thread
         _copy_image = internal._copy_image
+        _call_in_gui_thread = lambda func: func()
+        _call_with_opengl_context = _call_in_gui_thread
         _ctrl = internal._ctrl
         _ctsh = internal._ctsh
         _do = internal._do
@@ -205,11 +173,9 @@ if True:
         _get_feedback = internal._get_feedback
         _interpret_color = internal._interpret_color
         _invalidate_color_sc = internal._invalidate_color_sc
-        _load = internal._load
         _mpng = internal._mpng
         _object_update_spawn = internal._object_update_spawn
         _object_update_thread = internal._object_update_thread
-        _png = internal._png
         _quit = internal._quit
         _ray_anti_spawn = internal._ray_anti_spawn
         _ray_hash_spawn = internal._ray_hash_spawn
@@ -223,11 +189,7 @@ if True:
         _cache_purge = internal._cache_purge
         _cache_mark = internal._cache_mark
         _sdof = internal._sdof
-        
-        # when adding, remember to also edit cmd2.py
 
-        get_feedback = _get_feedback # legacy
-        
         #######################################################################
         # now import modules which depend on the above
         #######################################################################
@@ -237,7 +199,7 @@ if True:
         #######################################################################
         # cmd module functions...
         #######################################################################
-            
+
         # for extending the language
 
         from .commanding import extend, extendaa, alias
@@ -245,7 +207,7 @@ if True:
         # for documentation etc
 
         from .helping import python_help
-                
+
         def write_html_ref(file):
             '''Write the PyMOL Command Reference to an HTML file'''
             f=open(file,'w')
@@ -347,7 +309,7 @@ with a slash (/) forces the interpreter to pass it to Python. See also the
 
             print("PyMOL Command Reference written to %s" % (os.path.abspath(file)))
 
-        
+
         #####################################################################
         # Here is where the PyMOL Command Language and API are built.
         #####################################################################
@@ -359,17 +321,17 @@ with a slash (/) forces the interpreter to pass it to Python. See also the
         # deferred initialization
 
         _deferred_init_pymol_internals(pymol)
-        
+
         # now we create the command langauge
-        
+
         from . import keywords
         keyword = keywords.get_command_keywords()
         kw_list = list(keyword.keys())
-        
+
         keywords.fix_list(kw_list)
         kwhash = Shortcut(kw_list)
         keywords.fix_dict(keyword)
-        
+
         # informational or API-only functions which don't exist in the
         # PyMOL command language namespace
 
@@ -377,7 +339,7 @@ with a slash (/) forces the interpreter to pass it to Python. See also the
         help_sc = Shortcut(list(keyword.keys())+list(help_only.keys()))
 
         # keyboard configuration
-        
+
         from . import keyboard
 
         key_mappings = keyboard.get_default_keys()
@@ -410,11 +372,11 @@ with a slash (/) forces the interpreter to pass it to Python. See also the
         map_sc = lambda sc=Shortcut,gnot=get_names_of_type:sc(gnot('object:map'))
         contour_sc =  lambda sc=Shortcut,gnot=get_names_of_type:sc(gnot('object:mesh')+gnot('object:surface'))
         group_sc = lambda sc=Shortcut,gnot=get_names_of_type:sc(gnot('object:group'))
-        
+
         # Table for argument autocompletion
 
         from . import completing
-        
+
         auto_arg = completing.get_auto_arg_list()
 
         color_sc = None

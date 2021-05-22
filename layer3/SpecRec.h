@@ -3,7 +3,7 @@
 #include"PyMOLObject.h"
 #include"CGO.h"
 
-/*
+/**
  * Specification record (a row in the object menu panel)
  */
 class SpecRec {
@@ -11,7 +11,7 @@ public:
   /* NOTE: must zero-init with CALLOC */
   int type;
   WordType name;                /*only used for selections */
-  CObject *obj;
+  pymol::CObject* obj;
   SpecRec *next;
   int visible;            /* This is actually when object is "Enabled", not visible */
 
@@ -24,8 +24,15 @@ public:
   int cand_id;
   SpecRec *group;
   int group_member_list_id;
-  int in_scene, is_hidden;
+  int in_scene;
   int in_panel;
   int grid_slot;
   CGO *gridSlotSelIndicatorsCGO;
+
+  void setEnabled(PyMOLGlobals* G, bool enabled);
+  const char* baseName() const;
+  bool isHidden(bool hide_underscore_names) const;
+  bool isHiddenNotRecursive(bool hide_underscore_names) const;
+  bool isChildOf(SpecRec const*) const;
 };
+

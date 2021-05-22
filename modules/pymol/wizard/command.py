@@ -1,9 +1,4 @@
-from __future__ import print_function
-
-try:
-    from itertools import izip_longest
-except ImportError:
-    from itertools import zip_longest as izip_longest
+from itertools import zip_longest as izip_longest
 
 from pymol import cmd, stored, wizard
 
@@ -15,8 +10,16 @@ class Command(wizard.Wizard):
     async_ = 1
     ignored_args = ('quiet',)
 
-    def __init__(self, command, _self=cmd):
-        import inspect
+    def __getstate__(self):
+        d = super(Command, self).__getstate__()
+        d['shortcut'] = {}
+        return d
+
+    @property
+    def func(self):
+        return self.cmd.keyword[self.command][0]
+
+    def __init__(self, command=None, _self=cmd):
 
         self.input_arg = None
         self.input_value = None
@@ -24,18 +27,33 @@ class Command(wizard.Wizard):
 
         wizard.Wizard.__init__(self, _self)
 
-        self.command = command
-        self.func = _self.keyword[command][0]
-        spec = inspect.getargspec(self.func)
-        self.args = []
-        self.current = {}
-        self.shortcut = {}
-
         self.stored_name = stored.get_unused_name('_wizard')
         setattr(stored, self.stored_name, self)
         self.varname = 'stored.' + self.stored_name
 
-        for arg, aa in izip_longest(spec.args, _self.auto_arg):
+        self.set_command(command, False)
+
+    def set_command(self, command, refresh=True):
+        self.command = command
+
+        if command is None:
+            return
+
+        import inspect
+
+        sig = inspect.signature(self.func, follow_wrapped=False)
+        self.args = []
+        self.current = {}
+        self.shortcut = {}
+
+        for param, aa in izip_longest(sig.parameters.values(), self.cmd.auto_arg):
+            if param is None:
+                break
+
+            if param.kind != inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                break
+
+            arg = param.name
             if arg.startswith('_') or arg in self.ignored_args:
                 continue
             self.args.append(arg)
@@ -49,9 +67,16 @@ class Command(wizard.Wizard):
             except:
                 pass
 
-        for (arg, value) in zip(reversed(spec.args), reversed(spec.defaults)):
+        for param in sig.parameters.values():
+            if param.default == inspect.Parameter.empty:
+                continue
+
+            arg = param.name
             if not (arg in self.ignored_args or arg.startswith('_')):
-                self.current[arg] = value
+                self.current[arg] = param.default
+
+        if refresh:
+            self.cmd.refresh_wizard()
 
     def set_menu_values(self, arg, values, first=1, last=-2):
         self.menu[arg][first:last] = [
@@ -60,6 +85,15 @@ class Command(wizard.Wizard):
         ]
 
     def get_menu(self, arg):
+        if arg == '_commands':
+            from pymol import keywords
+            from pymol.helping import python_help
+            return [
+                [1, str(command), self.varname + f'.set_command({command!r})' ]
+                for (command, value) in keywords.get_command_keywords().items()
+                if not command.startswith('_') and value[0] != python_help
+            ]
+
         if arg not in self.menu:
             return None
         try:
@@ -83,6 +117,12 @@ class Command(wizard.Wizard):
         delattr(stored, self.stored_name)
 
     def get_panel(self):
+        if self.command is None:
+            return [
+                [3, 'Select a command...', '_commands'],
+                [2, 'Done', 'cmd.set_wizard()'],
+            ]
+
         if self.input_arg:
             return [
                 [1, 'Input', ''],

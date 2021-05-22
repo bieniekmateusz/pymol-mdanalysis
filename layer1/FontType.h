@@ -19,6 +19,23 @@ Z* -------------------------------------------------------------------
 #define _H_FontType
 
 #include"Font.h"
+#include"TypeFace.h"
+
+struct CFontType : public CFont {
+  CTypeFace* TypeFace;
+
+  ~CFontType() override;
+
+  CFontType(PyMOLGlobals* G, unsigned char* dat, unsigned int len);
+  const char* RenderOpenGL(const RenderInfo* info, const char* text, float size,
+      const float* rpos, bool needSize, short relativeMode, bool shouldRender,
+      CGO* shaderCGO) override;
+  const char* RenderOpenGLFlat(const RenderInfo* info, const char* text, float size,
+      const float* rpos, bool needSize, short relativeMode, bool shouldRender,
+      CGO* shaderCGO) override;
+  const char* RenderRay(CRay* ray, const char* text, float size, const float* rpos,
+      bool needSize, short relativeMode) override;
+};
 
 CFont *FontTypeNew(PyMOLGlobals * G, unsigned char *dat, unsigned int len);
 

@@ -1,5 +1,3 @@
-from __future__ import division
-
 import os
 import sys
 import pymol
@@ -8,10 +6,28 @@ from pymol.Qt import QtGui, QtCore, QtWidgets
 from pymol.Qt.utils import getSaveFileNameWithExt, AsyncFunc
 from pymol.Qt.utils import PopupOnException
 
-if sys.version_info[0] < 3:
-    import urllib
-else:
-    import urllib.request as urllib
+import urllib.request as urllib
+
+
+def _get_cms_traj_file(fname):
+    """For a .cms file, get the filename of the corresponding trajectory file.
+    Return None if no such trajecotry file is found.
+    """
+    candidates = []
+
+    # 2) By filename conventions
+    stem = fname[:-8] if fname.endswith("-out.cms") else fname[:-4]
+    candidates += [
+        (stem + '_trj', 'clickme.dtr'),
+        (stem + '.xtc',),
+    ]
+
+    for components in candidates:
+        traj = os.path.join(*components)
+        if os.path.exists(traj):
+            return traj
+
+    return None
 
 
 def load_dialog(parent, fname, **kwargs):
@@ -27,13 +43,13 @@ def load_dialog(parent, fname, **kwargs):
 
     format = pymol.importing.filename_to_format(fname)[2]
 
-    if fname[-4:] in ['.dcd', '.dtr']:
+    if fname[-4:] in ['.dcd', '.dtr', '.xtc', '.trr']:
         load_traj_dialog(parent, fname)
     elif format in ('aln', 'fasta'):
-        load_aln_dialog(parent, fname)
+        load_aln_dialog(parent, fname, format)
     elif format == 'mae':
         load_mae_dialog(parent, fname)
-    elif format == 'ccp4':
+    elif format in ('ccp4', 'map'):
         load_map_dialog(parent, fname, 'ccp4')
     elif format == 'brix':
         load_map_dialog(parent, fname, 'o')
@@ -53,9 +69,9 @@ def load_dialog(parent, fname, **kwargs):
             return
 
         # auto-load desmond trajectory
-        if fname.endswith('-out.cms'):
-            traj = os.path.join(fname[:-8] + '_trj', 'clickme.dtr')
-            if os.path.exists(traj):
+        if fname.endswith('.cms'):
+            traj = _get_cms_traj_file(fname)
+            if traj:
                 load_traj_dialog(parent, traj)
 
     return True
@@ -185,7 +201,7 @@ def load_mtz_dialog(parent, filename):
     form._dialog.show()
 
 
-def load_aln_dialog(parent, filename):
+def load_aln_dialog(parent, filename, format):
     _self = parent.cmd
 
     import numpy
@@ -193,9 +209,16 @@ def load_aln_dialog(parent, filename):
     import pymol.seqalign as seqalign
 
     try:
+        # for fasta format, this only succeeds if all sequences have the
+        # same length, raises ValueError otherwise
         alignment = seqalign.aln_magic_read(filename)
+
+        # a single sequence is not an aligment
+        if format == "fasta" and len(alignment) < 2:
+            raise ValueError
     except ValueError:
-        # fails for fasta files which don't contain alignments
+        # fasta files which don't contain alignments will be loaded as
+        # extended structures (fab command) instead
         _self.load(filename)
         return
 
@@ -243,9 +266,17 @@ def load_aln_dialog(parent, filename):
         seqalign.load_aln_multi(filename, mapping=mapping, _self=_self)
         form._dialog.close()
 
+    def cancel():
+        form._dialog.close()
+        if format == 'fasta' and QtWidgets.QMessageBox.question(
+                parent, "Load as structures?",
+                "Load sequences as extended structures instead?"
+        ) == QtWidgets.QMessageBox.Yes:
+            _self.load(filename)
+
     # hook up events
     form.button_ok.clicked.connect(run)
-    form.button_cancel.clicked.connect(form._dialog.close)
+    form.button_cancel.clicked.connect(cancel)
 
     form._dialog.setModal(True)
     form._dialog.show()
@@ -270,7 +301,14 @@ def load_mae_dialog(parent, filename):
                 ', \\\n    atom_props=%s' % (
                     form.input_object_props.text(),
                     form.input_atom_props.text()))
-        multiplex = [-2, 0, 1][form.input_multiplex.currentIndex()]
+        multiplex, discrete = [
+            (-2, -1),
+            (0, 0),
+            (0, 1),
+            (1, -1),
+        ][form.input_multiplex.currentIndex()]
+        if discrete != -1:
+            command += ', \\\n    discrete={}'.format(discrete)
         if multiplex != -2:
             command += ', \\\n    multiplex={}'.format(multiplex)
         return command
@@ -387,14 +425,16 @@ def _get_assemblies(pdbid):
 
 def _get_chains(pdbid):
     # TODO move to another module
-    url = "http://www.rcsb.org/pdb/rest/describeMol?structureId=" + pdbid
+    import json
+    pdbid = pdbid.lower()
+    url = "https://www.ebi.ac.uk/pdbe/api/pdb/entry/polymer_coverage/" + pdbid
     try:
-        from lxml import etree
-    except ImportError:
-        from xml.etree import ElementTree as etree
-    try:
-        data = etree.parse(urllib.urlopen(url))
-        return [e.get('id') for e in data.findall('./*/polymer/chain')]
+        data = json.load(urllib.urlopen(url))
+        return [
+            chain['chain_id']
+            for molecule in data[pdbid]['molecules']
+            for chain in molecule['chains']
+        ]
     except Exception as e:
         print('_get_chains failed')
         print(e)

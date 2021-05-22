@@ -36,7 +36,7 @@ const char ss_map[] = {
     0
 };
 
-/*
+/**
  * Get the assembly coordinate sets
  *
  * See also: read_pdbx_struct_assembly (CifMoleculeReader.cpp)
@@ -156,11 +156,11 @@ ObjectMolecule * ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
   tai.id = -1;
   tai.q = 1.0f;
 
-  I = ObjectMoleculeNew(G, /* discrete */ 1);
-  I->Obj.Color = AtomInfoUpdateAutoColor(G);
+  I = new ObjectMolecule(G, /* discrete */ 1);
+  I->Color = AtomInfoUpdateAutoColor(G);
   I->NAtom = container->numAtoms;
   I->NCSet = container->numModels;
-  I->Bond = VLAlloc(BondType, container->numBonds);
+  I->Bond = pymol::vla<BondType>(container->numBonds);
   VLASize(I->AtomInfo, AtomInfoType, I->NAtom);
   VLASize(I->CSet, CoordSet *, I->NCSet);
 
@@ -171,17 +171,10 @@ ObjectMolecule * ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
   if (container->unitCell &&
       container->spaceGroup &&
       container->spaceGroup[0]) {
-    CSymmetry * symmetry = I->Symmetry = SymmetryNew(G);
-
-    for (int i = 0; i < 3; i++) {
-      symmetry->Crystal->Dim[i] = container->unitCell[i];
-      symmetry->Crystal->Angle[i] = container->unitCell[i + 3];
-    }
-
-    strncpy(symmetry->SpaceGroup, container->spaceGroup, WordLength - 1);
-
-    SymmetryUpdate(symmetry);
-    CrystalUpdate(symmetry->Crystal);
+    I->Symmetry.reset(new CSymmetry(G));
+    I->Symmetry->Crystal.setDims(container->unitCell);
+    I->Symmetry->Crystal.setAngles(container->unitCell + 3);
+    I->Symmetry->setSpaceGroup(container->spaceGroup);
   }
 
   // models (states)
@@ -189,8 +182,8 @@ ObjectMolecule * ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
     int modelChainCount = container->chainsPerModel[modelIndex];
 
     CoordSet * cset = CoordSetNew(G);
-    cset->Coord = VLAlloc(float, 3 * nindexEstimate);
-    cset->IdxToAtm = VLAlloc(int, nindexEstimate);
+    cset->Coord.reserve(3 * nindexEstimate);
+    cset->IdxToAtm.reserve(nindexEstimate);
     cset->Obj = I;
     I->CSet[modelIndex] = cset;
 
@@ -268,11 +261,10 @@ ObjectMolecule * ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
             ai->color = container->pymolColorList[atomIndex];
           }
 
-          VLACheck(cset->IdxToAtm, int, cset->NIndex);
-          VLACheck(cset->Coord, float, 3 * cset->NIndex + 2);
-          cset->IdxToAtm[cset->NIndex] = atomIndex;
-          float * coord = cset->coordPtr(cset->NIndex);
-          cset->NIndex++;
+          auto const idx = cset->getNIndex();
+          cset->setNIndex(idx + 1);
+          cset->IdxToAtm[idx] = atomIndex;
+          float* coord = cset->coordPtr(idx);
 
           coord[0] = container->xCoordList[atomIndex];
           coord[1] = container->yCoordList[atomIndex];
@@ -281,8 +273,7 @@ ObjectMolecule * ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
       }
     }
 
-    VLASize(cset->Coord, float, 3 * cset->NIndex);
-    VLASize(cset->IdxToAtm, int, cset->NIndex);
+    assert(cset->IdxToAtm.size() == cset->getNIndex());
   }
 
   if (atomIndex != I->NAtom) {
@@ -323,7 +314,7 @@ ObjectMolecule * ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
 
   MMTF_container_free(container);
 
-  ObjectMoleculeInvalidate(I, cRepAll, cRepInvAll, -1);
+  I->invalidate(cRepAll, cRepInvAll, -1);
   ObjectMoleculeUpdateNonbonded(I);
   ObjectMoleculeAutoDisableAtomNameWildcard(I);
 

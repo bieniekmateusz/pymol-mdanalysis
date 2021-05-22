@@ -25,9 +25,10 @@ Z* -------------------------------------------------------------------
 #include"Base.h"
 #include"MemoryDebug.h"
 #include"Map.h"
-#include"Debug.h"
 #include"Parse.h"
 #include"Tetsurf.h"
+#include"CarveHelper.h"
+#include"ContourSurf.h"
 #include"Vector.h"
 #include"Color.h"
 #include"main.h"
@@ -42,9 +43,6 @@ Z* -------------------------------------------------------------------
 #include"ShaderMgr.h"
 #include"CGO.h"
 
-static ObjectSurface *ObjectSurfaceNew(PyMOLGlobals * G);
-static void ObjectSurfaceFree(ObjectSurface * I);
-static void ObjectSurfaceStateInit(PyMOLGlobals * G, ObjectSurfaceState * ms);
 static void ObjectSurfaceRecomputeExtent(ObjectSurface * I);
 
 static PyObject *ObjectSurfaceStateAsPyList(ObjectSurfaceState * I)
@@ -71,8 +69,8 @@ static PyObject *ObjectSurfaceStateAsPyList(ObjectSurfaceState * I)
     PyList_SetItem(result, 12, PConvAutoNone(NULL));
   }
   PyList_SetItem(result, 13, PyInt_FromLong(I->DotFlag));
-  PyList_SetItem(result, 14, PyInt_FromLong(I->Mode));
-  PyList_SetItem(result, 15, PyInt_FromLong(I->Side));
+  PyList_SetItem(result, 14, PyInt_FromLong(static_cast<int>(I->Mode)));
+  PyList_SetItem(result, 15, PyInt_FromLong(static_cast<int>(I->Side)));
   PyList_SetItem(result, 16, PyInt_FromLong(I->quiet));
 
   return (PConvAutoNone(result));
@@ -81,12 +79,10 @@ static PyObject *ObjectSurfaceStateAsPyList(ObjectSurfaceState * I)
 static PyObject *ObjectSurfaceAllStatesAsPyList(ObjectSurface * I)
 {
 
-  PyObject *result = NULL;
-  int a;
-  result = PyList_New(I->NState);
-  for(a = 0; a < I->NState; a++) {
+  auto result = PyList_New(I->State.size());
+  for(int a = 0; a < I->State.size(); a++) {
     if(I->State[a].Active) {
-      PyList_SetItem(result, a, ObjectSurfaceStateAsPyList(I->State + a));
+      PyList_SetItem(result, a, ObjectSurfaceStateAsPyList(&I->State[a]));
     } else {
       PyList_SetItem(result, a, PConvAutoNone(NULL));
     }
@@ -107,7 +103,7 @@ static int ObjectSurfaceStateFromPyList(PyMOLGlobals * G, ObjectSurfaceState * I
     if(!PyList_Check(list))
       I->Active = false;
     else {
-      ObjectSurfaceStateInit(G, I);
+      *I = ObjectSurfaceState(G);
       if(ok)
         ok = PyList_Check(list);
       if(ok)
@@ -145,11 +141,13 @@ static int ObjectSurfaceStateFromPyList(PyMOLGlobals * G, ObjectSurfaceState * I
       }
       if(ok)
         ok = PConvPyIntToInt(PyList_GetItem(list, 13), &I->DotFlag);
+
       if(ok)
-        ok = PConvPyIntToInt(PyList_GetItem(list, 14), &I->Mode);
+        PConvFromPyListItem(G, list, 14, I->Mode);
 
       if(ok && (ll > 15))
-        PConvPyIntToInt(PyList_GetItem(list, 15), &I->Side);
+        PConvFromPyListItem(G, list, 15, I->Side);
+
       if(ok && (ll > 16))
         PConvPyIntToInt(PyList_GetItem(list, 16), &I->quiet);
 
@@ -162,16 +160,18 @@ static int ObjectSurfaceStateFromPyList(PyMOLGlobals * G, ObjectSurfaceState * I
   return (ok);
 }
 
-static int ObjectSurfaceAllStatesFromPyList(ObjectSurface * I, PyObject * list)
+static int ObjectSurfaceAllStatesFromPyList(ObjectSurface * I, PyObject * list, int size)
 {
   int ok = true;
-  int a;
-  VLACheck(I->State, ObjectSurfaceState, I->NState);
+  I->State.reserve(size);
   if(ok)
     ok = PyList_Check(list);
   if(ok) {
-    for(a = 0; a < I->NState; a++) {
-      ok = ObjectSurfaceStateFromPyList(I->Obj.G, I->State + a, PyList_GetItem(list, a));
+    for(int a = 0; a < size; a++) {
+      CPythonVal *val = CPythonVal_PyList_GetItem(I->G, list, a);
+      I->State.emplace_back(I->G);
+      ok = ObjectSurfaceStateFromPyList(I->G, &I->State.back(), val);
+      CPythonVal_Free(val);
       if(!ok)
         break;
     }
@@ -190,16 +190,22 @@ int ObjectSurfaceNewFromPyList(PyMOLGlobals * G, PyObject * list, ObjectSurface 
   if(ok)
     ok = PyList_Check(list);
 
-  I = ObjectSurfaceNew(G);
+  I = new ObjectSurface(G);
   if(ok)
     ok = (I != NULL);
 
+  if(ok){
+    auto *val = PyList_GetItem(list, 0);
+    ok = ObjectFromPyList(G, val, I);
+  }
+  int size = 0;
   if(ok)
-    ok = ObjectFromPyList(G, PyList_GetItem(list, 0), &I->Obj);
-  if(ok)
-    ok = PConvPyIntToInt(PyList_GetItem(list, 1), &I->NState);
-  if(ok)
-    ok = ObjectSurfaceAllStatesFromPyList(I, PyList_GetItem(list, 2));
+    ok = CPythonVal_PConvPyIntToInt_From_List(G, list, 1, &size);
+  if(ok){
+    CPythonVal *val = CPythonVal_PyList_GetItem(G, list, 2);
+    ok = ObjectSurfaceAllStatesFromPyList(I, val, size);
+    CPythonVal_Free(val);
+  }
   if(ok) {
     (*result) = I;
     ObjectSurfaceRecomputeExtent(I);
@@ -214,57 +220,26 @@ PyObject *ObjectSurfaceAsPyList(ObjectSurface * I)
   PyObject *result = NULL;
 
   result = PyList_New(3);
-  PyList_SetItem(result, 0, ObjectAsPyList(&I->Obj));
-  PyList_SetItem(result, 1, PyInt_FromLong(I->NState));
+  PyList_SetItem(result, 0, ObjectAsPyList(I));
+  PyList_SetItem(result, 1, PyInt_FromLong(I->State.size()));
   PyList_SetItem(result, 2, ObjectSurfaceAllStatesAsPyList(I));
 
   return (PConvAutoNone(result));
 }
 
-static void ObjectSurfaceStateFree(ObjectSurfaceState * ms)
+void ObjectSurfaceDump(ObjectSurface * I, const char *fname, int state, int quiet)
 {
-  ObjectStatePurge(&ms->State);
-  VLAFreeP(ms->N);
-  VLAFreeP(ms->V);
-  FreeP(ms->VC);
-  FreeP(ms->RC);
-  VLAFreeP(ms->AtomVertex);
-  CGOFree(ms->UnitCellCGO);
-
-  FreeP(ms->t_buf);
-  FreeP(ms->c_buf);
-}
-
-static void ObjectSurfaceFree(ObjectSurface * I)
-{
-  int a;
-  for(a = 0; a < I->NState; a++) {
-    if(I->State[a].Active)
-      ObjectSurfaceStateFree(I->State + a);
-  }
-  VLAFreeP(I->State);
-  ObjectPurge(&I->Obj);
-
-  OOFreeP(I);
-}
-
-void ObjectSurfaceDump(ObjectSurface * I, const char *fname, int state)
-{
-  float *v;
-  int *n;
-  int c;
-  FILE *f;
-  f = fopen(fname, "wb");
+  FILE* f = fopen(fname, "wb");
   if(!f)
-    ErrMessage(I->Obj.G, "ObjectSurfaceDump", "can't open file for writing");
+    ErrMessage(I->G, "ObjectSurfaceDump", "can't open file for writing");
   else {
-    if(state < I->NState) {
-      n = I->State[state].N;
-      v = I->State[state].V;
+    if(state < I->State.size()) {
+      auto n = I->State[state].N.data();
+      auto v = I->State[state].V.data();
       if(n && v)
         while(*n) {
           v += 12;
-          c = *(n++);
+          int c = *(n++);
           c -= 4;
           bool backface = true;
           const float *v1, *v2;
@@ -288,20 +263,22 @@ void ObjectSurfaceDump(ObjectSurface * I, const char *fname, int state)
         }
     }
     fclose(f);
-    PRINTFB(I->Obj.G, FB_ObjectSurface, FB_Actions)
-      " ObjectSurfaceDump: %s written to %s\n", I->Obj.Name, fname ENDFB(I->Obj.G);
+    if (!quiet) {
+      PRINTFB(I->G, FB_ObjectSurface, FB_Actions)
+        " ObjectSurfaceDump: %s written to %s\n", I->Name, fname ENDFB(I->G);
+    }
   }
 }
 
-static void ObjectSurfaceInvalidate(ObjectSurface * I, int rep, int level, int state)
+void ObjectSurface::invalidate(cRep_t rep, cRepInv_t level, int state)
 {
-  int a;
+  auto I = this;
   int once_flag = true;
   if(level >= cRepInvExtents) {
-    I->Obj.ExtentFlag = false;
+    I->ExtentFlag = false;
   }
   if((rep == cRepSurface) || (rep == cRepMesh) || (rep == cRepAll)) {
-    for(a = 0; a < I->NState; a++) {
+    for(int a = 0; a < I->State.size(); a++) {
       if(state < 0)
         once_flag = false;
       if(!once_flag)
@@ -310,19 +287,17 @@ static void ObjectSurfaceInvalidate(ObjectSurface * I, int rep, int level, int s
       if(level >= cRepInvRep) {
         I->State[state].ResurfaceFlag = true;
 	if(I->State[state].shaderCGO){
-	  CGOFree(I->State[state].shaderCGO);
-	  I->State[state].shaderCGO = 0;
+	  I->State[state].shaderCGO.reset();
 	}
-        SceneChanged(I->Obj.G);
+        SceneChanged(I->G);
       } else if(level >= cRepInvColor) {
         I->State[state].RecolorFlag = true;
 	if(I->State[state].shaderCGO){
-	  CGOFree(I->State[state].shaderCGO);
-	  I->State[state].shaderCGO = 0;
+	  I->State[state].shaderCGO.reset();
 	}
-        SceneChanged(I->Obj.G);
+        SceneChanged(I->G);
       } else {
-        SceneInvalidate(I->Obj.G);
+        SceneInvalidate(I->G);
       }
       if(once_flag)
         break;
@@ -332,16 +307,14 @@ static void ObjectSurfaceInvalidate(ObjectSurface * I, int rep, int level, int s
 
 int ObjectSurfaceInvalidateMapName(ObjectSurface * I, const char *name, const char * new_name)
 {
-  int a;
-  ObjectSurfaceState *ms;
   int result = false;
-  for(a = 0; a < I->NState; a++) {
-    ms = I->State + a;
+  for(int a = 0; a < I->State.size(); a++) {
+    auto ms = &I->State[a];
     if(ms->Active) {
       if(strcmp(ms->MapName, name) == 0) {
         if (new_name)
           strcpy(ms->MapName, new_name);
-        ObjectSurfaceInvalidate(I, cRepAll, cRepInvAll, a);
+        I->invalidate(cRepAll, cRepInvAll, a);
         result = true;
       }
     }
@@ -353,49 +326,48 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
 {
   int one_color_flag = true;
   int cur_color =
-    SettingGet_color(I->Obj.G, I->Obj.Setting, NULL, cSetting_surface_color);
+    SettingGet_color(I->G, I->Setting.get(), NULL, cSetting_surface_color);
 
   if(cur_color == -1)
-    cur_color = I->Obj.Color;
+    cur_color = I->Color;
 
-  if(ColorCheckRamped(I->Obj.G, cur_color))
+  if(ColorCheckRamped(I->G, cur_color))
     one_color_flag = false;
 
   ms->OneColor = cur_color;
   if(ms->V) {
     int ramped_flag = false;
-    float *v = ms->V;
+    float *v = ms->V.data();
     float *vc;
     int *rc;
     int a;
-    int state = ms - I->State;
+    int state = std::distance(I->State.data(), ms);
     int base_n_vert = ms->base_n_V;
     switch (ms->Mode) {
-    case 3:
-    case 2:
+    case cIsosurfaceMode::triangles_grad_normals:
+    case cIsosurfaceMode::triangles_tri_normals:
       {
         int n_vert = VLAGetSize(ms->V) / 6;
         base_n_vert /= 6;
 
-        if(ms->VC && (ms->VCsize < n_vert)) {
-          FreeP(ms->VC);
-          FreeP(ms->RC);
+        if(!ms->VC.empty() && (ms->VCsize() < n_vert)) {
+          ms->VC.clear();
+          ms->RC.clear();
         }
 
-        if(!ms->VC) {
-          ms->VCsize = n_vert;
-          ms->VC = pymol::malloc<float>(n_vert * 3);
+        if(ms->VC.empty()) {
+          ms->VC.resize(n_vert * 3);
         }
-        if(!ms->RC) {
-          ms->RC = pymol::malloc<int>(n_vert);
+        if(ms->RC.empty()) {
+          ms->RC.resize(n_vert);
         }
-        rc = ms->RC;
-        vc = ms->VC;
+        rc = ms->RC.data();
+        vc = ms->VC.empty() ? nullptr : ms->VC.data();
         v += 3;
         if(vc) {
           for(a = 0; a < n_vert; a++) {
             if(a == base_n_vert) {
-              int new_color = SettingGet_color(I->Obj.G, I->Obj.Setting,
+              int new_color = SettingGet_color(I->G, I->Setting.get(),
                                                NULL, cSetting_surface_negative_color);
               if(new_color == -1)
                 new_color = cur_color;
@@ -404,12 +376,12 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
                 cur_color = new_color;
               }
             }
-            if(ColorCheckRamped(I->Obj.G, cur_color)) {
-              ColorGetRamped(I->Obj.G, cur_color, v, vc, state);
+            if(ColorCheckRamped(I->G, cur_color)) {
+              ColorGetRamped(I->G, cur_color, v, vc, state);
               *rc = cur_color;
               ramped_flag = true;
             } else {
-              const float *col = ColorGet(I->Obj.G, cur_color);
+              const float *col = ColorGet(I->G, cur_color);
               copy3f(col, vc);
             }
             rc++;
@@ -419,30 +391,27 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
         }
       }
       break;
-    case 1:
-    case 0:
     default:
       {
         int n_vert = VLAGetSize(ms->V) / 3;
         base_n_vert /= 3;
-        if(ms->VC && (ms->VCsize < n_vert)) {
-          FreeP(ms->VC);
-          FreeP(ms->RC);
+        if(!ms->VC.empty() && (ms->VCsize() < n_vert)) {
+          ms->VC.clear();
+          ms->RC.clear();
         }
 
-        if(!ms->VC) {
-          ms->VCsize = n_vert;
-          ms->VC = pymol::malloc<float>(n_vert * 3);
+        if(ms->VC.empty()) {
+          ms->VC.resize(n_vert * 3);
         }
-        if(!ms->RC) {
-          ms->RC = pymol::malloc<int>(n_vert);
+        if(ms->RC.empty()) {
+          ms->RC.resize(n_vert);
         }
-        rc = ms->RC;
-        vc = ms->VC;
+        rc = ms->RC.data();
+        vc = ms->VC.empty() ? nullptr : ms->VC.data();
         if(vc) {
           for(a = 0; a < n_vert; a++) {
             if(a == base_n_vert) {
-              int new_color = SettingGet_color(I->Obj.G, I->Obj.Setting,
+              int new_color = SettingGet_color(I->G, I->Setting.get(),
                                                NULL, cSetting_surface_negative_color);
               if(new_color == -1)
                 new_color = cur_color;
@@ -451,12 +420,12 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
               cur_color = new_color;
             }
 
-            if(ColorCheckRamped(I->Obj.G, cur_color)) {
-              ColorGetRamped(I->Obj.G, cur_color, v, vc, state);
+            if(ColorCheckRamped(I->G, cur_color)) {
+              ColorGetRamped(I->G, cur_color, v, vc, state);
               *rc = cur_color;
               ramped_flag = true;
             } else {
-              const float *col = ColorGet(I->Obj.G, cur_color);
+              const float *col = ColorGet(I->G, cur_color);
               copy3f(col, vc);
             }
             rc++;
@@ -469,72 +438,69 @@ static void ObjectSurfaceStateUpdateColors(ObjectSurface * I, ObjectSurfaceState
     }
 
     if(one_color_flag && (!ramped_flag)) {
-      FreeP(ms->VC);
-      FreeP(ms->RC);
+      ms->VC.clear();
+      ms->RC.clear();
     } else if((!ramped_flag)
               ||
-              (!SettingGet_b(I->Obj.G, NULL, I->Obj.Setting, cSetting_ray_color_ramps))) {
-      FreeP(ms->RC);
+              (!SettingGet_b(I->G, NULL, I->Setting.get(), cSetting_ray_color_ramps))) {
+      ms->RC.clear();
     }
   }
 }
 
-static void ObjectSurfaceUpdate(ObjectSurface * I)
+void ObjectSurface::update()
 {
-  int a;
-  float carve_buffer;
-  for(a = 0; a < I->NState; a++) {
-    ObjectSurfaceState *ms = I->State + a;
+  auto I = this;
+  for(auto& msref : I->State) {
+    ObjectSurfaceState *ms = &msref;
     ObjectMapState *oms = NULL;
     ObjectMap *map = NULL;
-    MapType *voxelmap = NULL;     /* this has nothing to do with isosurfaces... */
 
     if(ms->Active) {
-      map = ExecutiveFindObjectMapByName(I->Obj.G, ms->MapName);
+      map = ExecutiveFindObjectMapByName(I->G, ms->MapName);
       if(!map) {
-        PRINTFB(I->Obj.G, FB_ObjectSurface, FB_Errors)
+        PRINTFB(I->G, FB_ObjectSurface, FB_Errors)
           "ObjectSurfaceUpdate-Error: map '%s' has been deleted.\n", ms->MapName
-          ENDFB(I->Obj.G);
+          ENDFB(I->G);
         ms->ResurfaceFlag = false;
       }
       if(map) {
         oms = ObjectMapGetState(map, ms->MapState);
       }
       if(oms) {
-        if(oms->State.Matrix) {
-          ObjectStateSetMatrix(&ms->State, oms->State.Matrix);
-        } else if(ms->State.Matrix) {
-          ObjectStateResetMatrix(&ms->State);
+        if(!oms->Matrix.empty()) {
+          ObjectStateSetMatrix(ms, oms->Matrix.data());
+        } else if(!ms->Matrix.empty()) {
+          ObjectStateResetMatrix(ms);
         }
 
-        if(I->Obj.visRep & cRepCellBit){
+        if(I->visRep & cRepCellBit){
           if (!ms->UnitCellCGO || ms->RefreshFlag || ms->ResurfaceFlag) {
-          ms->Crystal = *(oms->Symmetry->Crystal);
-          if((I->Obj.visRep & cRepCellBit)) {
-            CGOFree(ms->UnitCellCGO);
-            ms->UnitCellCGO = CrystalGetUnitCellCGO(&ms->Crystal);
-          }
+            ms->Crystal = oms->Symmetry->Crystal;
+            if((I->visRep & cRepCellBit)) {
+              ms->UnitCellCGO.reset(CrystalGetUnitCellCGO(&ms->Crystal));
+            }
           }
           ms->RefreshFlag = false;
         }
       }
-      if(map && ms && oms && ms->N && ms->V && (I->Obj.visRep & cRepSurfaceBit)) {
+      if(map && ms && oms && ms->N && ms->V && (I->visRep & cRepSurfaceBit)) {
         if(ms->ResurfaceFlag) {
           ms->ResurfaceFlag = false;
           ms->RecolorFlag = true;
           if(!ms->quiet) {
-            PRINTFB(I->Obj.G, FB_ObjectSurface, FB_Details)
-              " ObjectSurface: updating \"%s\".\n", I->Obj.Name ENDFB(I->Obj.G);
+            PRINTFB(I->G, FB_ObjectSurface, FB_Details)
+              " ObjectSurface: updating \"%s\".\n", I->Name ENDFB(I->G);
           }
 
-          CGOFree(ms->shaderCGO);
+          ms->shaderCGO.reset();
 
           if(oms->Field) {
 
             {
               float *min_ext, *max_ext;
               float tmp_min[3], tmp_max[3];
-              if(MatrixInvTransformExtentsR44d3f(ms->State.Matrix,
+              if(MatrixInvTransformExtentsR44d3f(ms->Matrix.data(),
                                                  ms->ExtentMin, ms->ExtentMax,
                                                  tmp_min, tmp_max)) {
                 min_ext = tmp_min;
@@ -544,45 +510,41 @@ static void ObjectSurfaceUpdate(ObjectSurface * I)
                 max_ext = ms->ExtentMax;
               }
 
-              TetsurfGetRange(I->Obj.G, oms->Field, oms->Symmetry->Crystal,
+              TetsurfGetRange(I->G, oms->Field.get(), &oms->Symmetry->Crystal,
                               min_ext, max_ext, ms->Range);
             }
 
+            std::unique_ptr<CarveHelper> carvehelper;
             if(ms->CarveFlag && ms->AtomVertex) {
-              carve_buffer = ms->CarveBuffer;
-              if(carve_buffer < 0.0F) {
-                carve_buffer = -carve_buffer;
-              }
-
-              voxelmap = MapNew(I->Obj.G, -carve_buffer, ms->AtomVertex,
-                                VLAGetSize(ms->AtomVertex) / 3, NULL);
-              if(voxelmap)
-                MapSetupExpress(voxelmap);
+              carvehelper.reset(new CarveHelper(G, ms->CarveBuffer,
+                  ms->AtomVertex, ms->AtomVertex.size() / 3));
             }
 
-            ms->nT = TetsurfVolume(I->Obj.G, oms->Field,
+            ms->nT = ContourSurfVolume(I->G, oms->Field.get(),
                                    ms->Level,
-                                   &ms->N, &ms->V,
+                                   ms->N, ms->V,
                                    ms->Range,
                                    ms->Mode,
-                                   voxelmap, ms->AtomVertex, ms->CarveBuffer, ms->Side);
+                                   carvehelper.get(),
+                                   ms->Side);
 
             if(!SettingGet_b
-               (I->Obj.G, I->Obj.Setting, NULL, cSetting_surface_negative_visible)) {
+               (I->G, I->Setting.get(), NULL, cSetting_surface_negative_visible)) {
               ms->base_n_V = VLAGetSize(ms->V);
             } else {
               /* do we want the negative surface too? */
 
               int nT2;
-              int *N2 = VLAlloc(int, 10000);
-              float *V2 = VLAlloc(float, 10000);
+              pymol::vla<int> N2(10000);
+              pymol::vla<float> V2(10000);
 
-              nT2 = TetsurfVolume(I->Obj.G, oms->Field,
+              nT2 = ContourSurfVolume(I->G, oms->Field.get(),
                                   -ms->Level,
-                                  &N2, &V2,
+                                  N2, V2,
                                   ms->Range,
                                   ms->Mode,
-                                  voxelmap, ms->AtomVertex, ms->CarveBuffer, ms->Side);
+                                  carvehelper.get(),
+                                  ms->Side);
               if(N2 && V2) {
 
                 int base_n_N = VLAGetSize(ms->N);
@@ -598,40 +560,29 @@ static void ObjectSurfaceUpdate(ObjectSurface * I)
                 VLASize(ms->V, float, base_n_V + addl_n_V);
 
                 /* copy vertex data */
-
-                memcpy(((char *) ms->V) + (sizeof(float) * base_n_V),
-                       V2, sizeof(float) * addl_n_V);
+                std::copy_n(V2.data(), addl_n_V, ms->V.data() + base_n_V);
 
                 /* copy strip counts */
+                std::copy_n(N2.data(), addl_n_N, ms->N.data() + base_n_N - 1);
 
-                memcpy(((char *) ms->N) + (sizeof(int) * (base_n_N - 1)),
-                       N2, sizeof(int) * addl_n_N);
                 ms->N[base_n_N + addl_n_N - 1] = 0;
 
                 ms->nT += nT2;
-                VLAFreeP(N2);
-                VLAFreeP(V2);
               }
             }
 
-            if(voxelmap)
-              MapFree(voxelmap);
-
-            if(ms->State.Matrix) {      /* in we're in a different reference frame... */
-              double *matrix = ms->State.Matrix;
-              float *v;
-              int *n, c;
-
-              v = ms->V;
-              n = ms->N;
+            if(!ms->Matrix.empty()) {      /* in we're in a different reference frame... */
+              double *matrix = ms->Matrix.data();
+              auto v = ms->V.data();
+              auto n = ms->N.data();
 
               if(n && v) {
 
                 while(*n) {
-                  c = *(n++);
+                  int c = *(n++);
                   switch (ms->Mode) {
-                  case 3:
-                  case 2:
+                  case cIsosurfaceMode::triangles_grad_normals:
+                  case cIsosurfaceMode::triangles_tri_normals:
                     transform44d3fas33d3f(matrix, v, v);
                     transform44d3f(matrix, v + 3, v + 3);
                     transform44d3fas33d3f(matrix, v + 6, v + 6);
@@ -645,7 +596,7 @@ static void ObjectSurfaceUpdate(ObjectSurface * I)
                       c -= 2;
                     }
                     break;
-                  case 1:
+                  case cIsosurfaceMode::lines:
                     transform44d3f(matrix, v, v);
                     c--;
                     v += 3;
@@ -655,7 +606,7 @@ static void ObjectSurfaceUpdate(ObjectSurface * I)
                       c--;
                     }
                     break;
-                  case 0:
+                  case cIsosurfaceMode::dots:
                   default:
                     while(c > 0) {
                       transform44d3f(matrix, v, v);
@@ -676,26 +627,22 @@ static void ObjectSurfaceUpdate(ObjectSurface * I)
       }
     }
   }
-  if(!I->Obj.ExtentFlag) {
+  if(!I->ExtentFlag) {
     ObjectSurfaceRecomputeExtent(I);
   }
-  SceneInvalidate(I->Obj.G);
+  SceneInvalidate(I->G);
 }
 
 static void ObjectSurfaceRenderGlobalTransparency(PyMOLGlobals * G,
     RenderInfo * info, ObjectSurfaceState *ms, const float *col, float alpha)
 {
-  float *v = NULL;
-  float *vc = NULL;
-  int c, *n;
-
-  v = ms->V;
-  vc = ms->VC;
-  n = ms->N;
+  auto v = ms->V.data();
+  const float* vc = ms->VC.empty() ? nullptr : ms->VC.data();
+  auto n = ms->N.data();
   
   while(*n) {
     int parity = 1;
-    c = *(n++);
+    int c = *(n++);
 
     v += 6;
     if(vc)
@@ -731,86 +678,79 @@ static void ObjectSurfaceRenderGlobalTransparency(PyMOLGlobals * G,
 }
 
 static void ObjectSurfaceRenderUnOptimizedTransparency(ObjectSurfaceState *ms, float alpha){
-  float *v = NULL;
-  float *vc = NULL;
-  int c, *n;
-
-  v = ms->V;
-  vc = ms->VC;
-  n = ms->N;
+  auto v = ms->V.data();
+  const float* vc = ms->VC.empty() ? nullptr : ms->VC.data();
+  auto n = ms->N.data();
 
   while(*n) {
-    c = *(n++);
-    CGOBegin(ms->shaderCGO, GL_TRIANGLE_STRIP);
+    int c = *(n++);
+    CGOBegin(ms->shaderCGO.get(), GL_TRIANGLE_STRIP);
     while(c > 0) {
-      CGONormalv(ms->shaderCGO, v);
+      CGONormalv(ms->shaderCGO.get(), v);
       v += 3;
       if(vc) {
-        CGOColorv(ms->shaderCGO, vc);
+        CGOColorv(ms->shaderCGO.get(), vc);
         vc += 3;
       }
-      CGOVertexv(ms->shaderCGO, v);
+      CGOVertexv(ms->shaderCGO.get(), v);
       v += 3;
       c -= 2;
     }
-    CGOEnd(ms->shaderCGO);
+    CGOEnd(ms->shaderCGO.get());
   }
 }
 
 static void ObjectSurfaceRenderOpaque(PyMOLGlobals * G, ObjectSurface * I, ObjectSurfaceState *ms){
-  float *v = NULL;
-  float *vc = NULL;
-  int c, *n;
-  v = ms->V;
-  n = ms->N;
-  CGOSpecial(ms->shaderCGO, LINEWIDTH_DYNAMIC_MESH);
-  vc = ms->VC;
+  auto v = ms->V.data();
+  auto n = ms->N.data();
+  CGOSpecial(ms->shaderCGO.get(), LINEWIDTH_DYNAMIC_MESH);
+  const float* vc = ms->VC.empty() ? nullptr : ms->VC.data();
 
   while(*n) {
-    c = *(n++);
+    int c = *(n++);
     switch (ms->Mode) {
-    case 3:
-    case 2:
-      CGOBegin(ms->shaderCGO, GL_TRIANGLE_STRIP);
+    case cIsosurfaceMode::triangles_grad_normals:
+    case cIsosurfaceMode::triangles_tri_normals:
+      CGOBegin(ms->shaderCGO.get(), GL_TRIANGLE_STRIP);
       while(c > 0) {
-        CGONormalv(ms->shaderCGO, v);
+        CGONormalv(ms->shaderCGO.get(), v);
         v += 3;
         if(vc) {
-          CGOColorv(ms->shaderCGO, vc);
+          CGOColorv(ms->shaderCGO.get(), vc);
           vc += 3;
         }
-        CGOVertexv(ms->shaderCGO, v);
+        CGOVertexv(ms->shaderCGO.get(), v);
         v += 3;
         c -= 2;
       }
-      CGOEnd(ms->shaderCGO);
+      CGOEnd(ms->shaderCGO.get());
       break;
-    case 1:
-      CGOBegin(ms->shaderCGO, GL_LINES);
+    case cIsosurfaceMode::lines:
+      CGOBegin(ms->shaderCGO.get(), GL_LINES);
       while(c > 0) {
         if(vc) {
-          CGOColorv(ms->shaderCGO, vc);
+          CGOColorv(ms->shaderCGO.get(), vc);
           vc += 3;
         }
-        CGOVertexv(ms->shaderCGO, v);
+        CGOVertexv(ms->shaderCGO.get(), v);
         v += 3;
         c--;
       }
-      CGOEnd(ms->shaderCGO);
+      CGOEnd(ms->shaderCGO.get());
       break;
-    case 0:
+    case cIsosurfaceMode::dots:
     default:
-      CGOBegin(ms->shaderCGO, GL_POINTS);
+      CGOBegin(ms->shaderCGO.get(), GL_POINTS);
       while(c > 0) {
         if(vc) {
-          CGOColorv(ms->shaderCGO, vc);
+          CGOColorv(ms->shaderCGO.get(), vc);
           vc += 3;
         }
-        CGOVertexv(ms->shaderCGO, v);
+        CGOVertexv(ms->shaderCGO.get(), v);
         v += 3;
         c--;
       }
-      CGOEnd(ms->shaderCGO);
+      CGOEnd(ms->shaderCGO.get());
     }
   }
 }
@@ -818,43 +758,42 @@ static void ObjectSurfaceRenderOpaque(PyMOLGlobals * G, ObjectSurface * I, Objec
 static void ObjectSurfaceRenderRay(PyMOLGlobals * G, ObjectSurface *I,
     RenderInfo * info, ObjectSurfaceState *ms)
 {
-  float *v = ms->V;
-  float *vc = ms->VC;
-  int *rc;
-  int c, *n = ms->N;
-  float alpha = 1.0F - SettingGet_f(G, NULL, I->Obj.Setting, cSetting_transparency);
+  float *v = ms->V.data();
+  int c;
+  int* n = ms->N.data();
+  float alpha = 1.0F - SettingGet_f(G, NULL, I->Setting.get(), cSetting_transparency);
   if(fabs(alpha - 1.0) < R_SMALL4)
     alpha = 1.0F;
 
 
   CRay *ray = info->ray;
-  if(ms->UnitCellCGO && (I->Obj.visRep & cRepCellBit)){
-    int rayok = CGORenderRay(ms->UnitCellCGO, ray, info, ColorGet(G, I->Obj.Color),
-                             NULL, I->Obj.Setting, NULL);
+  if(ms->UnitCellCGO && (I->visRep & cRepCellBit)){
+    int rayok = CGORenderRay(ms->UnitCellCGO.get(), ray, info, ColorGet(G, I->Color),
+                             NULL, I->Setting.get(), NULL);
     if (!rayok){
-      CGOFree(ms->UnitCellCGO);
+      ms->UnitCellCGO.reset();
     }
   }
   
   ray->transparentf(1.0F - alpha);
-  ms->Radius = SettingGet_f(G, I->Obj.Setting, NULL, cSetting_mesh_radius);
+  ms->Radius = SettingGet_f(G, I->Setting.get(), NULL, cSetting_mesh_radius);
   if(ms->Radius == 0.0F) {
     ms->Radius = ray->PixelRadius *
-      SettingGet_f(I->Obj.G, I->Obj.Setting, NULL, cSetting_mesh_width) / 2.0F;
+      SettingGet_f(I->G, I->Setting.get(), NULL, cSetting_mesh_width) / 2.0F;
   }
   
-  if(n && v && (I->Obj.visRep & cRepSurfaceBit)) {
+  if(n && v && (I->visRep & cRepSurfaceBit)) {
     float cc[3];
     float colA[3], colB[3], colC[3];
     ColorGetEncoded(G, ms->OneColor, cc);
-    vc = ms->VC;
+    float* vc = ms->VC.empty() ? nullptr : ms->VC.data();
     
-    rc = ms->RC;
+    const int* rc = ms->RC.empty() ? nullptr : ms->RC.data();
     while(*n) {
       c = *(n++);
       switch (ms->Mode) {
-      case 3:
-      case 2:
+      case cIsosurfaceMode::triangles_grad_normals:
+      case cIsosurfaceMode::triangles_tri_normals:
         v += 12;
         if(vc)
           vc += 6;
@@ -882,7 +821,7 @@ static void ObjectSurfaceRenderRay(PyMOLGlobals * G, ObjectSurface *I,
           c -= 2;
         }
         break;
-      case 1:
+      case cIsosurfaceMode::lines:
         c--;
         v += 3;
         if(vc)
@@ -905,7 +844,7 @@ static void ObjectSurfaceRenderRay(PyMOLGlobals * G, ObjectSurface *I,
           c--;
         }
         break;
-      case 0:
+      case cIsosurfaceMode::dots:
       default:
         while(c > 0) {
           if(vc) {
@@ -926,41 +865,39 @@ static void ObjectSurfaceRenderRay(PyMOLGlobals * G, ObjectSurface *I,
 static void ObjectSurfaceRenderCell(PyMOLGlobals *G, ObjectSurface * I,
     RenderInfo * info, ObjectSurfaceState *ms, short use_shader)
 {
-  const float *color = ColorGet(G, I->Obj.Color);
+  const float *color = ColorGet(G, I->Color);
   if (use_shader != ms->UnitCellCGO->has_draw_buffers){
     if (use_shader){
-      CGO *convertcgo = CGOOptimizeToVBONotIndexed(ms->UnitCellCGO, 0);
-      CGOFree(ms->UnitCellCGO);
-      ms->UnitCellCGO = convertcgo;
-      ms->UnitCellCGO->use_shader = true;
+      CGO *convertcgo = CGOOptimizeToVBONotIndexed(ms->UnitCellCGO.get(), 0);
+      ms->UnitCellCGO.reset(convertcgo);
+      assert(ms->UnitCellCGO->use_shader);
     } else {
-      CGOFree(ms->UnitCellCGO);
-      ms->UnitCellCGO = CrystalGetUnitCellCGO(&ms->Crystal);
+      ms->UnitCellCGO.reset(CrystalGetUnitCellCGO(&ms->Crystal));
     }
   }
-  CGORenderGL(ms->UnitCellCGO, color,
-              I->Obj.Setting, NULL, info, NULL);
+  CGORenderGL(ms->UnitCellCGO.get(), color,
+              I->Setting.get(), NULL, info, NULL);
 }
 
-static void ObjectSurfaceRender(ObjectSurface * I, RenderInfo * info)
+void ObjectSurface::render(RenderInfo * info)
 {
-  PyMOLGlobals *G = I->Obj.G;
+  auto I = this;
   int state = info->state;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  int pass = info->pass;
+  const RenderPass pass = info->pass;
   const float *col;
   ObjectSurfaceState *ms = NULL;
   float alpha;
-  ObjectPrepareContext(&I->Obj, info);
+  ObjectPrepareContext(I, info);
 
-  alpha = 1.0F - SettingGet_f(G, NULL, I->Obj.Setting, cSetting_transparency);
+  alpha = 1.0F - SettingGet_f(G, NULL, I->Setting.get(), cSetting_transparency);
   if(fabs(alpha - 1.0) < R_SMALL4)
     alpha = 1.0F;
 
-  StateIterator iter(G, I->Obj.Setting, state, I->NState);
+  StateIterator iter(G, I->Setting.get(), state, I->State.size());
   while(iter.next()) {
-    ms = I->State + iter.state;
+    ms = &I->State[iter.state];
     if(ms && ms->Active && ms->V && ms->N) {
       if(ray) {
         ObjectSurfaceRenderRay(G, I, info, ms);
@@ -972,75 +909,71 @@ static void ObjectSurfaceRender(ObjectSurface * I, RenderInfo * info)
             SettingGetGlobal_b(G, cSetting_use_shaders);
 
           if(info && info->alpha_cgo) {
-            render_now = (pass == 1);
+            render_now = (pass == RenderPass::Opaque);
             use_shader = false;
           } else if(alpha < 1.0F) {
-            render_now = (pass == -1);
+            render_now = (pass == RenderPass::Transparent);
           } else {
-            render_now = (pass == 1);
+            render_now = (pass == RenderPass::Opaque);
           }
 
-          if((I->Obj.visRep & cRepCellBit) && ms->UnitCellCGO && (pass == 1)){
+          if((I->visRep & cRepCellBit) && ms->UnitCellCGO && (pass == RenderPass::Opaque)){
             ObjectSurfaceRenderCell(G, I, info, ms, use_shader);
           }
 
           if(render_now) {
             if (ms->shaderCGO && use_shader != ms->shaderCGO->has_draw_buffers){
-              CGOFree(ms->shaderCGO);
+              ms->shaderCGO.reset();
             }
 
             if (ms->shaderCGO){
-              CGORenderGL(ms->shaderCGO, NULL, NULL, NULL, info, NULL);
+              CGORenderGL(ms->shaderCGO.get(), NULL, NULL, NULL, info, NULL);
               continue;
             }
             
             // Generating CGO
-            ms->shaderCGO = CGONew(G);
+            ms->shaderCGO.reset(CGONew(G));
             ms->shaderCGO->use_shader = true;
 
-            CGOResetNormal(ms->shaderCGO, false);
+            CGOResetNormal(ms->shaderCGO.get(), false);
 
             col = ColorGet(G, ms->OneColor);
             if((alpha != 1.0)) {
-              CGOAlpha(ms->shaderCGO, alpha);
+              CGOAlpha(ms->shaderCGO.get(), alpha);
             }
-            CGOColorv(ms->shaderCGO, col);
+            CGOColorv(ms->shaderCGO.get(), col);
             
-            if(I->Obj.visRep & cRepSurfaceBit) {
-              if((ms->Mode > 1) && (alpha != 1.0)) {        /* transparent */
+            if(I->visRep & cRepSurfaceBit) {
+              if (static_cast<int>(ms->Mode) > 1 &&
+                  alpha != 1.0) {         /* transparent triangles */
                 if(info->alpha_cgo) {     /* global transparency */
                   ObjectSurfaceRenderGlobalTransparency(G, info, ms, col, alpha);
                 } else {  /* cgo transparency with sorting if needed */
                   ObjectSurfaceRenderUnOptimizedTransparency(ms, alpha);
                 }
-              } else {      /* opaque, triangles */
+              } else { /* opaque, triangles */
                 ObjectSurfaceRenderOpaque(G, I, ms);
               }
             }
-            CGOStop(ms->shaderCGO);
+            CGOStop(ms->shaderCGO.get());
 
             if (use_shader){
-              CGO *convertcgo = NULL;
-              convertcgo = CGOCombineBeginEnd(ms->shaderCGO, 0);    
-              CGOFree(ms->shaderCGO);    
-              ms->shaderCGO = convertcgo;
-              convertcgo = CGOOptimizeToVBOIndexed(ms->shaderCGO, 0, NULL, true, (alpha != 1.0) /* embedTransparency */);
+              auto convertcgo = CGOOptimizeToVBOIndexed(ms->shaderCGO.get(), 0,
+                  nullptr, true, (alpha != 1.0) /* embedTransparency */);
               if (convertcgo){
-                CGOFree(ms->shaderCGO);
-                ms->shaderCGO = convertcgo;
+                ms->shaderCGO.reset(convertcgo);
               }
               ms->shaderCGO->use_shader = true;              
-              CGORenderGL(ms->shaderCGO, NULL, NULL, NULL, info, NULL);
+              CGORenderGL(ms->shaderCGO.get(), NULL, NULL, NULL, info, NULL);
             } else {
               if (alpha != 1.0){
                 // use_shader = 0
-                CGO *convertcgo = CGOConvertTrianglesToAlpha(ms->shaderCGO);
-                CGOFree(ms->shaderCGO);
-                ms->shaderCGO = convertcgo;
+                CGO *convertcgo = CGOConvertTrianglesToAlpha(ms->shaderCGO.get());
+                ms->shaderCGO.reset(convertcgo);
                 ms->shaderCGO->render_alpha = 1;
               }
               ms->shaderCGO->use_shader = false;
-              CGORenderGL(ms->shaderCGO, NULL, NULL, NULL, info, NULL);
+              CGORenderGL(ms->shaderCGO.get(), NULL, NULL, NULL, info, NULL);
             }
           }
         }
@@ -1052,94 +985,55 @@ static void ObjectSurfaceRender(ObjectSurface * I, RenderInfo * info)
 
 /*========================================================================*/
 
-static int ObjectSurfaceGetNStates(ObjectSurface * I)
+int ObjectSurface::getNFrame() const
 {
-  return (I->NState);
+  return State.size();
 }
 
 
 /*========================================================================*/
-ObjectSurface *ObjectSurfaceNew(PyMOLGlobals * G)
+ObjectSurface::ObjectSurface(PyMOLGlobals* G)
+    : pymol::CObject(G)
 {
-  OOAlloc(G, ObjectSurface);
-
-  ObjectInit(G, (CObject *) I);
-
-  I->NState = 0;
-  I->State = VLACalloc(ObjectSurfaceState, 10);        /* autozero important */
-
-  I->Obj.type = cObjectSurface;
-
-  I->Obj.fFree = (void (*)(CObject *)) ObjectSurfaceFree;
-  I->Obj.fUpdate = (void (*)(CObject *)) ObjectSurfaceUpdate;
-  I->Obj.fRender = (void (*)(CObject *, RenderInfo * info)) ObjectSurfaceRender;
-  I->Obj.fInvalidate = (void (*)(CObject *, int, int, int)) ObjectSurfaceInvalidate;
-  I->Obj.fGetNFrame = (int (*)(CObject *)) ObjectSurfaceGetNStates;
-  return (I);
+  type = cObjectSurface;
 }
-
 
 /*========================================================================*/
-void ObjectSurfaceStateInit(PyMOLGlobals * G, ObjectSurfaceState * ms)
+ObjectSurfaceState::ObjectSurfaceState(PyMOLGlobals* G)
+    : CObjectState(G)
+    , Crystal(G)
+    , Active(true)
 {
-  if(ms->Active)
-    ObjectStatePurge(&ms->State);
-  ObjectStateInit(G, &ms->State);
-  if(!ms->V) {
-    ms->V = VLAlloc(float, 10000);
-  }
-  if(!ms->N) {
-    ms->N = VLAlloc(int, 10000);
-  }
-  if(ms->AtomVertex) {
-    VLAFreeP(ms->AtomVertex);
-  }
-
-  ms->N[0] = 0;
-  ms->nT = 0;
-  ms->VC = NULL;
-  ms->RC = NULL;
-  ms->VCsize = 0;
-  ms->Active = true;
-  ms->ResurfaceFlag = true;
-  ms->RecolorFlag = false;
-  ms->ExtentFlag = false;
-  ms->CarveFlag = false;
-  ms->quiet = true;
-  ms->AtomVertex = NULL;
-  ms->UnitCellCGO = NULL;
-  ms->Side = 0;
-  ms->shaderCGO = 0;
+  V = pymol::vla<float>(10000);
+  N = pymol::vla<int>(10000);
 }
-
 
 /*========================================================================*/
 ObjectSurface *ObjectSurfaceFromBox(PyMOLGlobals * G, ObjectSurface * obj,
                                     ObjectMap * map, int map_state, int state, float *mn,
-                                    float *mx, float level, int mode, float carve,
-                                    float *vert_vla, int side, int quiet)
+                                    float *mx, float level, cIsosurfaceMode mode, float carve,
+                                    pymol::vla<float>&& vert_vla, cIsosurfaceSide side, int quiet)
 {
   ObjectSurface *I;
   ObjectSurfaceState *ms;
   ObjectMapState *oms;
 
   if(!obj) {
-    I = ObjectSurfaceNew(G);
+    I = new ObjectSurface(G);
   } else {
     I = obj;
   }
 
   if(state < 0)
-    state = I->NState;
-  if(I->NState <= state) {
-    VLACheck(I->State, ObjectSurfaceState, state);
-    I->NState = state + 1;
+    state = I->State.size();
+  if(I->State.size() <= state) {
+    VecCheckEmplace(I->State, state, G);
   }
 
-  ms = I->State + state;
-  ObjectSurfaceStateInit(G, ms);
+  ms = &I->State[state];
+  *ms = ObjectSurfaceState(G);
 
-  strcpy(ms->MapName, map->Obj.Name);
+  strcpy(ms->MapName, map->Name);
   ms->MapState = map_state;
   oms = ObjectMapGetState(map, map_state);
 
@@ -1149,10 +1043,10 @@ ObjectSurface *ObjectSurfaceFromBox(PyMOLGlobals * G, ObjectSurface * obj,
   ms->quiet = quiet;
   if(oms) {
 
-    if(oms->State.Matrix) {
-      ObjectStateSetMatrix(&ms->State, oms->State.Matrix);
-    } else if(ms->State.Matrix) {
-      ObjectStateResetMatrix(&ms->State);
+    if(!oms->Matrix.empty()) {
+      ObjectStateSetMatrix(ms, oms->Matrix.data());
+    } else if(!ms->Matrix.empty()) {
+      ObjectStateResetMatrix(ms);
     }
 
     copy3f(mn, ms->ExtentMin);  /* this is not exactly correct...should actually take vertex points from range */
@@ -1161,7 +1055,7 @@ ObjectSurface *ObjectSurfaceFromBox(PyMOLGlobals * G, ObjectSurface * obj,
     {
       float *min_ext, *max_ext;
       float tmp_min[3], tmp_max[3];
-      if(MatrixInvTransformExtentsR44d3f(ms->State.Matrix,
+      if(MatrixInvTransformExtentsR44d3f(ms->Matrix.data(),
                                          ms->ExtentMin, ms->ExtentMax,
                                          tmp_min, tmp_max)) {
         min_ext = tmp_min;
@@ -1171,20 +1065,20 @@ ObjectSurface *ObjectSurfaceFromBox(PyMOLGlobals * G, ObjectSurface * obj,
         max_ext = ms->ExtentMax;
       }
 
-      TetsurfGetRange(G, oms->Field, oms->Symmetry->Crystal, min_ext, max_ext, ms->Range);
+      TetsurfGetRange(G, oms->Field.get(), &oms->Symmetry->Crystal, min_ext, max_ext, ms->Range);
     }
     ms->ExtentFlag = true;
   }
   if(carve != 0.0) {
     ms->CarveFlag = true;
     ms->CarveBuffer = carve;
-    ms->AtomVertex = vert_vla;
+    ms->AtomVertex = std::move(vert_vla);
 
-    double *matrix = ObjectStateGetInvMatrix(&ms->State);
+    const double *matrix = ObjectStateGetInvMatrix(ms);
 
     if(matrix) {
       int n = VLAGetSize(ms->AtomVertex) / 3;
-      float *v = ms->AtomVertex;
+      float *v = ms->AtomVertex.data();
       while(n--) {
         /* convert back into original map coordinates 
            for surface carving operation */
@@ -1197,49 +1091,45 @@ ObjectSurface *ObjectSurfaceFromBox(PyMOLGlobals * G, ObjectSurface * obj,
   if(I) {
     ObjectSurfaceRecomputeExtent(I);
   }
-  I->Obj.ExtentFlag = true;
+  I->ExtentFlag = true;
   /*  printf("Brick %d %d %d %d %d %d\n",I->Range[0],I->Range[1],I->Range[2],I->Range[3],I->Range[4],I->Range[5]); */
   SceneChanged(G);
   SceneCountFrames(G);
   return (I);
 }
 
-int ObjectSurfaceGetLevel(ObjectSurface * I, int state, float *result)
+pymol::Result<float> ObjectSurfaceGetLevel(ObjectSurface * I, int state)
 {
-  int ok = true;
-  ObjectSurfaceState *ms;
-  if(state >= I->NState) {
-    ok = false;
+  if(state >= int(I->State.size())) {
+    return pymol::make_error("Invalid surface state");
   } else {
     if(state < 0) {
       state = 0;
     }
-    ms = I->State + state;
-    if(ms->Active && result) {
-      *result = ms->Level;
-    } else
-      ok = false;
+    auto ms = &I->State[state];
+    if(ms->Active) {
+      return ms->Level;
+    } else {
+      return pymol::make_error("Invalid Surface state");
+    }
   }
-  return (ok);
 }
 
 int ObjectSurfaceSetLevel(ObjectSurface * I, float level, int state, int quiet)
 {
-  int a;
   int ok = true;
   int once_flag = true;
-  ObjectSurfaceState *ms;
-  if(state >= I->NState) {
+  if(state >= int(I->State.size())) {
     ok = false;
   } else {
-    for(a = 0; a < I->NState; a++) {
+    for(int a = 0; a < I->State.size(); a++) {
       if(state < 0) {
         once_flag = false;
       }
       if(!once_flag) {
         state = a;
       }
-      ms = I->State + state;
+      auto ms = &I->State[state];
       if(ms->Active) {
         ms->ResurfaceFlag = true;
         ms->RefreshFlag = true;
@@ -1260,34 +1150,40 @@ int ObjectSurfaceSetLevel(ObjectSurface * I, float level, int state, int quiet)
 void ObjectSurfaceRecomputeExtent(ObjectSurface * I)
 {
   int extent_flag = false;
-  int a;
-  ObjectSurfaceState *ms;
 
-  for(a = 0; a < I->NState; a++) {
-    ms = I->State + a;
+  for(auto& msr : I->State) {
+    auto ms = &msr;
     if(ms->Active) {
       if(ms->ExtentFlag) {
         if(!extent_flag) {
           extent_flag = true;
-          copy3f(ms->ExtentMax, I->Obj.ExtentMax);
-          copy3f(ms->ExtentMin, I->Obj.ExtentMin);
+          copy3f(ms->ExtentMax, I->ExtentMax);
+          copy3f(ms->ExtentMin, I->ExtentMin);
         } else {
-          max3f(ms->ExtentMax, I->Obj.ExtentMax, I->Obj.ExtentMax);
-          min3f(ms->ExtentMin, I->Obj.ExtentMin, I->Obj.ExtentMin);
+          max3f(ms->ExtentMax, I->ExtentMax, I->ExtentMax);
+          min3f(ms->ExtentMin, I->ExtentMin, I->ExtentMin);
         }
       }
     }
   }
-  I->Obj.ExtentFlag = extent_flag;
+  I->ExtentFlag = extent_flag;
 
-  if(I->Obj.TTTFlag && I->Obj.ExtentFlag) {
+  if(I->TTTFlag && I->ExtentFlag) {
     const float *ttt;
     double tttd[16];
-    if(ObjectGetTTT(&I->Obj, &ttt, -1)) {
+    if(ObjectGetTTT(I, &ttt, -1)) {
       convertTTTfR44d(ttt, tttd);
       MatrixTransformExtentsR44d3f(tttd,
-                                   I->Obj.ExtentMin, I->Obj.ExtentMax,
-                                   I->Obj.ExtentMin, I->Obj.ExtentMax);
+                                   I->ExtentMin, I->ExtentMax,
+                                   I->ExtentMin, I->ExtentMax);
     }
   }
 }
+
+/*========================================================================*/
+
+pymol::CObject* ObjectSurface::clone() const
+{
+  return new ObjectSurface(*this);
+}
+

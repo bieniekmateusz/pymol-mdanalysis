@@ -21,24 +21,18 @@ Z* -------------------------------------------------------------------
 
 #include"PyMOLObject.h"
 
-typedef struct ObjectGroup {
-  CObject Obj;
-  int OpenOrClosed;
-  CObjectState State;           /* groups only have one state */
+struct ObjectGroup : public pymol::CObject {
+  int OpenOrClosed = false;
+  ObjectGroup(PyMOLGlobals* G);
+  ~ObjectGroup();
 
-} ObjectGroup;
-
-ObjectGroup *ObjectGroupNew(PyMOLGlobals * G);
+  // virtual methods
+  void render(RenderInfo* info) override {}
+};
 
 PyObject *ObjectGroupAsPyList(ObjectGroup * I);
 
 int ObjectGroupNewFromPyList(PyMOLGlobals * G, PyObject * list,
                              ObjectGroup ** result, int version);
-
-void ObjectGroupResetMatrix(ObjectGroup * I, int state);
-int ObjectGroupGetMatrix(ObjectGroup * I, int state, double **matrix);
-int ObjectGroupSetMatrix(ObjectGroup * I, int state, double *matrix);
-
-void ObjectGroupTransformMatrix(ObjectGroup * I, int state, double *matrix);
 
 #endif

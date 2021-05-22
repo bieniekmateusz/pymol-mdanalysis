@@ -9,11 +9,11 @@
 #include"ListMacros.h"
 #include"Color.h"
 #include"P.h"
-#include"LangUtil.h"
 
 static double accumTiming = 0.0;
 
 /* EXPERIMENTAL VOLUME RAYTRACING DATA */
+static std::shared_ptr<pymol::Image> rayVolumeImage;
 extern float *rayDepthPixels;
 extern int rayVolume, rayWidth, rayHeight;
 
@@ -31,8 +31,8 @@ static void SceneRaySetRayView(PyMOLGlobals * G, CScene *I, int stereo_hand,
     stAng = SettingGetGlobal_f(G, cSetting_stereo_angle);
     stShift = SettingGetGlobal_f(G, cSetting_stereo_shift);
     /* right hand */
-    stShift = (float) (stShift * fabs(I->Pos[2]) / 100.0);
-    stAng = (float) (stAng * atan(stShift / fabs(I->Pos[2])) * 90.0 / cPI);
+    stShift = (float) (stShift * fabs(I->m_view.m_pos[2]) / 100.0);
+    stAng = (float) (stAng * atan(stShift / fabs(I->m_view.m_pos[2])) * 90.0 / cPI);
     if(stereo_hand == 2) {  /* left hand */
       stAng = -stAng;
       stShift = -stShift;
@@ -45,12 +45,12 @@ static void SceneRaySetRayView(PyMOLGlobals * G, CScene *I, int stereo_hand,
       MatrixMultiplyC44f(temp, rayView);
     }
     /* move the camera to the location we are looking at */
-    MatrixTranslateC44f(rayView, I->Pos[0], I->Pos[1], I->Pos[2]);
+    MatrixTranslateC44f(rayView, I->m_view.m_pos[0], I->m_view.m_pos[1], I->m_view.m_pos[2]);
     MatrixTranslateC44f(rayView, stShift, 0.0, 0.0);
-    MatrixMultiplyC44f(I->RotMatrix, rayView);
+    MatrixMultiplyC44f(I->m_view.m_rotMatrix, rayView);
   } else {                  /* not stereo mode */
     /* move the camera to the location we are looking at */
-    MatrixTranslateC44f(rayView, I->Pos[0], I->Pos[1], I->Pos[2]);
+    MatrixTranslateC44f(rayView, I->m_view.m_pos[0], I->m_view.m_pos[1], I->m_view.m_pos[2]);
     if(shift) {
       MatrixTranslateC44f(rayView, shift, 0.0F, 0.0F);
     }
@@ -62,21 +62,21 @@ static void SceneRaySetRayView(PyMOLGlobals * G, CScene *I, int stereo_hand,
       float temp[16];
       identity44f(temp);
       MatrixRotateC44f(temp, (float) (-PI * *angle / 180), 0.0F, 1.0F, 0.0F);
-      MatrixMultiplyC44f(I->RotMatrix, temp);
+      MatrixMultiplyC44f(I->m_view.m_rotMatrix, temp);
       MatrixMultiplyC44f(temp, rayView);
     } else {
-      MatrixMultiplyC44f(I->RotMatrix, rayView);
+      MatrixMultiplyC44f(I->m_view.m_rotMatrix, rayView);
     }
   }
   /* 5. move the origin to the center of rotation */
-  MatrixTranslateC44f(rayView, -I->Origin[0], -I->Origin[1], -I->Origin[2]);
+  MatrixTranslateC44f(rayView, -I->m_view.m_origin[0], -I->m_view.m_origin[1], -I->m_view.m_origin[2]);
   
   if(Feedback(G, FB_Scene, FB_Debugging)) {
-    fprintf(stderr, "SceneRay: %8.3f %8.3f %8.3f\n", I->Pos[0], I->Pos[1], I->Pos[2]);
+    fprintf(stderr, "SceneRay: %8.3f %8.3f %8.3f\n", I->m_view.m_pos[0], I->m_view.m_pos[1], I->m_view.m_pos[2]);
     fprintf(stderr, "SceneRay: %8.3f %8.3f %8.3f\n",
-	    I->Origin[0], I->Origin[1], I->Origin[2]);
+	    I->m_view.m_origin[0], I->m_view.m_origin[1], I->m_view.m_origin[2]);
     fprintf(stderr, "SceneRay: %8.3f %8.3f %8.3f\n",
-	    I->RotMatrix[0], I->RotMatrix[1], I->RotMatrix[2]);
+	    I->m_view.m_rotMatrix[0], I->m_view.m_rotMatrix[1], I->m_view.m_rotMatrix[2]);
   }
 }
 
@@ -148,6 +148,7 @@ bool SceneRay(PyMOLGlobals * G,
 
   switch (I->StereoMode) {
   case cStereo_quadbuffer:
+  case cStereo_openvr:
     stereo_hand = 2;
     break;
   case cStereo_crosseye:
@@ -205,7 +206,7 @@ bool SceneRay(PyMOLGlobals * G,
 
       /* define the viewing volume */
 
-      height = (float) (fabs(I->Pos[2]) * tan((fov / 2.0) * cPI / 180.0));
+      height = (float) (fabs(I->m_view.m_pos[2]) * tan((fov / 2.0) * cPI / 180.0));
       width = height * aspRat;
       PyMOL_SetBusy(G->PyMOL, true);
       OrthoBusyFast(G, 0, 20);
@@ -220,8 +221,8 @@ bool SceneRay(PyMOLGlobals * G,
 
         if(ortho) {
           const float _1 = 1.0F;
-          RayPrepare(ray, -width, width, -height, height, I->FrontSafe,
-                     I->BackSafe, fov,  I->Pos, rayView, I->RotMatrix,
+          RayPrepare(ray, -width, width, -height, height, I->m_view.m_clipSafe.m_front,
+                     I->m_view.m_clipSafe.m_back, fov,  I->m_view.m_pos, rayView, I->m_view.m_rotMatrix,
                      aspRat, ray_width, ray_height, 
                      pixel_scale_value, ortho, _1, _1,      
                      ((float) ray_height) / I->Height);
@@ -230,32 +231,31 @@ bool SceneRay(PyMOLGlobals * G,
           float back_height;
           float back_width;
           float pos;
-          pos = I->Pos[2];
+          pos = I->m_view.m_pos[2];
 
-          if((-pos) < I->FrontSafe) {
-            pos = -I->FrontSafe;
+          if((-pos) < I->m_view.m_clipSafe.m_front) {
+            pos = -I->m_view.m_clipSafe.m_front;
           }
 
-          back_ratio = -I->Back / pos;
+          back_ratio = -I->m_view.m_clipSafe.m_back / pos;
           back_height = back_ratio * height;
           back_width = aspRat * back_height;
           RayPrepare(ray,
                      -back_width, back_width,
                      -back_height, back_height,
-                     I->FrontSafe, I->BackSafe,
-                     fov, I->Pos,
-                     rayView, I->RotMatrix, aspRat,
+                     I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back,
+                     fov, I->m_view.m_pos,
+                     rayView, I->m_view.m_rotMatrix, aspRat,
                      ray_width, ray_height,
                      pixel_scale_value, ortho,
                      height / back_height,
-                     I->FrontSafe / I->BackSafe, ((float) ray_height) / I->Height);
+                     I->m_view.m_clipSafe.m_front / I->m_view.m_clipSafe.m_back, ((float) ray_height) / I->Height);
         }
       }
       {
         int *slot_vla = I->SlotVLA;
         int state = SceneGetState(G);
         RenderInfo info;
-        UtilZeroMem(&info, sizeof(RenderInfo));
         info.ray = ray;
         info.ortho = ortho;
         info.vertex_scale = SceneGetScreenVertexScale(G, NULL);
@@ -269,38 +269,40 @@ bool SceneRay(PyMOLGlobals * G,
           info.dynamic_width_max = SettingGetGlobal_f(G, cSetting_dynamic_width_max);
         }
 
-        for ( auto it = I->Obj.begin(); it != I->Obj.end(); ++it) {
-          if((*it)->fRender) {
-            if(SceneGetDrawFlag(&I->grid, slot_vla, (*it)->grid_slot)) {
-              int obj_color = (*it)->Color;
+        for (auto* obj : I->Obj) {
+          // ObjectGroup used to have fRender = NULL
+          if (obj->type != cObjectGroup) {
+            if(SceneGetDrawFlag(&I->grid, slot_vla, obj->grid_slot)) {
               float color[3];
-              int icx;
-              ColorGetEncoded(G, obj_color, color);
-              RaySetContext(ray, (*it)->Context);
+              ColorGetEncoded(G, obj->Color, color);
+              RaySetContext(ray, obj->getRenderContext());
               ray->color3fv(color);
 
-              if(SettingGetIfDefined_i
-                 (G, (*it)->Setting, cSetting_ray_interior_color, &icx)) {
-                float icolor[3];
-                if(icx != -1) {
-                  if(icx == cColorObject) {
-                    ray->interiorColor3fv(color, false);
-                  } else {
-                    ColorGetEncoded(G, icx, icolor);
-                    ray->interiorColor3fv(icolor, false);
-                  }
-                } else {
-                  ray->interiorColor3fv(color, true);
-                }
-              } else {
+              auto icx = SettingGetWD<int>(
+                  obj->Setting.get(), cSetting_ray_interior_color, cColorDefault);
+
+              if (icx == cColorDefault) {
                 ray->interiorColor3fv(color, true);
+              } else if (icx == cColorObject) {
+                ray->interiorColor3fv(color, false);
+              } else {
+                float icolor[3];
+                ColorGetEncoded(G, icx, icolor);
+                ray->interiorColor3fv(icolor, false);
               }
-              if((!I->grid.active) || (I->grid.mode != 2)) {
-                info.state = ObjectGetCurrentState((*it), false);
-                (*it)->fRender(*it, &info);
+
+              if((!I->grid.active) || (I->grid.mode < 2)) {
+                info.state = ObjectGetCurrentState(obj, false);
+                obj->render(&info);
               } else if(I->grid.slot) {
-                if((info.state = state + I->grid.slot - 1) >= 0)
-                  (*it)->fRender(*it, &info);
+                if (I->grid.mode == 2) {
+                  if((info.state = state + I->grid.slot - 1) >= 0)
+                    obj->render(&info);
+                } else if (I->grid.mode == 3) {
+                  info.state = I->grid.slot - obj->grid_slot - 1;
+                  if (info.state >= 0 && info.state < obj->getNFrame())
+                    obj->render(&info);
+                }
               }
             }
           }
@@ -363,6 +365,12 @@ bool SceneRay(PyMOLGlobals * G,
           I->DirtyFlag = false;
           I->CopyType = true;
           I->CopyForced = true;
+
+          if (SettingGet<bool>(G, cSetting_ray_volume) && !I->Image->empty()) {
+            rayVolumeImage = I->Image;
+          } else {
+            rayVolumeImage = nullptr;
+          }
         }
         break;
 
@@ -370,7 +378,7 @@ bool SceneRay(PyMOLGlobals * G,
         charVLA = VLACalloc(char, 100000);
         headerVLA = VLACalloc(char, 2000);
         RayRenderPOV(ray, ray_width, ray_height, &headerVLA, &charVLA,
-                     I->FrontSafe, I->BackSafe, fov, angle, antialias);
+                     I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov, angle, antialias);
         if(!(charVLA_ptr && headerVLA_ptr)) {   /* immediate mode */
           strcpy(prefix, SettingGet_s(G, NULL, NULL, cSetting_batch_prefix));
 #ifndef _PYMOL_NOPY
@@ -389,12 +397,12 @@ bool SceneRay(PyMOLGlobals * G,
         }
         break;
       case 2:                  /* mode 2 is for testing of geometries */
-        RayRenderTest(ray, ray_width, ray_height, I->FrontSafe, I->BackSafe, fov);
+        RayRenderTest(ray, ray_width, ray_height, I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov);
         break;
       case 3:                  /* mode 3 is for Jmol */
         {
           G3dPrimitive *jp =
-            RayRenderG3d(ray, ray_width, ray_height, I->FrontSafe, I->BackSafe, fov,
+            RayRenderG3d(ray, ray_width, ray_height, I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov,
                          quiet);
           if(0) {
             int cnt = VLAGetSize(jp);
@@ -429,7 +437,7 @@ bool SceneRay(PyMOLGlobals * G,
         {
           char *vla = VLACalloc(char, 100000);
           RayRenderVRML2(ray, ray_width, ray_height, &vla,
-                         I->FrontSafe, I->BackSafe, fov, angle, I->Pos[2]);
+                         I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov, angle, I->m_view.m_pos[2]);
           *charVLA_ptr = vla;
         }
         break;
@@ -438,7 +446,7 @@ bool SceneRay(PyMOLGlobals * G,
           char *objVLA = VLACalloc(char, 100000);
           char *mtlVLA = VLACalloc(char, 1000);
           RayRenderObjMtl(ray, ray_width, ray_height, &objVLA, &mtlVLA,
-                          I->FrontSafe, I->BackSafe, fov, angle, I->Pos[2]);
+                          I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov, angle, I->m_view.m_pos[2]);
           *headerVLA_ptr = objVLA;
           *charVLA_ptr = mtlVLA;
         }
@@ -447,7 +455,7 @@ bool SceneRay(PyMOLGlobals * G,
         {
           char *vla = VLACalloc(char, 100000);
           RayRenderVRML1(ray, ray_width, ray_height, &vla,
-                         I->FrontSafe, I->BackSafe, fov, angle, I->Pos[2]);
+                         I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov, angle, I->m_view.m_pos[2]);
           *charVLA_ptr = vla;
         }
         break;
@@ -462,7 +470,7 @@ bool SceneRay(PyMOLGlobals * G,
         {
           *charVLA_ptr = VLACalloc(char, 100000);
           RayRenderCOLLADA(ray, ray_width, ray_height, charVLA_ptr,
-                            I->FrontSafe, I->BackSafe, fov);
+                            I->m_view.m_clipSafe.m_front, I->m_view.m_clipSafe.m_back, fov);
         }
         break;
 
@@ -490,6 +498,7 @@ bool SceneRay(PyMOLGlobals * G,
       switch (I->StereoMode) {
       case cStereo_quadbuffer:
       case cStereo_geowall:
+      case cStereo_openvr:
         /* merge the two images into one */
         I->Image->merge(*stereo_image);
         break;
@@ -773,9 +782,10 @@ void SceneRenderRayVolume(PyMOLGlobals * G, CScene *I){
 #endif
   glDepthMask(GL_FALSE);
 #ifndef PURE_OPENGL_ES_2
-  if (PIsGlutThread() && I->Image && !I->Image->empty()){
+  if (PIsGlutThread() && rayVolumeImage) {
     if (rayWidth == I->Width && rayHeight == I->Height){
-      glDrawPixels(I->Image->getWidth(), I->Image->getHeight(), GL_RGBA, GL_UNSIGNED_BYTE, I->Image->bits());
+      glDrawPixels(rayVolumeImage->getWidth(), rayVolumeImage->getHeight(),
+          GL_RGBA, GL_UNSIGNED_BYTE, rayVolumeImage->bits());
     } else {
       SceneDrawImageOverlay(G, 1, NULL);
     }

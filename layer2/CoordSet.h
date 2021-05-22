@@ -23,6 +23,13 @@ Z* -------------------------------------------------------------------
 #include"Word.h"
 #include"Setting.h"
 #include"ObjectMolecule.h"
+#include"vla.h"
+
+#include "pymol/math_defines.h"
+#include "pymol/memory.h"
+#include "pymol/zstring_view.h"
+
+#include <type_traits>
 
 #define COORD_SET_HAS_ANISOU 0x01
 
@@ -32,18 +39,29 @@ enum mmpymolx_prop_state_t {
   MMPYMOLX_PROP_STATE_USER,     // user-assigned (cmd.alter)
 };
 
-typedef struct CoordSet {
-  // methods (not fully refactored yet)
-  void fFree();
+struct CoordSet : CObjectState {
+  enum {
+    NoPeriodicity = 0,
+    Orthogonal = 1,
+    Octahedral = 2,
+  };
 
   // methods
   void update(int state);
   void render(RenderInfo * info);
   void enumIndices();
-  void appendIndices(int offset);
   int extendIndices(int nAtom);
-  void invalidateRep(int type, int level);
+  void invalidateRep(cRep_t type, cRepInv_t level);
   int atmToIdx(int atm) const;
+  void setNIndex(unsigned nindex);
+  void updateNonDiscreteAtmToIdx(unsigned);
+
+  /// Number of atoms with coordinates in this coordset
+  int getNIndex() const
+  {
+    // TODO If possible, eliminate NIndex, use IdxToAtm.size()
+    return NIndex;
+  }
 
   // read/write pointer to coordinate
   float * coordPtr(int idx) {
@@ -55,8 +73,15 @@ typedef struct CoordSet {
     return Coord + idx * 3;
   }
 
+  float const* coordPtrSym(
+      int idx, pymol::SymOp const& symop, float* v_out, bool inv = false) const;
+
   AtomInfoType * getAtomInfo(int idx) {
     return Obj->AtomInfo + IdxToAtm[idx];
+  }
+
+  const AtomInfoType* getAtomInfo(int idx) const {
+    return const_cast<CoordSet*>(this)->getAtomInfo(idx);
   }
 
   // true if any atom in this coord set has any of the reps in "bitmask" shown
@@ -68,35 +93,34 @@ typedef struct CoordSet {
     return false;
   }
 
-  CObjectState State;
-  ObjectMolecule *Obj;
-  float *Coord;
-  int *IdxToAtm;
-  int *AtmToIdx;
-  int NIndex, NAtIndex, prevNIndex, prevNAtIndex;
-  ::Rep *Rep[cRepCnt];            /* an array of pointers to representations */
-  int Active[cRepCnt];          /* active flags */
-  int NTmpBond;                 /* optional, temporary (for coord set transfers) */
-  BondType *TmpBond;            /* actual bond info is stored in ObjectMolecule */
-  int NTmpLinkBond;             /* optional, temporary storage of linkage  info. */
-  BondType *TmpLinkBond;        /* first atom is in obj, second is in cset */
-  CSymmetry *Symmetry;
-  WordType Name;
-  float *Spheroid;
-  float *SpheroidNormal;
-  int NSpheroid;
-  int SpheroidSphereSize;
-  CSetting *Setting;
-  /* for periodic MD boxes -- may be merge into symmetry lattice later... */
-  CCrystal *PeriodicBox;
-  int PeriodicBoxType;
-  int tmp_index;                /* for saving */
+  //! Get symmetry if defined, otherwise get it from parent object.
+  CSymmetry const* getSymmetry() const
+  {
+    return Symmetry ? Symmetry.get() : Obj ? Obj->Symmetry.get() : nullptr;
+  }
 
-  LabPosType *LabPos;
+  ObjectMolecule *Obj = nullptr;
+  pymol::vla<float> Coord;
+  std::vector<int> IdxToAtm;
+  std::vector<int> AtmToIdx;
+  int NIndex = 0;
+  ::Rep *Rep[cRepCnt] = {0};            /* an array of pointers to representations */
+  int Active[cRepCnt] = {0};          /* active flags */
+  int NTmpBond = 0;                 /* optional, temporary (for coord set transfers) */
+  pymol::vla<BondType> TmpBond;            /* actual bond info is stored in ObjectMolecule */
+  int NTmpLinkBond = 0;             /* optional, temporary storage of linkage  info. */
+  pymol::vla<BondType> TmpLinkBond;        /* first atom is in obj, second is in cset */
+  std::unique_ptr<CSymmetry> Symmetry;
+  WordType Name = {0};
+  std::vector<float> Spheroid;
+  std::vector<float> SpheroidNormal;
+  pymol::copyable_ptr<CSetting> Setting;
+  int PeriodicBoxType = NoPeriodicity;
+  int tmp_index = 0;                /* for saving */
 
   /* not saved in state */
 
-  RefPosType *RefPos;
+  pymol::vla<RefPosType> RefPos;
 
   /* idea:  
      int start_atix, stop_atix <-- for discrete objects, we need
@@ -107,46 +131,63 @@ typedef struct CoordSet {
      byres/bychain actions which assume such atoms to be adjancent...
    */
 
-  CGO *SculptCGO, *SculptShaderCGO;
-  MapType *Coord2Idx;
-  float Coord2IdxReq, Coord2IdxDiv;
+  CGO *SculptCGO = nullptr;
+  CGO *SculptShaderCGO = nullptr;
+  pymol::cache_ptr<CGO> UnitCellCGO;
+
+  MapType *Coord2Idx = nullptr;
+  float Coord2IdxReq = 0, Coord2IdxDiv = 0;
 
   /* temporary / optimization */
 
-  int objMolOpInvalidated;
+  int objMolOpInvalidated = 0;
 #ifdef _PYMOL_IP_EXTRAS
-  mmpymolx_prop_state_t validMMStereo;
-  mmpymolx_prop_state_t validTextType;
+  mmpymolx_prop_state_t validMMStereo = MMPYMOLX_PROP_STATE_NULL;
+  mmpymolx_prop_state_t validTextType = MMPYMOLX_PROP_STATE_NULL;
 #endif
 
 #ifdef _PYMOL_IP_PROPERTIES
 #endif
 
   /* Atom-state Settings */
-  int *atom_state_setting_id;
-  char *has_atom_state_settings;
-} CoordSet;
+  pymol::vla<int> atom_state_setting_id;
 
-typedef void (*fUpdateFn) (CoordSet *, int);
+  /// True if any atom might have state level settings
+  bool has_any_atom_state_settings() const { return atom_state_setting_id; }
 
-#define cCSet_NoPeriodicity 0
-#define cCSet_Orthogonal 1
-#define cCSet_Octahedral 2
+  /// True if atom `idx` has state level settings
+  bool has_atom_state_settings(int idx) const
+  {
+    return atom_state_setting_id && atom_state_setting_id[idx] != 0;
+  }
 
-int BondInOrder(BondType * a, int b1, int b2);
-int BondCompare(BondType * a, BondType * b);
+  // special member functions
+  CoordSet(PyMOLGlobals * G);
+  CoordSet(const CoordSet &cs);
+  ~CoordSet();
+
+  pymol::Result<pymol::Vec3> getAtomLabelOffset(int atm) const;
+  pymol::Result<> setAtomLabelOffset(int atm, const float* offset);
+
+  void setTitle(pymol::zstring_view);
+
+  double const* getPremultipliedMatrix() const;
+};
+
+int BondInOrder(BondType const* a, int b1, int b2);
+int BondCompare(BondType const* a, BondType const* b);
 
 PyObject *CoordSetAsNumPyArray(CoordSet * cs, short copy);
 PyObject *CoordSetAsPyList(CoordSet * I);
 int CoordSetFromPyList(PyMOLGlobals * G, PyObject * list, CoordSet ** cs);
 
-CoordSet *CoordSetNew(PyMOLGlobals * G);
 void CoordSetAtomToPDBStrVLA(PyMOLGlobals * G, char **charVLA, int *c,
                              const AtomInfoType * ai,
                              const float *v, int cnt,
                              const PDBInfoRec * pdb_info,
                              const double *matrix);
-CoordSet *CoordSetCopy(const CoordSet * cs);
+#define CoordSetNew(G) new CoordSet(G)
+CoordSet* CoordSetCopy(const CoordSet* src);
 
 void CoordSetTransform44f(CoordSet * I, const float *mat);
 void CoordSetTransform33f(CoordSet * I, const float *mat);
@@ -159,11 +200,11 @@ bool CoordSetInsureOrthogonal(PyMOLGlobals * G,
     const CCrystal *cryst=NULL,
     bool quiet=true);
 
-void CoordSetGetAverage(CoordSet * I, float *v0);
+void CoordSetGetAverage(const CoordSet * I, float *v0);
 PyObject *CoordSetAtomToChemPyAtom(PyMOLGlobals * G, AtomInfoType * ai, const float *v,
                                    const float *ref, int index, const double *matrix);
-int CoordSetGetAtomVertex(CoordSet * I, int at, float *v);
-int CoordSetGetAtomTxfVertex(CoordSet * I, int at, float *v);
+int CoordSetGetAtomVertex(const CoordSet * I, int at, float *v);
+int CoordSetGetAtomTxfVertex(const CoordSet * I, int at, float *v);
 int CoordSetSetAtomVertex(CoordSet * I, int at, const float *v);
 int CoordSetMoveAtom(CoordSet * I, int at, const float *v, int mode);
 int CoordSetMoveAtomLabel(CoordSet * I, int at, const float *v, const float *diff);
@@ -173,11 +214,13 @@ int CoordSetTransformAtomR44f(CoordSet * I, int at, const float *matrix);
 
 int CoordSetValidateRefPos(CoordSet * I);
 
-void CoordSetPurge(CoordSet * I);
-void CoordSetAdjustAtmIdx(CoordSet * I, int *lookup, int nAtom);
-int CoordSetMerge(ObjectMolecule *OM, CoordSet * I, CoordSet * cs);        /* must be non-overlapping */
+void CoordSetAdjustAtmIdx(CoordSet*, const int*);
+int CoordSetMerge(ObjectMolecule *OM, CoordSet * I, const CoordSet * cs);        /* must be non-overlapping */
 void CoordSetRecordTxfApplied(CoordSet * I, const float *TTT, int homogenous);
 void CoordSetUpdateCoord2IdxMap(CoordSet * I, float cutoff);
+
+bool CoordSetFindOpenValenceVector(const CoordSet*, int atm, float* out,
+    const float* seek = nullptr, int ignore_atm = -1);
 
 typedef struct _CCoordSetUpdateThreadInfo CCoordSetUpdateThreadInfo;
 
@@ -210,15 +253,26 @@ template <typename V> void AtomStateGetSetting(ATOMSTATEGETSETTINGARGS, V * out)
 
 // atom-state level setting
 template <typename V> void SettingSet(int index, V value, CoordSet *cs, int idx) {
-  auto& G = cs->State.G;
+  auto& G = cs->G;
   CoordSetCheckUniqueID(G, cs, idx);
-  cs->has_atom_state_settings[idx] = true;
   SettingUniqueSet(G, cs->atom_state_setting_id[idx], index, value);
 }
 
 // object-state level setting
 template <typename V> void SettingSet(int index, V value, CoordSet *cs) {
-  SettingSet(cs->State.G, &cs->Setting, index, value);
+  SettingSet(cs->G, cs->Setting, index, value);
 }
+
+//! Get object-state level setting
+template <typename V>
+V SettingGet(const CoordSet& cs, int index)
+{
+  using T = typename std::conditional<std::is_enum<V>::value, int, V>::type;
+  return static_cast<V>(
+      SettingGet<T>(cs.G, cs.Setting.get(), cs.Obj->Setting.get(), index));
+}
+
+// Rotates the ANISOU vector
+bool RotateU(const double *matrix, float *anisou);
 
 #endif

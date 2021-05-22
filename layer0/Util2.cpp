@@ -6,13 +6,15 @@
 
 #include <cstdio>
 #include <cctype>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "Util2.h"
+#include "pymol/algorithm.h"
 
-/*
+/**
  * strsplit: split string `s` by character `delim`
  *
  * If `delim` is null, then do whitespace split.
@@ -35,7 +37,7 @@ std::vector<std::string> strsplit(const std::string &s, char delim) {
   return elems;
 }
 
-/*
+/**
  * Natural string compare: F1 < F2 < F10
  *
  * Return true if a < b
@@ -71,14 +73,14 @@ bool cstrlessnat(const char * a, const char * b) {
   return cstrlessnat(a + na, b + nb);
 }
 
-/*
+/**
  * Natural string compare: F1 < F2 < F10
  */
 bool strlessnat(const std::string& a, const std::string& b) {
   return cstrlessnat(a.c_str(), b.c_str());
 }
 
-/*
+/**
  * Return true if s starts with the specified prefix, false otherwise.
  */
 bool p_strstartswith(const char * s, const char * prefix) {
@@ -88,7 +90,7 @@ bool p_strstartswith(const char * s, const char * prefix) {
   return true;
 }
 
-/*
+/**
  * case-insensitive version of p_strstartswith
  */
 bool p_strcasestartswith(const char * s, const char * prefix) {
@@ -97,3 +99,33 @@ bool p_strcasestartswith(const char * s, const char * prefix) {
       return false;
   return true;
 }
+
+namespace pymol
+{
+
+/**
+ * Convert float to double, rounded to decimal precision.
+ */
+double pretty_f2d(float f)
+{
+  if (f == 0.0f) {
+    // don't call log10(0.0)
+    return 0.0;
+  }
+
+  int digits = std::ceil(std::log10(std::fabs(f)));
+  auto factor = std::pow(10.0L, 7 - digits);
+  return std::round(f * factor) / factor;
+}
+
+bool string_equal_case(
+    pymol::zstring_view str1, pymol::zstring_view str2, bool case_insensitive)
+{
+  return pymol::ranges::equal(str1, str2,
+      [case_insensitive](char c1, char c2) {
+        return case_insensitive ? std::tolower(c1) == std::tolower(c2)
+                                : c1 == c2;
+      });
+}
+
+} // namespace pymol
