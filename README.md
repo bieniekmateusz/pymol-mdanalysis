@@ -62,6 +62,14 @@ python make_pymol_shortcut.py
 Installation on MacOS is not tested but should also be
 possible via the same process described for Windows and
 Linux.
+
+## Citations
+
+If you find this useful, please cite the SI of Mateusz Bieniek's thesis:
+https://librarysearch.kcl.ac.uk/permalink/f/1fdleu2/TN_proquest2475221287
+
+Direct Thesis Download via KCLPure:
+https://kclpure.kcl.ac.uk/portal/en/theses/fibronectin-iii910-adsorption-to-selfassembled-monolayers-and-interdomain-orientation-in-the-context-of-materialdriven-fibrillogenesis-studied-with-molecular-dynamics-simulations(11b1d705-79f0-4d0a-8c53-b68bc2c3338e).html
  
 ## Official repo info 
 
