@@ -1,3 +1,7 @@
+# CONDA Warning
+
+Unfortunately, the latest update from the upstream appears to be breaking pymol installed into the conda environment. Ie the compiled and linked libraries are different throwing the "unknown symbol" error. 
+
 # PyMOL-MDAnalysis exploratory project
 
 This is an exploratory project started as a PyMOL Fellowship in 2019 
