@@ -141,7 +141,7 @@ def get_command_keywords(self_cmd=cmd):
         'label'         : [ self_cmd.label             , 0 , 0 , ''  , parsing.LITERAL1 ], # insecure
         'load'          : [ self_cmd.load              , 0 , 0 , ''  , parsing.STRICT ],
         'loadall'       : [ self_cmd.loadall           , 0 , 0 , ''  , parsing.STRICT ],
-        'space'         : [ self_cmd.space             , 0 , 0 , ''  , parsing.STRICT ],
+        # 'space'         : [ self_cmd.space             , 0 , 0 , ''  , parsing.STRICT ],
         'load_embedded' : [ self_cmd.load_embedded     , 0 , 0 , ''  , parsing.STRICT ],
         'load_mtz'      : [ self_cmd.load_mtz          , 0 , 0 , ''  , parsing.STRICT ],
         'load_png'      : [ self_cmd.load_png          , 0 , 0 , ''  , parsing.STRICT ],
@@ -227,7 +227,7 @@ def get_command_keywords(self_cmd=cmd):
         'run'           : [ self_cmd.run               , 0 , 0 , ',' , parsing.SECURE ], # insecure
         'rms'           : [ self_cmd.rms               , 0 , 0 , ''  , parsing.STRICT ],
         'rms_cur'       : [ self_cmd.rms_cur           , 0 , 0 , ''  , parsing.STRICT ],
-        'save'          : [ self_cmd.save              , 0 , 0 , ''  , parsing.SECURE ],
+        # 'save'          : [ self_cmd.save              , 0 , 0 , ''  , parsing.SECURE ],
         'mda_save': [self_cmd.mda_save, 0, 0, '', parsing.SECURE],
         'scene'         : [ self_cmd.scene             , 0 , 0 , ''  , parsing.STRICT ],
         'scene_order'   : [ self_cmd.scene_order       , 0 , 0 , ''  , parsing.STRICT ],
