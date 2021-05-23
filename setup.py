@@ -6,11 +6,11 @@
 # It may assume that all of PyMOL's external dependencies are
 # pre-installed into the system.
 
+from distutils.core import setup, Extension
 from distutils.util import change_root
 from glob import glob
 import shutil
 import sys, os, re
-from setuptools import setup, Extension
 
 # non-empty DEBUG variable turns off optimization and adds -g flag
 DEBUG = bool(os.getenv('DEBUG', ''))
@@ -381,7 +381,6 @@ if MAC:
 if WIN:
         # clear
         libs = []
-        ext_comp_args = []
 
         def_macros += [
             ("WIN32", None),
@@ -548,7 +547,7 @@ distribution = setup ( # Distribution meta-data
 
     entry_points={
         'console_scripts': [
-            'pymol = pymol:pymol.start_pymol'
+            'pymol = pymol:pymol.launch'
         ]
     },
 
