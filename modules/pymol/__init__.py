@@ -85,8 +85,8 @@ import time
 import traceback
 import math
 
-from . import invocation
-from . import colorprinting
+import pymol.invocation as invocation
+import pymol.colorprinting as colorprinting
 
 def _init_internals(_pymol):
 
@@ -551,7 +551,8 @@ _init_internals(sys.modules[__name__])
 
 # get X-window support (machine_get_clipboard)
 if 'DISPLAY' in os.environ:
-    from .xwin import *
+    import pymol.xwin
+    machine_get_clipboard = pymol.xwin.machine_get_clipboard
 
 ########## C MODULE ############################
 
@@ -560,7 +561,7 @@ _cmd = sys.modules['pymol._cmd']
 
 get_capabilities = _cmd.get_capabilities
 
-from . import cmd
+import pymol.cmd as cmd
 
 cmd._COb = None
 
