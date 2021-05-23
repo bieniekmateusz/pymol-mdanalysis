@@ -457,6 +457,143 @@ SEE ALSO
                                          float(shift[0]),float(shift[1]),
                                          float(shift[2]),str(plugin))
 
+    def mda_load(filename, label=None):
+        if filename.endswith('.pse'):
+            # load PyMOL session .pse
+            load(filename)
+
+            # load MDAnalysis session
+            # .mse stands for MDAnalysis sessions
+            corresponding_mse = os.path.splitext(filename)[0] + '.mse'
+            metadata = open(corresponding_mse).read()
+            MDAnalysisManager.fromJSON(metadata)
+
+            GraphManager.update_menu()
+
+            return
+
+
+        # fixme - temporary hack: we want the user to use mda_load for only a single frame
+        # otherwise PyMOL will try to read all frames, which could overload the RAM memory
+        tmp = mda.Universe(filename)
+        if len(tmp.trajectory) > 1:
+            raise Exception('mda_load has to be used with a single frame topology (it cannot read a trajectory)')
+        # fixme - end of a temporary hack
+
+        cmd.get_unused_name('obj')
+
+        # Load with PyMOL the same file
+        cmd.load(filename)
+        # Get the label used for the simulation
+        if not label:
+            label = cmd.get_object_list()[-1]
+        # Otherwise the Atom Names are rearranged (which would break everything)
+        cmd.set('retain_order', 1, label)
+        # Load with MDAnalysis too
+        MDAnalysisManager.load(label, filename)
+
+        # check if MDAnalysis selection names are available for this file
+        selections_names = SelectionHistoryManager.getSelectionsLabels(filename)
+        if len(selections_names) != 0:
+            from PyQt5 import uic, QtWidgets
+            # fixme - this path should not be done this way
+            historydialogui_path = os.path.join(os.path.split(os.path.dirname(__file__))[0], 'pmg_qt', 'forms',
+                                                'historydialog.ui')
+            window = uic.loadUi(historydialogui_path)
+            for selname in selections_names:
+                window.listWidget.addItem(selname)
+
+            def deletePressed(window=window, topfilepath=filename):
+                # extract the row numbers and the selected labels
+                items = [(item.row(), item.data()) for item in window.listWidget.selectedIndexes()]
+                # sort the indexes from the largest to the smallest to remove them correctly
+                items.sort(reverse=True)
+
+                for row_no, sel_text in items:
+                    # remove it from the database
+                    SelectionHistoryManager.deleteMdaSelection(topfilepath, sel_text)
+                    # remove from the view
+                    window.listWidget.takeItem(row_no)
+            window.deleteButton.pressed.connect(deletePressed)
+
+            def applyPressed(window=window):
+                # recreate the selections from the previous user work
+                for item in window.listWidget.selectedItems():
+                    new_label = item.text()
+                    atom_sel = SelectionHistoryManager.getMdaSelection(filename, new_label)
+                    # reapply the selection with MDAnalysis
+                    MDAnalysisManager.select(label, new_label, atom_sel)
+                window.accept()
+            window.buttonBox.button(QtWidgets.QDialogButtonBox.Apply).pressed.connect(applyPressed)
+
+            window.exec_()
+
+        return None
+
+
+    def mda_load_traj(filename, label=None, interval=1, start=1, stop=-1,selection='all',_self=cmd):
+        filename = unquote(filename)
+
+        noext, ext, format_guessed, zipped = filename_to_format(filename)
+        # get object name
+        if not label:
+            label = _guess_trajectory_object(noext, _self)
+            if not len(label):  # safety
+                label = 'obj01'
+
+        MDAnalysisManager.loadTraj(label, filename)
+
+        # None means that the trajectory was loaded successfully (?)
+        # Based on "load_traj"
+        return None
+
+
+    # MPP
+    def mda_rmsd(label, selection="backbone", pylustrator=False):
+        '''
+     DESCRIPTION
+
+         "mda_rmsd" computes RMSD for the label, saves and plots the data. If the selection is not provided,
+         all atoms are used for both, the finding and quantification of the RMSD.
+
+     USAGE
+
+         mda_rmsd label, [selection]
+
+     PYMOL API
+
+         cmd.mda_rmsd(label)
+         cmd.mda_rmsd(label, selection='backbone')
+
+     NOTES
+
+         This is a prototype that relies on MDAnalysis.
+        '''
+
+        from MDAnalysis.analysis.rms import RMSD
+        from .mda_graph_manager import GraphManager
+        #from .mdanalysis_manager import MDAnalysisManager
+
+        if MDAnalysisManager.SESSION is None:
+            print('Error: session not saved. ')
+            print('Please use mda_save to create a session first. ')
+            print('Otherwise the graphs cannot be saved. ')
+            return
+
+        atom_group = MDAnalysisManager.getSystem(label)
+        sel = atom_group.select_atoms(selection)
+        R = RMSD(sel, sel,# superimpose on whole backbone of the whole protein
+                 # select=selection,
+                 )
+        R.run()
+
+        GraphManager.save_graph(label, R.rmsd, GraphManager.GRAPH_TYPES.RMSD.name)
+        GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSD.name, pylustrator)
+
+        return None
+
+
+
     def _processALN(fname,quiet=1, *, _self=cmd):
         legal_dict = {}
         seq_dict = {}
