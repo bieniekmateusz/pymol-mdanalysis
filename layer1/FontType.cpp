@@ -28,7 +28,7 @@ Z* -------------------------------------------------------------------
 #include "Scene.h"
 #include "Character.h"
 #include "Util.h"
-#include "TypeFace.h"
+#include "FontType.h"
 
 #define max2 std::max
 
@@ -69,20 +69,11 @@ static void GenerateCharFngrprnt(PyMOLGlobals *G, CharFngrprnt *fprnt, unsigned 
   fprnt->u.i.flat = flat;
 }
 
-typedef struct {
-  CFont Font;                   /* must be first */
-  PyMOLGlobals *G;
-  CTypeFace *TypeFace;
-} CFontType;
-
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
-static const char *_FontTypeRenderOpenGL(RenderInfo * info,
-                                   CFontType * I, const char *st,
-                                   float size, int flat, float *rpos, short needSize, short relativeMode, short shouldRender SHADERCGOARG)
+static const char* FontTypeRenderOpenGLImpl(const RenderInfo* info, CFontType* I,
+    const char* st, float size, int flat, const float* rpos, bool needSize,
+    short relativeMode, bool shouldRender, CGO* shaderCGO)
 {
-  PyMOLGlobals *G = I->Font.G;
+  PyMOLGlobals *G = I->G;
   if(G->ValidContext) {
     unsigned int c;
     int pushed = OrthoGetPushed(G);
@@ -109,7 +100,7 @@ static const char *_FontTypeRenderOpenGL(RenderInfo * info,
       float screenWorldOffset[3] = { 0.0F, 0.0F, 0.0F };
       float tot_height;
       if (nlines>1){
-	line_widths = Calloc(float, nlines);
+	line_widths = pymol::calloc<float>(nlines);
       }
       if(size < _0) {
         size = (int) (0.5F - size / v_scale);
@@ -140,7 +131,7 @@ static const char *_FontTypeRenderOpenGL(RenderInfo * info,
 
             if(!unicnt) {
               CharFngrprnt fprnt;
-	      GenerateCharFngrprnt(G, &fprnt, c, I->Font.TextID, size, sampling, 0, flat);
+	      GenerateCharFngrprnt(G, &fprnt, c, I->TextID, size, sampling, 0, flat);
               {
                 int id = CharacterFind(G, &fprnt);
                 if(!id) {
@@ -278,7 +269,7 @@ static const char *_FontTypeRenderOpenGL(RenderInfo * info,
 	CheckUnicode(&c, &unicnt, &unicode);
         if(!unicnt) {
           CharFngrprnt fprnt;
-	  GenerateCharFngrprnt(G, &fprnt, c, I->Font.TextID, size, sampling, 1, flat);
+	  GenerateCharFngrprnt(G, &fprnt, c, I->TextID, size, sampling, 1, flat);
           {
             int id = CharacterFind(G, &fprnt);
             if(!id) {
@@ -308,22 +299,27 @@ static const char *_FontTypeRenderOpenGL(RenderInfo * info,
   return st;
 }
 
-static const char *FontTypeRenderOpenGL(RenderInfo * info, CFontType * I, const char *st, float size,
-                                  float *rpos, short needSize, short relativeMode, short shouldRender SHADERCGOARG)
+const char* CFontType::RenderOpenGL(const RenderInfo* info, const char* st,
+    float size, const float* rpos, bool needSize, short relativeMode,
+    bool shouldRender, CGO* shaderCGO)
 {
-  return _FontTypeRenderOpenGL(info, I, st, size, false, rpos, needSize, relativeMode, shouldRender SHADERCGOARGVAR);
+  return FontTypeRenderOpenGLImpl(info, this, st, size, false, rpos, needSize,
+      relativeMode, shouldRender, shaderCGO);
 }
 
-static const char *FontTypeRenderOpenGLFlat(RenderInfo * info, CFontType * I, const char *st,
-                                      float size, float *rpos, short needSize, short relativeMode, short shouldRender SHADERCGOARG)
+const char* CFontType::RenderOpenGLFlat(const RenderInfo* info, const char* st,
+    float size, const float* rpos, bool needSize, short relativeMode,
+    bool shouldRender, CGO* shaderCGO)
 {
-  return _FontTypeRenderOpenGL(info, I, st, size, true, rpos, needSize, relativeMode, shouldRender SHADERCGOARGVAR);
+  return FontTypeRenderOpenGLImpl(info, this, st, size, true, rpos, needSize,
+      relativeMode, shouldRender, shaderCGO);
 }
 
-static const char *FontTypeRenderRay(CRay * ray, CFontType * I, const char *st, float size,
-                               float *rpos, short needSize, short relativeMode)
+const char* CFontType::RenderRay(CRay* ray, const char* st, float size,
+    const float* rpos, bool needSize, short relativeMode)
 {
-  PyMOLGlobals *G = I->Font.G;
+  auto I = this;
+  PyMOLGlobals *G = I->G;
   unsigned int c;
   int kern_flag = false;
   unsigned int last_c = 0;
@@ -347,7 +343,7 @@ static const char *FontTypeRenderRay(CRay * ray, CFontType * I, const char *st, 
     float *line_widths = NULL;
     float tot_height;
     if (nlines>1){
-      line_widths = Calloc(float, nlines);
+      line_widths = pymol::calloc<float>(nlines);
     }
     if(size < _0) {
       size = (int) (0.5F - size / v_scale);
@@ -411,7 +407,7 @@ static const char *FontTypeRenderRay(CRay * ray, CFontType * I, const char *st, 
 	  CheckUnicode(&c, &unicnt, &unicode);
           if(!unicnt) {
             CharFngrprnt fprnt;
-	    GenerateCharFngrprnt(G, &fprnt, c, I->Font.TextID, size, sampling, 1, 0 /* flat is not set */);
+	    GenerateCharFngrprnt(G, &fprnt, c, I->TextID, size, sampling, 1, 0 /* flat is not set */);
             {
               int id = CharacterFind(G, &fprnt);
               if(!id) {
@@ -500,7 +496,7 @@ static const char *FontTypeRenderRay(CRay * ray, CFontType * I, const char *st, 
       CheckUnicode(&c, &unicnt, &unicode);
       if(!unicnt) {
         CharFngrprnt fprnt;
-	GenerateCharFngrprnt(G, &fprnt, c, I->Font.TextID, size, sampling, 0, 0);
+	GenerateCharFngrprnt(G, &fprnt, c, I->TextID, size, sampling, 0, 0);
         {
           int id = CharacterFind(G, &fprnt);
           if(!id) {
@@ -530,25 +526,24 @@ static const char *FontTypeRenderRay(CRay * ray, CFontType * I, const char *st, 
   return st;
 }
 
-static void FontTypeFree(CFont * font)
+CFontType::~CFontType()
 {
-  CFontType *I = (CFontType *) font;
-  TypeFaceFree(I->TypeFace);
-  OOFreeP(I);
+  if (TypeFace) {
+    TypeFaceFree(TypeFace);
+  }
 }
 
-CFont *FontTypeNew(PyMOLGlobals * G, unsigned char *dat, unsigned int len)
+CFontType::CFontType(PyMOLGlobals* G, unsigned char* dat, unsigned int len)
+    : CFont(G)
 {
-  OOAlloc(G, CFontType);
-  FontInit(G, &I->Font);
-  I->G = G;
-  I->Font.fRenderOpenGL = (FontRenderOpenGLFn *) FontTypeRenderOpenGL;
-  I->Font.fRenderOpenGLFlat = (FontRenderOpenGLFn *) FontTypeRenderOpenGLFlat;
-  I->Font.fRenderRay = (FontRenderRayFn *) FontTypeRenderRay;
-  I->Font.fFree = FontTypeFree;
-  I->TypeFace = TypeFaceLoad(G, dat, len);
-  if(!I->TypeFace) {
-    OOFreeP(I);
+  TypeFace = TypeFaceLoad(G, dat, len);
+}
+
+CFont* FontTypeNew(PyMOLGlobals* G, unsigned char* dat, unsigned int len)
+{
+  auto fontType = new CFontType(G, dat, len);
+  if (!fontType->TypeFace) {
+    DeleteP(fontType);
   }
-  return (CFont *) I;
+  return fontType;
 }

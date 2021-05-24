@@ -1,18 +1,16 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific. 
+#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function
 
 normal = {
 ('ACE'  , '1HH3'  ) : { 'type' : '41'   , 'charge' :  0.0000 } ,
@@ -1223,7 +1221,7 @@ for a in normal.keys():
     na = normal[a]
     na['type'] = numeric_map[int(na['type'])]
 
-for a in n_terminal.keys():   
+for a in n_terminal.keys():
     na = n_terminal[a]
     na['type'] = numeric_map[int(na['type'])]
 
@@ -1238,8 +1236,7 @@ def check_sum(dct):
         if a[0] not in sm:
             sm[a[0]] = dct[a]['charge']
         else:
-            sm[a[0]] = sm[a[0]]+ dct[a]['charge']         
+            sm[a[0]] = sm[a[0]]+ dct[a]['charge']
 
     for a in sm.keys():
         print(a,'%7.4f'%sm[a])
-        

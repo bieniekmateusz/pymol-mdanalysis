@@ -7,15 +7,14 @@
 #pragma once
 
 #include "os_std.h"
+#include "pymol/memory.h"
 
+#include "AtomIterators.h"
 #include "Selector.h"
 #include "ObjectMolecule.h"
 
 #include "OVLexicon.h"
 #include "OVOneToAny.h"
-
-#define SelectorWordLength 1024
-typedef char SelectorWordType[SelectorWordLength];
 
 #define cNDummyModels 2
 #define cNDummyAtoms 2
@@ -28,31 +27,73 @@ struct TableRec {
 };
 
 struct SelectionInfoRec {
-  int ID;
-  int justOneObjectFlag;
-  ObjectMolecule *theOneObject;
-  int justOneAtomFlag;
-  int theOneAtom;
+  SelectorID_t ID = 0;
+  std::string name;
+
+  ObjectMolecule* theOneObject = nullptr;
+  int theOneAtom = -1;
+
+  bool justOneObject() const { return theOneObject != nullptr; }
+  bool justOneAtom() const { return justOneObject() && theOneAtom >= 0; }
+
+  SelectionInfoRec() = default;
+  SelectionInfoRec(SelectorID_t id, std::string name_)
+      : ID(id)
+      , name(std::move(name_))
+  {
+  }
+};
+
+
+struct CSelectorManager
+{
+  std::vector<MemberType> Member;
+  SelectorMemberOffset_t FreeMember = 0;
+  std::vector<SelectionInfoRec> Info;
+  SelectorID_t NSelection = 0;
+  std::unordered_map<std::string, int> Key;
+  CSelectorManager();
 };
 
 struct CSelector {
-  MemberType *Member;           /* Must be first in structure, so that we can get this w/o knowing the struct */
-  SelectorWordType *Name;       /* this seems rather excessive, since name len < ObjNameMax ... */
-  SelectionInfoRec *Info;
-  int NSelection, NActive;
-  int TmpCounter;
-  int NMember;
-  int FreeMember;
-  ObjectMolecule **Obj;
-  TableRec *Table;
-  float *Vertex;
-  int *Flag1, *Flag2;
-  ov_size NAtom;
-  ov_size NModel;
-  int NCSet;
-  int SeleBaseOffsetsValid;
-  ObjectMolecule *Origin, *Center;
-  OVLexicon *Lex;
-  OVOneToAny *Key;
-  OVOneToOne *NameOffset;
+  PyMOLGlobals* G = nullptr;
+  CSelectorManager* mgr = nullptr;
+  std::vector<ObjectMolecule*> Obj;
+  std::vector<TableRec> Table;
+  pymol::cache_ptr<ObjectMolecule> Origin;
+  pymol::cache_ptr<ObjectMolecule> Center;
+  int NCSet = 0; // Seems to hold the largest NCSet in Obj
+  bool SeleBaseOffsetsValid = false;
+  CSelector(PyMOLGlobals* G, CSelectorManager* mgr);
+  CSelector(const CSelector&) = default;
+  CSelector& operator=(const CSelector&) = default;
+  CSelector(CSelector&&) = default;
+  CSelector& operator=(CSelector&&) = default;
+  ~CSelector();
+};
+
+/**
+ * Iterator over the selector table. If `SelectorUpdateTable(G,
+ * cSelectorUpdateTableAllStates, -1)` was called, this would be all atoms.
+ *
+ * Does NOT provide coord or coordset access
+ *
+ * @pre Selector table is up-to-date
+ */
+class SelectorAtomIterator : public AbstractAtomIterator
+{
+  CSelector* selector;
+
+public:
+  int a; //!< index in selector table
+
+  SelectorAtomIterator(CSelector* I)
+      : selector(I)
+  {
+    reset();
+  }
+
+  void reset() override { a = cNDummyAtoms - 1; }
+
+  bool next() override;
 };

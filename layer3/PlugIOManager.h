@@ -22,6 +22,14 @@ Z* -------------------------------------------------------------------
 #include "ObjectMolecule.h"
 #include "ObjectMap.h"
 
+enum {
+  cPlugIOManager_mol = 1,
+  cPlugIOManager_traj = 2,
+  cPlugIOManager_vol = 4,
+  cPlugIOManager_graphics = 8,
+  cPlugIOManager_any = 0xF,
+};
+
 const char * PlugIOManagerFindPluginByExt(PyMOLGlobals * G, const char * ext, int mask=0);
 
 #ifdef __cplusplus
@@ -34,13 +42,14 @@ int PlugIOManagerLoadTraj(PyMOLGlobals * G, ObjectMolecule * obj,
                           const char *fname, int frame,
                           int interval, int average, int start,
                           int stop, int max, const char *sele, int image,
-                          float *shift, int quiet, const char *plugin_type);
+                          const float *shift, int quiet, const char *plugin_type);
 ObjectMap *PlugIOManagerLoadVol(PyMOLGlobals * G, ObjectMap * obj,
     const char *fname, int state, int quiet, const char *plugin_type);
 ObjectMolecule *PlugIOManagerLoadMol(PyMOLGlobals * G, ObjectMolecule *origObj,
     const char *fname, int state, int quiet, const char *plugin_type);
-CObject * PlugIOManagerLoad(PyMOLGlobals * G, CObject ** obj_ptr,
-    const char *fname, int state, int quiet, const char *plugin_type);
+pymol::CObject* PlugIOManagerLoad(PyMOLGlobals* G, pymol::CObject** obj_ptr,
+    const char *fname, int state, int quiet, const char *plugin_type,
+    int mask=0);
 
 #ifdef __cplusplus
 }

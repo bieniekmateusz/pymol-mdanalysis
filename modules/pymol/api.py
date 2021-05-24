@@ -2,6 +2,7 @@
 
 #--------------------------------------------------------------------
 from .importing import \
+      filename_to_objectname, \
       finish_object,      \
       load,               \
       loadall,            \
@@ -24,8 +25,10 @@ from .importing import \
       read_pdbstr,        \
       read_xplorstr,      \
       fetch,              \
-      set_session,        \
-      space              
+      mda_load,\
+      mda_load_traj,\
+      mda_rmsd
+# MPP ^
 
 #--------------------------------------------------------------------
 from . import creating
@@ -98,7 +101,6 @@ from .querying import \
       dist,               \
       dihedral,           \
       distance,           \
-      export_dots,        \
       find_pairs,         \
       get_angle,          \
       get_area,           \
@@ -120,6 +122,7 @@ from .querying import \
       get_distance,       \
       get_drag_object_name, \
       get_extent,         \
+      get_gltf,           \
       get_idtf,           \
       get_modal_draw,     \
       get_model,          \
@@ -149,6 +152,7 @@ from .querying import \
       identify,           \
       index,              \
       overlap,            \
+      pi_interactions,    \
       phi_psi
 
 #--------------------------------------------------------------------
@@ -157,14 +161,14 @@ from .selecting import \
       indicate,           \
       select,             \
       select_list,        \
-      pop
+      pop,                \
+      mda_select
 
 #--------------------------------------------------------------------
 from . import exporting
 from .exporting import \
       copy_image,         \
       cache,              \
-      export_coords,      \
       get_str,            \
       get_bytes,          \
       get_pdbstr,         \
@@ -175,11 +179,12 @@ from .exporting import \
       multifilenamegen,   \
       multisave,          \
       png,                \
-      save               
+      mda_save
 
 #--------------------------------------------------------------------
 from . import editing
 from .editing import \
+      add_bond,           \
       alter,              \
       alter_list,         \
       alter_state,        \
@@ -210,8 +215,11 @@ from .editing import \
       matrix_copy,        \
       matrix_reset,       \
       mse2met,            \
+      pbc_unwrap, \
+      pbc_wrap, \
       protect,            \
       push_undo,          \
+      rebond,             \
       reference,          \
       redo,               \
       remove,             \
@@ -247,11 +255,11 @@ from .editing import \
       unpick,             \
       update,             \
       valence,            \
-      vdw_fit 
+      vdw_fit
 
 from .editor import \
       fab
-      
+
 from .computing import \
       clean
 
@@ -291,7 +299,7 @@ from .fitting import \
       intra_rms,         \
       intra_rms_cur,     \
       cealign,          \
-      pair_fit          
+      pair_fit
 
 #--------------------------------------------------------------------
 # ARE ALL OF THESE UNUSED AND/OR DEPRECATED (?)
@@ -336,7 +344,7 @@ from .moving import \
       get_movie_playing, \
       set_frame,         \
       get_state,         \
-      get_frame         
+      get_frame
 
 #--------------------------------------------------------------------
 from . import viewing
@@ -348,6 +356,7 @@ from .viewing import \
       capture,            \
       clip,               \
       color,              \
+      color_deep,         \
       colour,             \
       del_colorection,    \
       dirty,              \
@@ -361,6 +370,7 @@ from .viewing import \
       get_vis,            \
       get_scene_list,     \
       hide,               \
+      ipython_image,      \
       label,              \
       label2,             \
       load_png,           \
@@ -428,12 +438,15 @@ from .helping import \
       commands
 
 #--------------------------------------------------------------------
+from .keyboard import \
+      editing_ring
+
+#--------------------------------------------------------------------
 from .experimenting import \
       check,              \
       dump,               \
       get_bond_print,     \
       fast_minimize,      \
-      import_coords,      \
       mem,                \
       minimize,           \
       spheroid,           \
@@ -453,19 +466,8 @@ from .stereochemistry import \
       assign_stereo
 
 #--------------------------------------------------------------------
-#from m4x import \
-#     metaphorics
-
-#--------------------------------------------------------------------
 # Modules which contain programs used explicity as "module.xxx"
 
 from . import util
 from . import movie
 from . import gui
-
-# dang! Python 2.6 will break PyMOL's "as" method. 
-# Proposal:
-#  1. stick with Python <=2.5 for as long as possible
-#  2. convert API method to cmd.show_as() and leave "as" in the scripting langauge
-#  3. allow "show_as" in the scripting language
-globals()['as'] = show_as

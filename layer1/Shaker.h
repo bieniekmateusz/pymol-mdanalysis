@@ -17,6 +17,8 @@ Z* -------------------------------------------------------------------
 #ifndef _H_Shaker
 #define _H_Shaker
 
+#include "vla.h"
+
 #define cShakerDistBond 0
 #define cShakerDistAngle 1
 #define cShakerDistLimit 2
@@ -56,21 +58,21 @@ typedef struct {
   int at0, at1, at2;
 } ShakerLineCon;
 
-typedef struct {
+struct CShaker {
   PyMOLGlobals *G;
-  ShakerDistCon *DistCon;
+  pymol::vla<ShakerDistCon> DistCon;
   int NDistCon;
-  ShakerPyraCon *PyraCon;
+  pymol::vla<ShakerPyraCon> PyraCon;
   int NPyraCon;
-  ShakerPlanCon *PlanCon;
+  pymol::vla<ShakerPlanCon> PlanCon;
   int NPlanCon;
-  ShakerLineCon *LineCon;
+  pymol::vla<ShakerLineCon> LineCon;
   int NLineCon;
-  ShakerTorsCon *TorsCon;
+  pymol::vla<ShakerTorsCon> TorsCon;
   int NTorsCon;
-} CShaker;
+  CShaker(PyMOLGlobals * G);
+};
 
-CShaker *ShakerNew(PyMOLGlobals * G);
 void ShakerReset(CShaker * I);
 void ShakerAddDistCon(CShaker * I, int atom0, int atom1, float dist, int type,
                       float weight);
@@ -82,7 +84,8 @@ void ShakerAddPlanCon(CShaker * I, int atom0, int atom1, int atom2, int atom3,
 
 void ShakerAddLineCon(CShaker * I, int atom0, int atom1, int atom2);
 
-float ShakerGetPyra(float *targ2, float *v0, float *v1, float *v2, float *v3);
+float ShakerGetPyra(float *targ2,
+    const float *v0, const float *v1, const float *v2, const float *v3);
 
 
 /* the following fn's have been inlined in Sculpt.c  
@@ -97,16 +100,19 @@ float ShakerDoDistLimit(float target,float *v0,float *v1,float *d0to1,float *d1t
 */
 
 float ShakerDoPyra(float targ1, float targ2,
-                   float *v0, float *v1, float *v2, float *v3,
+                   const float *v0, const float *v1, const float *v2, const float *v3,
                    float *p0, float *p1, float *p2, float *p3, float wt, float inv_wt);
 
-float ShakerDoLine(float *v0, float *v1, float *v2,
+float ShakerDoLine(const float *v0, const float *v1, const float *v2,
                    float *p0, float *p1, float *p2, float wt);
 
-float ShakerDoPlan(float *v0, float *v1, float *v2, float *v3,
+float ShakerDoPlan(
+    const float *v0,
+    const float *v1,
+    const float *v2,
+    const float *v3,
                    float *p0, float *p1, float *p2, float *p3,
                    float target, int fixed, float wt);
 
-void ShakerFree(CShaker * I);
 
 #endif

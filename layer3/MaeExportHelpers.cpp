@@ -15,12 +15,12 @@
 #include "Executive.h"
 #include "SpecRec.h"
 
-/*
+/**
  * Setting getter
  */
 template <typename V>
 V SettingGet(PyMOLGlobals * G, const SeleCoordIterator& iter, int index) {
-  V value = SettingGet<V>(G, iter.cs->Setting, iter.obj->Obj.Setting, index);
+  V value = SettingGet<V>(G, iter.cs->Setting.get(), iter.obj->Setting.get(), index);
   return AtomSettingGetWD(G, iter.getAtomInfo(), index, value);
 }
 
@@ -55,7 +55,7 @@ enum MM_CTRibbonStyle {
   MMCT_RIBBON_STYLE_CATUBE    = 7,  // ribbon, ribbon_as_cylinders=1
 };
 
-/*
+/**
  * Get the MM_CTAtomStyle for the current atom of the iterator
  */
 int MaeExportGetAtomStyle(PyMOLGlobals * G,
@@ -77,7 +77,7 @@ int MaeExportGetAtomStyle(PyMOLGlobals * G,
   return MMCT_ATOM_NOSTYLE;
 }
 
-/*
+/**
  * Get the MM_CTBondStyle for the bond between two atoms
  */
 int MaeExportGetBondStyle(const AtomInfoType * ai1, const AtomInfoType * ai2) {
@@ -92,7 +92,7 @@ int MaeExportGetBondStyle(const AtomInfoType * ai1, const AtomInfoType * ai2) {
   return MMCT_BOND_NOSTYLE;
 }
 
-/*
+/**
  * Get the MM_CTRibbonStyle for an atom
  */
 int MaeExportGetRibbonStyle(const AtomInfoType * ai) {
@@ -115,7 +115,7 @@ int MaeExportGetRibbonStyle(const AtomInfoType * ai) {
   return MMCT_RIBBON_STYLE_NONE;
 }
 
-/*
+/**
  * Get the MAE ribbon color index and the hex formatted RGB ribbon color for
  * the current atom of the iterator
  */
@@ -148,7 +148,7 @@ void MaeExportGetRibbonColor(PyMOLGlobals * G,
   }
 }
 
-/*
+/**
  * Get the MAE label user text for an atom.
  *
  * Quotes and backslashes are escaped.
@@ -170,11 +170,11 @@ std::string MaeExportGetLabelUserText(PyMOLGlobals * G,
   return label_user_text;
 }
 
-/*
+/**
  * Get the MAE group title/id
  */
 std::string MaeExportGetSubGroupId(PyMOLGlobals * G,
-    const CObject * obj)
+    const pymol::CObject * obj)
 {
   std::string subgroupid;
   const SpecRec * rec = nullptr;
@@ -196,4 +196,40 @@ std::string MaeExportGetSubGroupId(PyMOLGlobals * G,
   }
 
   return subgroupid;
+}
+
+/**
+ * Get parsable string representation, with quotes and escaped
+ * quotes/backslashes if needed.
+ */
+std::string MaeExportStrRepr(const char * text)
+{
+  if (text[0] /* not empty string */) {
+    bool needquotes = false;
+
+    // check accepted ascii characters
+    for (const char * p = text; *p; ++p) {
+      if (*p < '$' || *p > 'z' || *p == '\\') {
+        needquotes = true;
+        break;
+      }
+    }
+
+    if (!needquotes) {
+      return text;
+    }
+  }
+
+  std::string quoted_text;
+  quoted_text.reserve(strlen(text) + 2);
+  quoted_text += '"';
+
+  for (const char * p = text; *p; ++p) {
+    if (*p == '"' || *p == '\\')
+      quoted_text += '\\';
+    quoted_text += *p;
+  }
+
+  quoted_text += '"';
+  return quoted_text;
 }

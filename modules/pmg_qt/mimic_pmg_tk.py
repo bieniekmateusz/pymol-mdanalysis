@@ -2,8 +2,6 @@
 Mimic the pmg_tk API for plugin legacy support
 '''
 
-from __future__ import absolute_import
-
 import sys
 
 tkinter = None
@@ -14,10 +12,7 @@ def tkinter_init():
     if hasattr(_BaseWidget_setup, '_super'):
         raise RuntimeError('tkinter init failed')
 
-    if sys.version_info[0] < 3:
-        import Tkinter as tkinter
-    else:
-        import tkinter
+    import tkinter
 
     _BaseWidget_setup._super = tkinter.BaseWidget._setup
     tkinter.BaseWidget._setup = _BaseWidget_setup
@@ -110,12 +105,37 @@ class PMGSkin(object):
         return self._setting
 
 
+class tkapp_proxy(object):
+    def __init__(self, proxied, pmgapp):
+        self._proxied = proxied
+        self._pmgapp = pmgapp
+
+    def __getattr__(self, name):
+        return getattr(self._proxied, name)
+
+    def call(self, tkcmd, *args):
+        # suspend our own updates for commands which enter the event loop
+        pause = tkcmd in ('update', 'tkwait', 'vwait')
+
+        if pause:
+            self._pmgapp._tk_update_paused += 1
+
+        try:
+            r = self._proxied.call(tkcmd, *args)
+        finally:
+            if pause:
+                self._pmgapp._tk_update_paused -= 1
+
+        return r
+
+
 class PMGApp(object):
     def __init__(self):
         import pymol
         self._root = None
         self.pymol = pymol
         self.skin = PMGSkin(self)
+        self._tk_update_paused = 0
 
     @property
     def root(self):
@@ -126,13 +146,15 @@ class PMGApp(object):
 
             # create Tk instance in this thread
             self._root = tkinter.Tk()
+            self._root.tk = tkapp_proxy(self._root.tk, self)
             self._root.withdraw()
 
             # feed Tk event loop from this thread
             timer = QtCore.QTimer()
             @timer.timeout.connect
             def _():
-                self._root.update()
+                if not self._tk_update_paused:
+                    self._root.update()
                 timer.start()
             timer.setSingleShot(True)
             timer.start(50)

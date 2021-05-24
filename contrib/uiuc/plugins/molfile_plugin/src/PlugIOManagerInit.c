@@ -2,7 +2,7 @@
 
 #include "vmdplugin.h"
 
-typedef struct _PyMOLGlobals PyMOLGlobals;
+struct PyMOLGlobals;
 /* prototypes */
 int molfile_abinitplugin_init(void);
 int molfile_abinitplugin_register(void *,vmdplugin_register_cb);
@@ -103,6 +103,9 @@ int molfile_msmsplugin_fini(void);
 int molfile_namdbinplugin_init(void);
 int molfile_namdbinplugin_register(void *,vmdplugin_register_cb);
 int molfile_namdbinplugin_fini(void);
+int molfile_netcdfplugin_init(void);
+int molfile_netcdfplugin_register(void *,vmdplugin_register_cb);
+int molfile_netcdfplugin_fini(void);
 int molfile_offplugin_init(void);
 int molfile_offplugin_register(void *,vmdplugin_register_cb);
 int molfile_offplugin_fini(void);
@@ -195,11 +198,11 @@ int molfile_xyzplugin_register(void *,vmdplugin_register_cb);
 int molfile_xyzplugin_fini(void);
 
 
-    int PlugIOManagerRegister(PyMOLGlobals *G, vmdplugin_t *);
+    int PlugIOManagerRegister(struct PyMOLGlobals *G, vmdplugin_t *);
 
-    int PlugIOManagerInitAll(PyMOLGlobals *G);
+    int PlugIOManagerInitAll(struct PyMOLGlobals *G);
 
-    int PlugIOManagerInitAll(PyMOLGlobals *G)
+    int PlugIOManagerInitAll(struct PyMOLGlobals *G)
     {
        int ok=1;
 if(ok) ok = ok && (molfile_abinitplugin_init() == VMDPLUGIN_SUCCESS);
@@ -235,6 +238,7 @@ if(ok) ok = ok && (molfile_moldenplugin_init() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_molemeshplugin_init() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_msmsplugin_init() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_namdbinplugin_init() == VMDPLUGIN_SUCCESS);
+if(ok) ok = ok && (molfile_netcdfplugin_init() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_offplugin_init() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_parm7plugin_init() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_parmplugin_init() == VMDPLUGIN_SUCCESS);
@@ -300,6 +304,7 @@ if(ok) ok = ok && (molfile_moldenplugin_register(G,(vmdplugin_register_cb)PlugIO
 if(ok) ok = ok && (molfile_molemeshplugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_msmsplugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_namdbinplugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
+if(ok) ok = ok && (molfile_netcdfplugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_offplugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_parm7plugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_parmplugin_register(G,(vmdplugin_register_cb)PlugIOManagerRegister) == VMDPLUGIN_SUCCESS);
@@ -373,6 +378,7 @@ if(ok) ok = ok && (molfile_moldenplugin_fini() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_molemeshplugin_fini() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_msmsplugin_fini() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_namdbinplugin_fini() == VMDPLUGIN_SUCCESS);
+if(ok) ok = ok && (molfile_netcdfplugin_fini() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_offplugin_fini() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_parm7plugin_fini() == VMDPLUGIN_SUCCESS);
 if(ok) ok = ok && (molfile_parmplugin_fini() == VMDPLUGIN_SUCCESS);

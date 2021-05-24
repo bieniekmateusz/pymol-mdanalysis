@@ -1,18 +1,11 @@
-
-from __future__ import print_function
-
 import sys
 import os
 from glob import glob
 import traceback
 import types
 
-if sys.version_info[0] == 2:
-    from Tkinter import *
-    import tkMessageBox
-else:
-    from tkinter import *
-    import tkinter.messagebox as tkMessageBox
+from tkinter import *
+import tkinter.messagebox as tkMessageBox
 
 import Pmw
 

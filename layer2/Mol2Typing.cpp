@@ -10,18 +10,17 @@
 #include "AtomInfo.h"
 #include "ObjectMolecule.h"
 
-/*
+/**
  * atm: Atom index of a carbon atom with geom=3
  *
  * Return: True if atm has 3 neighbors which are all nitrogens with geom=3
  */
 static bool isGuanidiniumCarbon(ObjectMolecule * obj, int atm) {
-  int atm_neighbor, tmp, neighbor_count = 0;
+  int neighbor_count = 0;
   int charge = 0;
-  ObjectMoleculeUpdateNeighbors(obj);
 
-  ITERNEIGHBORATOMS(obj->Neighbor, atm, atm_neighbor, tmp) {
-    AtomInfoType * neighbor = obj->AtomInfo + atm_neighbor;
+  for (auto const& item : AtomNeighbors(obj, atm)) {
+    AtomInfoType const* neighbor = obj->AtomInfo.data() + item.atm;
     if (neighbor->protons != cAN_N || neighbor->geom != 3)
       return false;
     ++neighbor_count;
@@ -31,7 +30,7 @@ static bool isGuanidiniumCarbon(ObjectMolecule * obj, int atm) {
   return neighbor_count == 3 && charge > 0;
 }
 
-/*
+/**
  * TODO: bond order 4 seems to be no guarantee for a ring, which is
  * required for aromaticity
  *
@@ -39,11 +38,8 @@ static bool isGuanidiniumCarbon(ObjectMolecule * obj, int atm) {
  */
 static bool isAromaticAtom(ObjectMolecule * obj, int atm) {
 #if 0
-  int bnd, tmp;
-  ObjectMoleculeUpdateNeighbors(obj);
-
-  ITERNEIGHBORBONDS(obj->Neighbor, atm, bnd, tmp) {
-    if (obj->Bond[bnd].order == 4)
+  for (auto const& neighbor : AtomNeighbors(obj, atm)) {
+    if (obj->Bond[neighbor.bond].order == 4)
       return true;
   }
 #endif
@@ -51,23 +47,22 @@ static bool isAromaticAtom(ObjectMolecule * obj, int atm) {
   return false;
 }
 
-/*
+/**
  * atm: Atom index of an oxygen atom
  *
  * Return: True if atom is part of a carboxylate or phosphate group
  */
 static bool isCarboxylateOrPhosphateOxygen(ObjectMolecule * obj, int atm) {
-  int atm_neighbor, tmp, o_count = 0, other_count = 0;
-  ObjectMoleculeUpdateNeighbors(obj);
+  int o_count = 0, other_count = 0;
 
-  int offset = obj->Neighbor[atm];
+  auto const neighbors = AtomNeighbors(obj, atm);
 
   // must have only one neighbor
-  if (obj->Neighbor[offset] != 1)
+  if (neighbors.size() != 1)
     return false;
 
   // get that one neighbor as center of the acidic group
-  atm = obj->Neighbor[offset + 1];
+  atm = neighbors[0].atm;
 
   // check center atom
   AtomInfoType * ai = obj->AtomInfo + atm;
@@ -76,8 +71,8 @@ static bool isCarboxylateOrPhosphateOxygen(ObjectMolecule * obj, int atm) {
     return false;
 
   // iterate over neighbors of center atom
-  ITERNEIGHBORATOMS(obj->Neighbor, atm, atm_neighbor, tmp) {
-    AtomInfoType * neighbor = obj->AtomInfo + atm_neighbor;
+  for (auto const& item : AtomNeighbors(obj, atm)) {
+    AtomInfoType const* neighbor = obj->AtomInfo.data() + item.atm;
     if (neighbor->protons == cAN_O)
       ++o_count;
     else
@@ -92,17 +87,16 @@ static bool isCarboxylateOrPhosphateOxygen(ObjectMolecule * obj, int atm) {
   return (o_count == 4 && other_count == 0);
 }
 
-/*
+/**
  * atm: Atom index of a sulfur atom
  *
  * Return: Number of bound Oxygens if bound to two non-Oxygen atoms. Otherwise 0.
  */
 static int sulfurCountOxygenNeighbors(ObjectMolecule * obj, int atm) {
-  int atm_neighbor, tmp, o_count = 0, other_count = 0;
-  ObjectMoleculeUpdateNeighbors(obj);
+  int o_count = 0, other_count = 0;
 
-  ITERNEIGHBORATOMS(obj->Neighbor, atm, atm_neighbor, tmp) {
-    AtomInfoType * neighbor = obj->AtomInfo + atm_neighbor;
+  for (auto const& item : AtomNeighbors(obj, atm)) {
+    AtomInfoType const* neighbor = obj->AtomInfo.data() + item.atm;
     if (neighbor->protons == cAN_O)
       ++o_count;
     else
@@ -112,13 +106,13 @@ static int sulfurCountOxygenNeighbors(ObjectMolecule * obj, int atm) {
   return (other_count == 2) ? o_count : 0;
 }
 
-/*
+/**
  * Get the Tripos Mol2 atom type
  *
  * Pre-condition: ObjectMoleculeVerifyChemistry
  */
 const char * getMOL2Type(ObjectMolecule * obj, int atm) {
-  auto G = obj->Obj.G;
+  auto G = obj->G;
   auto ai = obj->AtomInfo + atm;
 
   switch (ai->protons) {
@@ -166,8 +160,8 @@ const char * getMOL2Type(ObjectMolecule * obj, int atm) {
 
     case cAN_S:
       switch (sulfurCountOxygenNeighbors(obj, atm)) {
-        case 1: return "S.O";
-        case 2: return "S.O2";
+        case 1: return "S.o";
+        case 2: return "S.o2";
       }
       switch (ai->geom) {
         case cAtomInfoPlanar:       return "S.2";

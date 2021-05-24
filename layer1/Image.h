@@ -1,7 +1,10 @@
 #pragma once
-#include "LangUtil.h"
+
+#include <cstdint>
 #include <exception>
 #include <vector>
+#include "pymol/algorithm.h"
+#include "pymol/type_traits.h"
 
 namespace pymol
 {
@@ -61,7 +64,7 @@ public:
   /**
    * Get the width and height in pixels
    */
-  const std::pair<int, int> getSize() const
+  std::pair<int, int> getSize() const
   {
     return std::make_pair(m_width, m_height);
   }
@@ -72,7 +75,7 @@ public:
    * If this is a stereo image, then bits() will point to a buffer
    * of size getSizeInBytes() * 2.
    */
-  const std::size_t getSizeInBytes() const noexcept
+  std::size_t getSizeInBytes() const noexcept
   {
     if (!m_stereo) {
       return m_data.size();
@@ -84,19 +87,19 @@ public:
   /**
    * Get the width in pixels
    */
-  const int getWidth() const noexcept { return m_width; }
+  int getWidth() const noexcept { return m_width; }
 
   /**
    * Get the height in pixels
    */
-  const int getHeight() const noexcept { return m_height; }
+  int getHeight() const noexcept { return m_height; }
 
   /**
    * True if this instance holds a stereo image (two images).
    * bits() will point to the left image and
    * bits() + getSizeInBytes() will point to the right image.
    */
-  const bool isStereo() const noexcept { return m_stereo; }
+  bool isStereo() const noexcept { return m_stereo; }
 
   /**
    * Returns a pointer to the first pixel's first channel.

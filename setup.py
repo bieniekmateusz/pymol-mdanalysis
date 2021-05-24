@@ -8,9 +8,6 @@
 
 from distutils.core import setup, Extension
 from distutils.util import change_root
-from distutils.errors import *
-from distutils.command.install import install
-from distutils.command.build_py import build_py
 from glob import glob
 import shutil
 import sys, os, re
@@ -30,23 +27,27 @@ class options:
     use_msgpackc = 'guess'
     help_distutils = False
     testing = False
+    openvr = False
+    use_openmp = 'no' if MAC else 'yes'
+    use_vtkm = 'no'
+    vmd_plugins = True
 
 try:
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--no-glut', action="store_true")
     parser.add_argument('--glut', dest='no_glut', action="store_false",
             help="link with GLUT (legacy GUI)")
     parser.add_argument('--no-osx-frameworks', dest='osx_frameworks',
+            help="on MacOS use XQuartz instead of native frameworks",
             action="store_false")
-    parser.add_argument('--osx-frameworks', action="store_true",
-            help="on MacOS use OpenGL and GLUT frameworks instead of shared "
-            "libraries from XQuartz. Note that the GLUT framework has no "
-            "mouse wheel support, so this option is generally not desired.")
     parser.add_argument('--jobs', '-j', type=int, help="for parallel builds "
             "(defaults to number of processors)")
     parser.add_argument('--no-libxml', action="store_true",
             help="skip libxml2 dependency, disables COLLADA export")
+    parser.add_argument('--use-openmp', choices=('yes', 'no'),
+            help="Use OpenMP")
+    parser.add_argument('--use-vtkm', choices=('1.5.x', 'master', 'no'),
+            help="Use VTK-m for isosurface generation")
     parser.add_argument('--use-msgpackc', choices=('c++11', 'c', 'guess', 'no'),
             help="c++11: use msgpack-c header-only library; c: link against "
             "shared library; no: disable fast MMTF load support")
@@ -54,6 +55,10 @@ try:
             help="show help for distutils options and exit")
     parser.add_argument('--testing', action="store_true",
             help="Build C-level tests")
+    parser.add_argument('--openvr', dest='openvr', action='store_true')
+    parser.add_argument('--no-vmd-plugins', dest='vmd_plugins',
+            action='store_false',
+            help='Disable VMD molfile plugins (libnetcdf dependency)')
     options, sys.argv[1:] = parser.parse_known_args(namespace=options)
 except ImportError:
     print("argparse not available")
@@ -88,7 +93,7 @@ def get_prefix_path():
 
     if sys.platform == 'darwin':
         for prefix in ['/sw', '/opt/local', '/usr/local']:
-            if sys.executable.startswith(prefix):
+            if sys.base_prefix.startswith(prefix):
                 return [prefix] + X11
 
     if is_conda_env():
@@ -125,6 +130,17 @@ def guess_msgpackc():
     return 'no'
 
 
+# Important: import 'distutils.command' modules after monkeypatch_distutils
+from distutils.command.build_ext import build_ext
+from distutils.command.build_py import build_py
+from distutils.command.install import install
+
+class build_ext_pymol(build_ext):
+    def initialize_options(self):
+        build_ext.initialize_options(self)
+        if DEBUG and not WIN:
+            self.debug = True
+
 class build_py_pymol(build_py):
     def run(self):
         build_py.run(self)
@@ -143,6 +159,9 @@ class install_pymol(install):
 
     def finalize_options(self):
         install.finalize_options(self)
+
+        self.pymol_path_is_default = self.pymol_path is None
+
         if self.pymol_path is None:
             self.pymol_path = os.path.join(self.install_libbase, 'pymol', 'pymol_path')
         elif self.root is not None:
@@ -165,7 +184,8 @@ class install_pymol(install):
         return name
 
     def copy_tree_nosvn(self, src, dst):
-        ignore = lambda src, names: set(['.svn']).intersection(names)
+        ignore = lambda src, names: set([
+        ]).intersection(names)
         if os.path.exists(dst):
             shutil.rmtree(dst)
         print('copying %s -> %s' % (src, dst))
@@ -177,8 +197,12 @@ class install_pymol(install):
 
     def install_pymol_path(self):
         self.mkpath(self.pymol_path)
-        for name in [ 'LICENSE', 'data', 'test', 'scripts', 'examples', ]:
+        for name in [ 'LICENSE', 'data', 'test', 'examples', ]:
             self.copy(name, os.path.join(self.pymol_path, name))
+
+        if options.openvr:
+            self.copy('contrib/vr/README.md',
+                      os.path.join(self.pymol_path, 'README-VR.txt'))
 
     def make_launch_script(self):
         if sys.platform.startswith('win'):
@@ -205,13 +229,15 @@ class install_pymol(install):
                 except ValueError:
                     pymol_file = os.path.abspath(pymol_file)
 
-                # out.write('set PYMOL_PATH=' + pymol_path + os.linesep)
+                if not self.pymol_path_is_default:
+                    out.write(f'set PYMOL_PATH={pymol_path}' + os.linesep)
                 out.write('"%s" "%s"' % (python_exe, pymol_file))
                 out.write(' %*' + os.linesep)
             else:
                 out.write('#!/bin/sh' + os.linesep)
-                out.write('export PYMOL_PATH="%s"' % pymol_path + os.linesep)
-                out.write('"%s" "%s" "$@"' % (python_exe, pymol_file) + os.linesep)
+                if not self.pymol_path_is_default:
+                    out.write(f'export PYMOL_PATH="{pymol_path}"' + os.linesep)
+                out.write('exec "%s" "%s" "$@"' % (python_exe, pymol_file) + os.linesep)
 
         os.chmod(launch_script, 0o755)
 
@@ -228,6 +254,7 @@ create_shadertext.create_all(generated_dir)
 prefix_path = get_prefix_path()
 
 inc_dirs = [
+    "include",
 ]
 
 pymol_src_dirs = [
@@ -238,34 +265,51 @@ pymol_src_dirs = [
     "layer3",
     "layer4",
     "layer5",
-    "modules/cealign/src",
     generated_dir,
 ]
 
 def_macros = [
     ("_PYMOL_LIBPNG", None),
     ("_PYMOL_FREETYPE", None),
-    ("_PYMOL_INLINE", None),
 ]
+
+if DEBUG and not WIN:
+    def_macros += [
+        # bounds checking in STL containers
+        ("_GLIBCXX_ASSERTIONS", None),
+    ]
 
 libs = ["png", "freetype"]
 lib_dirs = []
 ext_comp_args = [
+    "-Werror=return-type",
+    "-Wunused-variable",
+    "-Wno-switch",
     "-Wno-narrowing",
     # legacy stuff
     '-Wno-char-subscripts',
     # optimizations
-    "-ffast-math",
-    "-funroll-loops",
-    "-O0" if DEBUG else "-O3",
-    "-fcommon",
-]
+    "-Og" if DEBUG else "-O3",
+] if not WIN else []
 ext_link_args = []
 ext_objects = []
 data_files = []
 ext_modules = []
 
-if True:
+if options.use_openmp == 'yes':
+    def_macros += [
+        ("PYMOL_OPENMP", None),
+    ]
+    if MAC:
+        ext_comp_args += ["-Xpreprocessor", "-fopenmp"]
+        libs += ["omp"]
+    elif WIN:
+        ext_comp_args += ["/openmp"]
+    else:
+        ext_comp_args += ["-fopenmp"]
+        ext_link_args += ["-fopenmp"]
+
+if options.vmd_plugins:
     # VMD plugin support
     inc_dirs += [
         'contrib/uiuc/plugins/include',
@@ -306,6 +350,12 @@ if options.testing:
     pymol_src_dirs += ["layerCTest"]
     def_macros += [("_PYMOL_CTEST", None)]
 
+if options.openvr:
+    def_macros += [("_PYMOL_OPENVR", None)]
+    pymol_src_dirs += [
+        "contrib/vr",
+    ]
+
 inc_dirs += pymol_src_dirs
 
 #============================================================================
@@ -331,14 +381,13 @@ if MAC:
 if WIN:
         # clear
         libs = []
-        ext_comp_args = []
 
         def_macros += [
             ("WIN32", None),
-            ("CINTERFACE", None),   # avoid "Alloc" macro conflict
         ]
 
         libs += [
+            "Advapi32", # Registry (RegCloseKey etc.)
             "Ws2_32",   # htonl
         ]
 
@@ -370,6 +419,41 @@ if not (MAC or WIN):
             "glut",
         ]
 
+if options.use_vtkm != "no":
+    for prefix in prefix_path:
+        vtkm_inc_dir = os.path.join(prefix, "include", "vtkm-1.5")
+        if os.path.exists(vtkm_inc_dir):
+            break
+    else:
+        raise LookupError('VTK-m headers not found.'
+                          f' PREFIX_PATH={":".join(prefix_path)}')
+    def_macros += [
+        ("_PYMOL_VTKM", None),
+    ]
+    inc_dirs += [
+        vtkm_inc_dir,
+        vtkm_inc_dir + "/vtkm/thirdparty/diy/vtkmdiy/include",
+        vtkm_inc_dir + "/vtkm/thirdparty/lcl/vtkmlcl",
+    ] + (options.use_vtkm != "master") * [
+        vtkm_inc_dir + "/vtkm/thirdparty/diy",
+        vtkm_inc_dir + "/vtkm/thirdparty/taotuple",
+    ]
+    libs += [
+        "vtkm_cont-1.5",
+        "vtkm_filter_contour-1.5"
+        if options.use_vtkm == "master" else "vtkm_filter-1.5",
+    ]
+
+if options.vmd_plugins:
+    libs += [
+        "netcdf",
+    ]
+
+if options.openvr:
+    libs += [
+        "openvr_api",
+    ]
+
 if True:
     try:
         import numpy
@@ -385,15 +469,12 @@ if True:
 if True:
     for prefix in prefix_path:
         for dirs, suffixes in [
-                [inc_dirs, [("include",), ("include", "freetype2"), ("include", "libxml2")]],
+                [inc_dirs, [("include",), ("include", "freetype2"), ("include", "libxml2"), ("include", "openvr")]],
                 [lib_dirs, [("lib64",), ("lib",)]],
                 ]:
             dirs.extend(filter(os.path.isdir, [os.path.join(prefix, *s) for s in suffixes]))
 
 if True:
-    if sys.platform.startswith("freebsd"):
-        libs += ["execinfo"]
-
     # optimization currently causes a clang segfault on OS X 10.9 when
     # compiling layer2/RepCylBond.cpp
     if sys.platform == 'darwin':
@@ -438,8 +519,12 @@ ext_modules += [
     ),
 ]
 
+datafiles = [(d, [os.path.join(d,f) for f in files])
+    for d, folders, files in os.walk('data')]
+
 distribution = setup ( # Distribution meta-data
     cmdclass  = {
+        'build_ext': build_ext_pymol,
         'build_py': build_py_pymol,
         'install': install_pymol,
     },
@@ -457,6 +542,16 @@ distribution = setup ( # Distribution meta-data
     packages = list(package_dir),
     package_data = {'pmg_qt': ['forms/*.ui']},
 
+    # numpy should be optional?
+    install_requires = ['MDAnalysis', 'pylustrator', 'matplotlib', 'numpy', 'wheel', 'pyshortcuts', 'more_itertools'],
+
+    entry_points={
+        'console_scripts': [
+            'pymol = pymol:pymol.launch'
+        ]
+    },
+
     ext_modules = ext_modules,
-    data_files  = data_files,
+    data_files  = datafiles, # data_files
+    include_package_data=True
 )

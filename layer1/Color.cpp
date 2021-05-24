@@ -31,7 +31,6 @@ Z* -------------------------------------------------------------------
 #include"Executive.h"
 #include"MyPNG.h"
 #include"Scene.h"
-#include"LangUtil.h"
 #include"OVContext.h"
 #include"OVreturns.h"
 
@@ -176,41 +175,25 @@ int ColorCheckRamped(PyMOLGlobals * G, int index)
 ObjectGadgetRamp *ColorGetRamp(PyMOLGlobals * G, int index)
 {
   CColor *I = G->Color;
-  ObjectGadgetRamp *result = NULL;
   if(index <= cColorExtCutoff) {
     index = cColorExtCutoff - index;
-    if(index < I->NExt) {
-      if(!I->Ext[index].Ptr) {
-        if(I->Ext[index].Name) {
-          char *name = OVLexicon_FetchCString(I->Lex, I->Ext[index].Name);
-          I->Ext[index].Ptr = (void *) ExecutiveFindObjectByName(G, name);
-        }
+    if (index < I->Ext.size()) {
+      auto& ext = I->Ext[index];
+      if (!ext.Ptr && ext.Name) {
+        ext.Ptr = ExecutiveFindObject<ObjectGadgetRamp>(G, ext.Name);
       }
-      if(I->Ext[index].Ptr)
-        result = (ObjectGadgetRamp *) I->Ext[index].Ptr;
+      return ext.Ptr;
     }
   }
-  return result;
+  return nullptr;
 }
 
 int ColorGetRamped(PyMOLGlobals * G, int index, const float *vertex, float *color, int state)
 {
   CColor *I = G->Color;
   int ok = false;
-  if(index <= cColorExtCutoff) {
-    index = cColorExtCutoff - index;
-    if(index < I->NExt) {
-      if(!I->Ext[index].Ptr) {
-        if(I->Ext[index].Name) {
-          char *name = OVLexicon_FetchCString(I->Lex, I->Ext[index].Name);
-          I->Ext[index].Ptr = (void *) ExecutiveFindObjectByName(G, name);
-        }
-      }
-      if(I->Ext[index].Ptr)
-        ok = ObjectGadgetRampInterVertex((ObjectGadgetRamp *) I->Ext[index].Ptr,
-                                         vertex, color, state);
-    }
-
+  if (auto* ptr = ColorGetRamp(G, index)) {
+    ok = ObjectGadgetRampInterVertex(ptr, vertex, color, state);
   }
   if(!ok) {
     color[0] = 1.0;
@@ -222,21 +205,19 @@ int ColorGetRamped(PyMOLGlobals * G, int index, const float *vertex, float *colo
   return (ok);
 }
 
-/* Color::ColorGetCheckRamped -- This function gets a color as 3 floats from an index and writes it into
+/**
+ * Gets a color as 3 floats from an index and writes it into
  * the color argument.  If the index is a ramp, then it uses the vertex and state arguments to lookup the
  * color value in the ramp.
  * NOTES: does not support index values cColorObject(-5) or cColorAtomic(-4) color since the object
  *        or atom color is not passed in.
  *
- * PARAMS
+ * @param index - color index value
+ * @param vertex - x/y/z used for ramp lookup (if color index is a ramp)
+ * @param[out] color - output color array of 3 floats
+ * @param state - state lookup if ramp
  *
- * index - color index value
- * vertex - x/y/z used for ramp lookup (if color index is a ramp)
- * color - output color array of 3 floats
- * state - state lookup if ramp
- *
- * RETURN VALUE: returns whether the color index is dependent on a ramp.
- *
+ * @return whether the color index is dependent on a ramp.
  */
 bool ColorGetCheckRamped(PyMOLGlobals * G, int index, const float *vertex, float *color, int state)
 {
@@ -250,100 +231,185 @@ bool ColorGetCheckRamped(PyMOLGlobals * G, int index, const float *vertex, float
   return isRamped;
 }
 
-static int ColorFindExtByName(PyMOLGlobals * G, const char *name, int null_okay, int *best)
+/**
+ * Find a record by case-insensitive name
+ *
+ * @param seq Indexable container (Color or Ext)
+ * @param name Color name
+ * @return seq index or -1 if not found
+ */
+template <typename Sequence>
+static int findByCaseInsensitiveName(
+    PyMOLGlobals* G, const Sequence& seq, const char* name)
 {
-  CColor *I = G->Color;
-  int result = -1;
-  int wm;
-  int a;
-  int mybest;
-  if(!best)
-    best = &mybest;
-  *best = 0;
-  for(a = 0; a < I->NExt; a++) {
-    int color_lex = I->Ext[a].Name;
-    if(color_lex) {
-      char *color_name = OVLexicon_FetchCString(I->Lex, color_lex);
-      wm = WordMatch(G, name, color_name, true);
-      if(wm < 0) {
-        if(null_okay || (I->Ext[a].Ptr)) {
-          result = a;
-          *best = 0;
-          break;
-        }
-      } else if((wm > 0) && ((*best) < wm)) {
-        if(null_okay || (I->Ext[a].Ptr)) {
-          result = a;
-          *best = wm;
-        }
+  for (int a = 0; a < seq.size(); ++a) {
+    auto* color_name = seq[a].Name;
+    if (color_name) {
+      int wm = WordMatch(G, name, color_name, true);
+      if (wm < 0) {
+        return a;
       }
     }
   }
-  return (result);
+
+  return -1;
 }
 
-void ColorRegisterExt(PyMOLGlobals * G, const char *name, void *ptr, int type)
+/**
+ * Find a record by case-insensitive and/or partial name
+ *
+ * @param seq Indexable container (Color or Ext)
+ * @param name Color name
+ * @param[in,out] best Word match score (0 for perfect match), must not be
+ * negative
+ * @return seq index or -1 if not found
+ */
+template <typename Sequence>
+static int findByCaseInsensitivePrefix(
+    PyMOLGlobals* G, const Sequence& seq, const char* name, int& best)
+{
+  int best_a = -1;
+  assert(best >= 0);
+
+  // search for an imperfect match
+  for (int a = 0; a < seq.size(); ++a) {
+    auto* color_name = seq[a].Name;
+    if (color_name) {
+      auto wm = WordMatch(G, name, color_name, true);
+      if (wm < 0) {
+        // perfect case-insensitive match
+        best = 0;
+        return a;
+      }
+
+      if (best < wm) {
+        // prefix match
+        best = wm;
+        best_a = a;
+      }
+    }
+  }
+
+  return best_a;
+}
+
+/**
+ * Find a color ramp by case-insensitive name
+ *
+ * @param name Color name (ramp name)
+ * @return Ext index or -1 if not found
+ */
+static int ColorFindExtByName(PyMOLGlobals* G, const char* name)
+{
+  return findByCaseInsensitiveName(G, G->Color->Ext, name);
+}
+
+/**
+ * Map name to index (idx[name] = index)
+ *
+ * If the name is already in use and the index can't be reused, then clear the
+ * name on the existing color or ext record.
+ *
+ * @param index Color index
+ * @param name Color name
+ * @param reuse If the name already exists, reuse the existing index if possible
+ * (not possible to reuse a ramp index for a color or vice versa)
+ *
+ * @return pointer to stored name string
+ */
+static const char* reg_name(CColor* const I, CColor::ColorIdx const index,
+    const char* name, bool reuse = false)
+{
+  auto handle = I->Idx.emplace(name, index);
+  auto& handle_name = handle.first->first;
+  auto& handle_index = handle.first->second;
+
+  if (handle_index != index &&
+      (!reuse || bool(cColorExtCutoff < handle_index) !=
+                     bool(cColorExtCutoff < index))) {
+    assert(!handle.second);
+
+    // if we're stealing a name to a new index, clear the name on the old record
+    if (handle_index <= cColorExtCutoff) {
+      auto& ext = I->Ext[cColorExtCutoff - handle_index];
+      assert(ext.Name == handle_name.c_str());
+      ext.Name = nullptr;
+    } else if (handle_index >= 0) {
+      auto& col = I->Color[handle_index];
+      assert(col.Name == handle_name.c_str());
+      col.Name = nullptr;
+    }
+
+    handle_index = index;
+  }
+
+  return handle_name.c_str();
+}
+
+void ColorRegisterExt(PyMOLGlobals* G, const char* name, ObjectGadgetRamp* ptr)
 {
   CColor *I = G->Color;
   int a;
 
-  a = ColorFindExtByName(G, name, true, NULL);
+  a = ColorFindExtByName(G, name);
   if(a < 0) {
-    VLACheck(I->Ext, ExtRec, I->NExt);
-    a = I->NExt;
-    I->NExt++;
-    {
-      OVreturn_word result = OVLexicon_GetFromCString(I->Lex, name);
-      if(OVreturn_IS_OK(result)) {
-        OVOneToOne_Set(I->Idx, result.word, cColorExtCutoff - a);
-        I->Ext[a].Name = result.word;
-      } else {
-        I->Ext[a].Name = 0;
-      }
-    }
+    a = I->Ext.size();
+
+    I->Ext.emplace_back();
+    auto& ext = I->Ext.back();
+
+    ext.Name = reg_name(I, cColorExtCutoff - a, name);
+    assert(I->Idx[ext.Name] == cColorExtCutoff - a);
   }
   if(a >= 0) {
     I->Ext[a].Ptr = ptr;
-    I->Ext[a].Type = type;
   }
 }
 
 void ColorForgetExt(PyMOLGlobals * G, const char *name)
 {
   CColor *I = G->Color;
-  int a;
-  a = ColorFindExtByName(G, name, true, NULL);
+  auto a = ColorFindExtByName(G, name);
 
-  if(a >= 0) {                  /* currently leaks memory in I->Ext array -- TODO fix */
-    if(I->Ext[a].Name) {
-      OVLexicon_DecRef(I->Lex, I->Ext[a].Name);
-      OVOneToOne_DelForward(I->Idx, I->Ext[a].Name);
-    }
-    I->Ext[a].Name = 0;
-    I->Ext[a].Ptr = NULL;
+  if (a < 0)
+    return;
+
+  // currently leaks memory in I->Ext array
+  auto& ext = I->Ext[a];
+  ext.Ptr = nullptr;
+
+  // HaveOldSessionExtColors should only be true while we're loading a partial
+  // session, and ColorForgetExt probably means that we're replacing the ramp
+  // object with a another one, so we don't want to lose the name+index
+  // relationship.
+  if (ext.Name && !I->HaveOldSessionExtColors) {
+    I->Idx.erase(ext.Name);
+    ext.Name = nullptr;
   }
 }
 
 PyObject *ColorExtAsPyList(PyMOLGlobals * G)
 {
   CColor *I = G->Color;
-  PyObject *result, *list;
-  ExtRec *ext;
-  int a;
 
-  result = PyList_New(I->NExt);
-  ext = I->Ext;
-  for(a = 0; a < I->NExt; a++) {
-    list = PyList_New(2);
-    {
-      const char *name = ext->Name ? OVLexicon_FetchCString(I->Lex, ext->Name) : "";
-      PyList_SetItem(list, 0, PyString_FromString(name));
-    }
-    PyList_SetItem(list, 1, PyInt_FromLong(ext->Type));
-    PyList_SetItem(result, a, list);
-    ext++;
+  auto* result = PyList_New(I->Ext.size());
+
+  size_t a = 0;
+
+  for (const auto& ext : I->Ext) {
+    auto* list = PyList_New(2);
+    const char* name = ext.Name ? ext.Name : "";
+    PyList_SetItem(list, 0, PyString_FromString(name));
+
+    // obsolete since PyMOL 2.5, store for backwards compatibility
+    PyList_SetItem(list, 1, PyInt_FromLong(cColorGadgetRamp));
+
+    PyList_SetItem(result, a++, list);
   }
-  return (result);
+
+  assert(a == I->Ext.size());
+
+  return result;
 }
 
 
@@ -351,38 +417,37 @@ PyObject *ColorExtAsPyList(PyMOLGlobals * G)
 PyObject *ColorAsPyList(PyMOLGlobals * G)
 {
   CColor *I = G->Color;
-  PyObject *result, *list;
-  ColorRec *color;
-  int n_custom = 0;
-  int a, c;
-  color = I->Color;
-  for(a = 0; a < I->NColor; a++) {
-    if(color->Custom || color->LutColorFlag)
+
+  size_t n_custom = 0;
+  for (const auto& color : I->Color) {
+    if (color.Custom || color.LutColorFlag) {
       n_custom++;
-    color++;
-  }
-  result = PyList_New(n_custom);
-  c = 0;
-  color = I->Color;
-  for(a = 0; a < I->NColor; a++) {
-    if(color->Custom || color->LutColorFlag) {
-      list = PyList_New(7);
-      {
-        char *name = OVLexicon_FetchCString(I->Lex, color->Name);
-        PyList_SetItem(list, 0, PyString_FromString(name));
-      }
-      PyList_SetItem(list, 1, PyInt_FromLong(a));
-      PyList_SetItem(list, 2, PConvFloatArrayToPyList(color->Color, 3));
-      PyList_SetItem(list, 3, PyInt_FromLong((int) color->Custom));
-      PyList_SetItem(list, 4, PyInt_FromLong((int) color->LutColorFlag));
-      PyList_SetItem(list, 5, PConvFloatArrayToPyList(color->LutColor, 3));
-      PyList_SetItem(list, 6, PyInt_FromLong((int) color->Fixed));
-      PyList_SetItem(result, c, list);
-      c++;
     }
-    color++;
   }
-  return (result);
+
+  auto* result = PyList_New(n_custom);
+
+  size_t a = 0;
+  size_t c = 0;
+
+  for (const auto& color : I->Color) {
+    if (color.Custom || color.LutColorFlag) {
+      auto* list = PyList_New(7);
+      PyList_SetItem(list, 0, PyString_FromString(color.Name));
+      PyList_SetItem(list, 1, PyInt_FromLong(a));
+      PyList_SetItem(list, 2, PConvFloatArrayToPyList(color.Color, 3));
+      PyList_SetItem(list, 3, PyInt_FromLong(color.Custom));
+      PyList_SetItem(list, 4, PyInt_FromLong(color.LutColorFlag));
+      PyList_SetItem(list, 5, PConvFloatArrayToPyList(color.LutColor, 3));
+      PyList_SetItem(list, 6, PyInt_FromLong(color.Fixed));
+      PyList_SetItem(result, c++, list);
+    }
+    ++a;
+  }
+
+  assert(c == n_custom);
+
+  return result;
 }
 
 /*========================================================================*/
@@ -391,188 +456,155 @@ int ColorConvertOldSessionIndex(PyMOLGlobals * G, int index)
   CColor *I = G->Color;
   if(index > cColorExtCutoff) {
     if(I->HaveOldSessionColors) {
-      ColorRec *col = I->Color + (I->NColor - 1);
-      int a;
-      for(a = I->NColor - 1; a >= 0; a--) {
-        if(index == col->old_session_index) {
-          index = a;
-          break;
+      for (int a = int(I->Color.size()) - 1; a >= 0; --a) {
+        if (index == I->Color[a].old_session_index) {
+          return a;
         }
-        col--;
       }
     }
   } else if(I->HaveOldSessionExtColors) {
-    ExtRec *ext = I->Ext + (I->NExt - 1);
-    int a;
-    for(a = I->NExt - 1; a >= 0; a--) {
-      if(index == ext->old_session_index) {
-        index = cColorExtCutoff - a;
-        break;
+    for (int a = int(I->Ext.size()) - 1; a >= 0; --a) {
+      if (index == I->Ext[a].old_session_index) {
+        return cColorExtCutoff - a;
       }
-      ext--;
     }
   }
   return index;                 /* failsafe */
 }
 
+#define return_error_if_fail(e) p_return_val_if_fail((e), false);
+
 int ColorExtFromPyList(PyMOLGlobals * G, PyObject * list, int partial_restore)
 {
-  int n_ext = 0;
-  int a;
-  int ok = true;
   CColor *I = G->Color;
-  PyObject *rec;
-  ExtRec *ext;
+  size_t n_ext = 0;
 
-  if(partial_restore) {
-    ext = I->Ext;
-    for(a = 0; a < I->NExt; a++) {
-      ext->old_session_index = 0;
-      ext++;
-    }
-    I->HaveOldSessionExtColors = true;
-  } else {
-    I->HaveOldSessionExtColors = false;
+  assert(!I->HaveOldSessionExtColors);
+
+  if (list && PyList_Check(list)) {
+    n_ext = PyList_Size(list);
   }
-
-  if(ok)
-    ok = (list != NULL);
-  if(ok)
-    ok = PyList_Check(list);
 
   /* TO SUPPORT BACKWARDS COMPATIBILITY...
      Always check ll when adding new PyList_GetItem's */
 
-  if(ok) {
-    n_ext = PyList_Size(list);
-    if(partial_restore) {
-      VLACheck(I->Ext, ExtRec, n_ext + I->NExt);
-      ext = I->Ext + I->NExt;
-    } else {
-      VLACheck(I->Ext, ExtRec, n_ext);
-      ext = I->Ext;
-    }
-    for(a = 0; a < n_ext; a++) {
-      rec = PyList_GetItem(list, a);
-      if(ok)
-        ok = (rec != NULL);
-      if(ok)
-        ok = PyList_Check(rec);
-      if(ok) {
-        WordType name;
-        OVreturn_word result;
-        ok = PConvPyStrToStr(PyList_GetItem(rec, 0), name, sizeof(WordType));
-        if(OVreturn_IS_OK(result = OVLexicon_GetFromCString(I->Lex, name))) {
-          OVOneToOne_Set(I->Idx, result.word, cColorExtCutoff - a);
-          ext->Name = result.word;
-        } else {
-          ext->Name = 0;
-        }
-      }
-      if(ok)
-        ok = PConvPyIntToInt(PyList_GetItem(rec, 1), &ext->Type);
-      ext->old_session_index = cColorExtCutoff - a;
-      ext++;
-    }
-    if(ok)
-      I->NExt = (ext - I->Ext);
+  if (partial_restore) {
+    I->HaveOldSessionExtColors = I->Ext.size() > 0;
 
+    for (auto& ext : I->Ext) {
+      ext.old_session_index = 0;
+    }
+  } else {
+    I->Ext.clear();
   }
-  return (ok);
+
+  for (int a = 0; a < n_ext; ++a) {
+    auto* rec = PyList_GetItem(list, a);
+
+    return_error_if_fail(rec != nullptr);
+    return_error_if_fail(PyList_Check(rec));
+
+    std::string name;
+    return_error_if_fail(PConvFromPyListItem(G, rec, 0, name));
+
+    char const* name_ptr =
+        reg_name(I, cColorExtCutoff - I->Ext.size(), name.c_str(), true);
+    int const a_new = cColorExtCutoff - I->Idx[name];
+
+    assert(a_new >= 0);
+    assert(a_new <= I->Ext.size());
+    assert(a_new == a || partial_restore);
+
+    if (a_new == I->Ext.size()) {
+      I->Ext.emplace_back();
+    } else {
+      assert(partial_restore);
+    }
+
+    auto& ext = I->Ext[a_new];
+    ext.Name = name_ptr;
+    ext.old_session_index = cColorExtCutoff - a;
+
+    CPythonVal_Free(rec);
+  }
+
+  return true;
 }
 
 
 /*========================================================================*/
 int ColorFromPyList(PyMOLGlobals * G, PyObject * list, int partial_restore)
 {
-  int n_custom = 0;
-  int a;
-  int index = 0, old_session_index = 0;
-  int ok = true;
-  int ll = 0;
-  CColor *I = G->Color;
-  PyObject *rec;
-  ColorRec *color = NULL;
+  CColor* I = G->Color;
 
-  if(partial_restore) {
-    color = I->Color;
-    for(a = 0; a < I->NColor; a++) {
-      color->old_session_index = 0;
-      color++;
+  assert(!I->HaveOldSessionColors);
+
+  if (partial_restore) {
+    for (auto& color : I->Color) {
+      color.old_session_index = 0;
     }
   }
-  I->HaveOldSessionColors = false;
 
-  if(ok)
-    ok = (list != NULL);
-  if(ok)
-    ok = PyList_Check(list);
-  if(ok) {
-    n_custom = PyList_Size(list);
-    for(a = 0; a < n_custom; a++) {
-      rec = PyList_GetItem(list, a);
-      if(ok)
-        ok = (rec != NULL);
-      if(ok)
-        ok = PyList_Check(rec);
-      if(ok)
-        ll = PyList_Size(rec);
-      /* TO SUPPORT BACKWARDS COMPATIBILITY...
-         Always check ll when adding new PyList_GetItem's */
-      if(ok)
-        ok = PConvPyIntToInt(PyList_GetItem(rec, 1), &index);
-      if(ok) {
-        old_session_index = index;
-        if(partial_restore) {
-          if(I->NColor > index) {       /* conflicts with an existing color... */
-            I->HaveOldSessionColors = true;
-            index = I->NColor;
-          }
-        }
-        if(index >= I->NColor) {
-          VLACheck(I->Color, ColorRec, index);  /* auto-zeros */
-          I->NColor = index + 1;
-        }
-        color = I->Color + index;
-        color->old_session_index = old_session_index;
-        if(ok) {
-          WordType name;
-          OVreturn_word result;
-          ok = PConvPyStrToStr(PyList_GetItem(rec, 0), name, sizeof(WordType));
-          if(OVreturn_IS_OK(result = OVLexicon_GetFromCString(I->Lex, name))) {
-            OVOneToOne_Set(I->Idx, result.word, index);
-            color->Name = result.word;
-          } else {
-            color->Name = 0;
-          }
-        }
-        if(ok)
-          ok = PConvPyListToFloatArrayInPlace(PyList_GetItem(rec, 2), color->Color, 3);
-        if(PyList_Size(rec) >= 6) {
-          if(ok)
-            ok = PConvPyIntToChar(PyList_GetItem(rec, 3), &color->Custom);
-          if(ok)
-            ok = PConvPyIntToChar(PyList_GetItem(rec, 4), &color->LutColorFlag);
-          if(ok)
-            ok =
-              PConvPyListToFloatArrayInPlace(PyList_GetItem(rec, 5), color->LutColor, 3);
-        } else {
-          if(ok) {
-            color->Custom = true;
-          }
-        }
-      }
-      if(ok && (ll > 6)) {
-        if(ok)
-          ok = PConvPyIntToChar(PyList_GetItem(rec, 6), &color->Fixed);
-      } else if(ok && color) {
-        color->Fixed = false;
-      }
-      if(!ok)
-        break;
+  return_error_if_fail(list != nullptr );
+  return_error_if_fail(PyList_Check(list));
+
+  int const n_custom = PyList_Size(list);
+
+  for (int a = 0; a < n_custom; ++a) {
+    auto rec = PyList_GetItem(list, a);
+
+    return_error_if_fail(rec && PyList_Check(rec));
+
+    auto const ll = PyList_Size(rec);
+    /* TO SUPPORT BACKWARDS COMPATIBILITY...
+       Always check ll when adding new PyList_GetItem's */
+
+    int index = 0;
+    return_error_if_fail(PConvFromPyListItem(G, rec, 1, index));
+
+    std::string name;
+    return_error_if_fail(PConvFromPyListItem(G, rec, 0, name));
+
+    int const old_session_index = index;
+    if (partial_restore && I->Color.size() > index) {
+      // conflicts with an existing color
+      index = I->Color.size();
+      I->HaveOldSessionColors = true;
     }
+
+    if (index >= I->Color.size()) {
+      assert(I->Color.size() == index);
+      I->Color.emplace_back(reg_name(I, index, name.c_str()));
+    }
+
+    auto& color = I->Color[index];
+    color.old_session_index = old_session_index;
+
+    assert(name == color.Name);
+    assert(index == I->Idx[name]);
+
+    return_error_if_fail(CPythonVal_PConvPyListToFloatArrayInPlace_From_List(
+        G, rec, 2, color.Color, 3));
+
+    if (PyList_Size(rec) >= 6) {
+      return_error_if_fail(PConvFromPyListItem(G, rec, 3, color.Custom));
+      return_error_if_fail(PConvFromPyListItem(G, rec, 4, color.LutColorFlag));
+      return_error_if_fail(CPythonVal_PConvPyListToFloatArrayInPlace_From_List(
+          G, rec, 5, color.LutColor, 3));
+    } else {
+      color.Custom = true;
+    }
+
+    if (ll > 6) {
+      PConvFromPyListItem(G, rec, 6, color.Fixed);
+    } else {
+      color.Fixed = false;
+    }
+
+    CPythonVal_Free(rec);
   }
-  return (ok);
+
+  return true;
 }
 
 /*========================================================================*/
@@ -580,48 +612,28 @@ void ColorDef(PyMOLGlobals * G, const char *name, const float *v, int mode, int 
 {
   CColor *I = G->Color;
   int color = -1;
-  int a;
-  int wm;
 
+  // Search for a perfect case-sensitive match
   {
-    OVreturn_word result;
-    if(OVreturn_IS_OK(result = OVLexicon_BorrowFromCString(I->Lex, name)))
-      if(OVreturn_IS_OK(result = OVOneToOne_GetForward(I->Idx, result.word))) {
-        color = result.word;
-      }
-  }
-
-  if(color < 0) {
-    for(a = 0; a < I->NColor; a++) {
-      int color_ext = I->Color[a].Name;
-      if(color_ext) {
-        char *color_name = OVLexicon_FetchCString(I->Lex, color_ext);
-        wm = WordMatch(G, name, color_name, true);
-        if(wm < 0) {
-          color = a;
-          break;
-        }
-      }
+    auto it = I->Idx.find(name);
+    if (it != I->Idx.end()) {
+      color = it->second;
     }
   }
 
-  if(color < 0) {
-    OVreturn_word result;
-    color = I->NColor;
-    VLACheck(I->Color, ColorRec, I->NColor);
-    I->NColor++;
+  if (color < 0) {
+    // Not found or ramp index -> do slow search
+    color = findByCaseInsensitiveName(G, I->Color, name);
 
-    if(OVreturn_IS_OK(result = OVLexicon_GetFromCString(I->Lex, name))) {
-      OVOneToOne_Set(I->Idx, result.word, color);
-      I->Color[color].Name = result.word;
-    } else {
-      I->Color[color].Name = 0;
+    if (color < 0) {
+      // Not found -> new entry
+      color = I->Color.size();
+      I->Color.emplace_back(reg_name(I, color, name));
+      assert(I->Idx[name] == color);
     }
   }
 
-  I->Color[color].Color[0] = v[0];
-  I->Color[color].Color[1] = v[1];
-  I->Color[color].Color[2] = v[2];
+  copy3f(v, I->Color[color].Color);
 
   switch (mode) {
   case 1:
@@ -651,14 +663,8 @@ void ColorDef(PyMOLGlobals * G, const char *name, const float *v, int mode, int 
 int ColorGetIndex(PyMOLGlobals * G, const char *name)
 {
   CColor *I = G->Color;
-  int color = -1;               /* default for unknown is white */
-  int ext_color;
-  int a;
   int i;
-  int wm, best = 0;
-  int ext_best = 0;
   int is_numeric = true;
-  int found = false;
 
   {
     const char *c;
@@ -674,7 +680,7 @@ int ColorGetIndex(PyMOLGlobals * G, const char *name)
 
   if(is_numeric) {
     if(sscanf(name, "%d", &i)) {
-      if((i < I->NColor) && (i >= 0))
+      if((i < I->Color.size()) && (i >= 0))
         return (i);
       else if(i == cColorNewAuto)
         return (ColorGetNext(G));
@@ -688,8 +694,8 @@ int ColorGetIndex(PyMOLGlobals * G, const char *name)
         return cColorFront;
       else if(i == cColorBack)
         return cColorBack;
-      else if(i == -1)
-        return -1;
+      else if(i == cColorDefault)
+        return cColorDefault;
       if (i & cColor_TRGB_Bits)
         return i;
     }
@@ -702,55 +708,45 @@ int ColorGetIndex(PyMOLGlobals * G, const char *name)
       return tmp_color;
     }
   }
-  if(WordMatch(G, name, "default", true))
-    return (-1);
-  if(WordMatch(G, name, "auto", true))
+
+  // the following block used to allow prefix matches (before PyMOL 2.5)
+  if(WordMatch(G, name, "default", true) < 0)
+    return cColorDefault;
+  if(WordMatch(G, name, "auto", true) < 0)
     return (ColorGetNext(G));
-  if(WordMatch(G, name, "current", true))
+  if(WordMatch(G, name, "current", true) < 0)
     return (ColorGetCurrent(G));
-  if(WordMatch(G, name, "atomic", true))
+  if(WordMatch(G, name, "atomic", true) < 0)
     return (cColorAtomic);
-  if(WordMatch(G, name, "object", true))
+  if(WordMatch(G, name, "object", true) < 0)
     return (cColorObject);
-  if(WordMatch(G, name, "front", true))
+  if(WordMatch(G, name, "front", true) < 0)
     return (cColorFront);
-  if(WordMatch(G, name, "back", true))
+  if(WordMatch(G, name, "back", true) < 0)
     return (cColorBack);
 
-  if(I->Lex) {                  /* search for a perfect match (fast!) */
-    OVreturn_word result;
-    if(OVreturn_IS_OK(result = OVLexicon_BorrowFromCString(I->Lex, name)))
-      if(OVreturn_IS_OK(result = OVOneToOne_GetForward(I->Idx, result.word))) {
-        found = true;
-        color = result.word;
-      }
-  }
-  if(!found) {                  /* search for an imperfect match */
-    for(a = 0; a < I->NColor; a++) {
-      int color_ext = I->Color[a].Name;
-      if(color_ext) {
-        char *color_name = OVLexicon_FetchCString(I->Lex, color_ext);
-        wm = WordMatch(G, name, color_name, true);
-        if(wm < 0) {
-          color = a;
-          best = 0;
-          break;
-        } else if((wm > 0) && (best < wm)) {
-          color = a;
-          best = wm;
-        }
-      }
-    }
-    if(best || (color < 0)) {
-      ext_color = ColorFindExtByName(G, name, true, &ext_best);
-      if(ext_color >= 0) {
-        ext_color = cColorExtCutoff - ext_color;    /* indicates external */
-        if((!ext_best) || (ext_best > best))    /* perfect or better match? */
-          color = ext_color;
-      }
+  // search for a perfect case-sensitive match (fast!)
+  {
+    auto it = I->Idx.find(name);
+    if (it != I->Idx.end()) {
+      return it->second;
     }
   }
-  return (color);
+
+  // search for case-insensitive or partial match
+  // TODO does this even make sense? What's the use case? Should this be
+  // restricted to non-ambiguous matches? Note that the Python cmd.color()
+  // function does its own prefix lookup and rejects ambiguous matches.
+  int best = 0;
+  int color = findByCaseInsensitivePrefix(G, I->Color, name, best);
+  if (best != 0 || color < 0) {
+    int const ext_color = findByCaseInsensitivePrefix(G, I->Ext, name, best);
+    if (ext_color >= 0) {
+      color = cColorExtCutoff - ext_color;
+    }
+  }
+
+  return color;
 }
 
 
@@ -765,8 +761,8 @@ const float *ColorGetNamed(PyMOLGlobals * G, const char *name)
 const char *ColorGetName(PyMOLGlobals * G, int index)
 {
   CColor *I = G->Color;
-  if((index >= 0) && (index < I->NColor)) {
-    return OVLexicon_FetchCString(I->Lex, I->Color[index].Name);
+  if((index >= 0) && (index < I->Color.size())) {
+    return I->Color[index].Name;
   } else if((index & cColor_TRGB_Mask) == cColor_TRGB_Bits) {
     index = (((index & 0xFFFFFF) | ((index << 2) & 0xFC000000) |        /* convert 6 bits of trans into 8 */
               ((index >> 4) & 0x03000000)));
@@ -777,8 +773,8 @@ const char *ColorGetName(PyMOLGlobals * G, int index)
     return I->RGBName;
   } else if(index <= cColorExtCutoff) {
     int a = cColorExtCutoff - index;
-    if(a < I->NExt) {
-      return OVLexicon_FetchCString(I->Lex, I->Ext[a].Name);
+    if (a < I->Ext.size()) {
+      return I->Ext[a].Name;
     } else
       return NULL;
   }
@@ -793,10 +789,10 @@ int ColorGetStatus(PyMOLGlobals * G, int index)
   /* return 0 if color is invalid, -1 if hidden; 
      1 otherwise */
   int result = 0;
-  if((index >= 0) && (index < I->NColor)) {
-    int color_ext = I->Color[index].Name;
-    if(color_ext) {
-      char *c = OVLexicon_FetchCString(I->Lex, color_ext);
+  if((index >= 0) && (index < I->Color.size())) {
+    auto* color_name = I->Color[index].Name;
+    if(color_name) {
+      const char* c = color_name;
       result = 1;
       while(*c) {
         if(((*c) >= '0') && ((*c) <= '9')) {
@@ -815,36 +811,18 @@ int ColorGetStatus(PyMOLGlobals * G, int index)
 int ColorGetNColor(PyMOLGlobals * G)
 {
   CColor *I = G->Color;
-  return (I->NColor);
+  return (I->Color.size());
 }
 
 
 /*========================================================================*/
 void ColorFree(PyMOLGlobals * G)
 {
-  CColor *I = G->Color;
-  VLAFreeP(I->Color);
-  VLAFreeP(I->Ext);
-  if(I->Lex)
-    OVLexicon_Del(I->Lex);
-  if(I->Idx)
-    OVOneToOne_Del(I->Idx);
-  DeleteP(I);
+  DeleteP(G->Color);
 }
 
 
 /*========================================================================*/
-
-static int reg_name(OVLexicon * lex, OVOneToOne * o2o, int index, const char *name)
-{
-  OVreturn_word result;
-  if(OVreturn_IS_OK(result = OVLexicon_GetFromCString(lex, name))) {
-    OVOneToOne_Set(o2o, result.word, index);
-    return result.word;
-  } else {
-    return 0;
-  }
-}
 
 void ColorReset(PyMOLGlobals * G)
 {
@@ -889,8 +867,13 @@ void ColorReset(PyMOLGlobals * G)
 */
 
   CColor *I = G->Color;
-  ColorRec *color = I->Color;
-  int n_color = 0;
+
+  I->Idx.clear();
+  I->Ext.clear();
+
+  auto& Color = I->Color;
+  Color.clear();
+  Color.reserve(5500);
 
   char name[10];
   int a;
@@ -1029,396 +1012,71 @@ void ColorReset(PyMOLGlobals * G)
     {1.0, 0.0, 1.0},            /* violet */
   };
 
-  if(I->Lex)
-    OVLexicon_Del(I->Lex);
-  I->Lex = OVLexicon_New(G->Context->heap);
-
-  if(I->Idx)
-    OVOneToOne_Del(I->Idx);
-
-  I->Idx = OVOneToOne_New(G->Context->heap);
-
   /* BLUE->VIOLET->RED r546 to r909 */
   /* BLUE->CYAN->GREEN->YELLOW->RED s182 to s909 */
   /* BLUE->WHITE->RED w00 to */
 
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "white");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
+#define reg_named_color(name, R, G, B)                                         \
+  {                                                                            \
+    Color.emplace_back(reg_name(I, Color.size(), name));                       \
+    set3f(Color.back().Color, R, G, B);                                        \
+    assert(I->Idx[name] == Color.size() - 1);                                  \
+  }
 
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "black");
-  color->Color[0] = 0.0F;
-  color->Color[1] = 0.0F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "blue");
-  color->Color[0] = 0.0F;
-  color->Color[1] = 0.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "green");
-  color->Color[0] = 0.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "red");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.0F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "cyan");
-  color->Color[0] = 0.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "yellow");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "dash");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "magenta");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "salmon");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.6F;       /* was 0.5 */
-  color->Color[2] = 0.6F;       /* wat 0.5 */
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lime");
-  color->Color[0] = 0.5F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "slate");
-  color->Color[0] = 0.5F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "hotpink");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.0F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "orange");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "chartreuse");        /* AKA puke green */
-  color->Color[0] = 0.5F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "limegreen");
-  color->Color[0] = 0.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "purpleblue");        /* legacy name */
-  color->Color[0] = 0.5F;
-  color->Color[1] = 0.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "marine");
-  color->Color[0] = 0.0F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "olive");
-  color->Color[0] = 0.77F;
-  color->Color[1] = 0.70F;
-  color->Color[2] = 0.00F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "purple");
-  color->Color[0] = 0.75F;
-  color->Color[1] = 0.00F;
-  color->Color[2] = 0.75F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "teal");
-  color->Color[0] = 0.00F;
-  color->Color[1] = 0.75F;
-  color->Color[2] = 0.75F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "ruby");
-  color->Color[0] = 0.6F;
-  color->Color[1] = 0.2F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "forest");
-  color->Color[0] = 0.2F;
-  color->Color[1] = 0.6F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deepblue");  /* was "deep" */
-  color->Color[0] = 0.25F;
-  color->Color[1] = 0.25F;
-  color->Color[2] = 0.65F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "grey");      /* english spelling */
-  color->Color[0] = 0.5F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "gray");      /* american spelling */
-  color->Color[0] = 0.5F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "carbon");
-  color->Color[0] = 0.2F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "nitrogen");
-  color->Color[0] = 0.2F;
-  color->Color[1] = 0.2F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "oxygen");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.3F;
-  color->Color[2] = 0.3F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "hydrogen");
-  color->Color[0] = 0.9F;
-  color->Color[1] = 0.9F;
-  color->Color[2] = 0.9F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "brightorange");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.7F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "sulfur");
-  color->Color[0] = 0.9F;       /* needs to be far enough from "yellow" */
-  color->Color[1] = 0.775F;     /* to be resolved, while still slightly on */
-  color->Color[2] = 0.25F;      /* the yellow side of yelloworange */
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tv_red");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.2F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tv_green");
-  color->Color[0] = 0.2F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tv_blue");
-  color->Color[0] = 0.3F;
-  color->Color[1] = 0.3F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tv_yellow");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "yelloworange");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.87F;
-  color->Color[2] = 0.37F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tv_orange");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.55F;
-  color->Color[2] = 0.15F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br0");
-  color->Color[0] = 0.1F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br1");
-  color->Color[0] = 0.2F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.9F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br2");
-  color->Color[0] = 0.3F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.8F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br3");
-  color->Color[0] = 0.4F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.7F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br4");
-  color->Color[0] = 0.5F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.6F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br5");
-  color->Color[0] = 0.6F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br6");
-  color->Color[0] = 0.7F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.4F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br7");
-  color->Color[0] = 0.8F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.3F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br8");
-  color->Color[0] = 0.9F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.2F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "br9");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.1F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "pink");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.65F;
-  color->Color[2] = 0.85F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "firebrick");
-  color->Color[0] = 0.698F;
-  color->Color[1] = 0.13F;
-  color->Color[2] = 0.13F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "chocolate");
-  color->Color[0] = 0.555F;
-  color->Color[1] = 0.222F;
-  color->Color[2] = 0.111F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "brown");
-  color->Color[0] = 0.65F;
-  color->Color[1] = 0.32F;
-  color->Color[2] = 0.17F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "wheat");
-  color->Color[0] = 0.99F;
-  color->Color[1] = 0.82F;
-  color->Color[2] = 0.65F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "violet");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
+  reg_named_color("white", 1.F, 1.F, 1.F);
+  reg_named_color("black", 0.F, 0.F, 0.F);
+  reg_named_color("blue", 0.F, 0.F, 1.F);
+  reg_named_color("green", 0.F, 1.F, 0.F);
+  reg_named_color("red", 1.F, 0.F, 0.F);
+  reg_named_color("cyan", 0.F, 1.F, 1.F);
+  reg_named_color("yellow", 1.F, 1.F, 0.F);
+  reg_named_color("dash", 1.F, 1.F, 0.F);
+  reg_named_color("magenta", 1.F, 0.F, 1.F);
+  reg_named_color("salmon", 1.F, 0.6F, 0.6F);
+  reg_named_color("lime", 0.5F, 1.F, 0.5F);
+  reg_named_color("slate", 0.5F, 0.5F, 1.F);
+  reg_named_color("hotpink", 1.F, 0.F, 0.5F);
+  reg_named_color("orange", 1.F, 0.5F, 0.F);
+  reg_named_color("chartreuse", 0.5F, 1.F, 0.F); /* AKA puke green */
+  reg_named_color("limegreen", 0.F, 1.F, 0.5F);
+  reg_named_color("purpleblue", 0.5F, 0.F, 1.F); /* legacy name */
+  reg_named_color("marine", 0.F, 0.5F, 1.F);
+  reg_named_color("olive", 0.77F, 0.7F, 0.F);
+  reg_named_color("purple", 0.75F, 0.F, 0.75F);
+  reg_named_color("teal", 0.F, 0.75F, 0.75F);
+  reg_named_color("ruby", 0.6F, 0.2F, 0.2F);
+  reg_named_color("forest", 0.2F, 0.6F, 0.2F);
+  reg_named_color("deepblue", 0.25F, 0.25F, 0.65F); /* was "deep" */
+  reg_named_color("grey", 0.5F, 0.5F, 0.5F); /* english spelling */
+  reg_named_color("gray", 0.5F, 0.5F, 0.5F); /* american spelling */
+  reg_named_color("carbon", 0.2F, 1.F, 0.2F);
+  reg_named_color("nitrogen", 0.2F, 0.2F, 1.F);
+  reg_named_color("oxygen", 1.F, 0.3F, 0.3F);
+  reg_named_color("hydrogen", 0.9F, 0.9F, 0.9F);
+  reg_named_color("brightorange", 1.F, 0.7F, 0.2F);
+  reg_named_color("sulfur", 0.9F, 0.775F, 0.25F);
+  reg_named_color("tv_red", 1.F, 0.2F, 0.2F);
+  reg_named_color("tv_green", 0.2F, 1.F, 0.2F);
+  reg_named_color("tv_blue", 0.3F, 0.3F, 1.F);
+  reg_named_color("tv_yellow", 1.F, 1.F, 0.2F);
+  reg_named_color("yelloworange", 1.F, 0.87F, 0.37F);
+  reg_named_color("tv_orange", 1.F, 0.55F, 0.15F);
+  reg_named_color("br0", 0.1F, 0.1F, 1.F);
+  reg_named_color("br1", 0.2F, 0.1F, 0.9F);
+  reg_named_color("br2", 0.3F, 0.1F, 0.8F);
+  reg_named_color("br3", 0.4F, 0.1F, 0.7F);
+  reg_named_color("br4", 0.5F, 0.1F, 0.6F);
+  reg_named_color("br5", 0.6F, 0.1F, 0.5F);
+  reg_named_color("br6", 0.7F, 0.1F, 0.4F);
+  reg_named_color("br7", 0.8F, 0.1F, 0.3F);
+  reg_named_color("br8", 0.9F, 0.1F, 0.2F);
+  reg_named_color("br9", 1.F, 0.1F, 0.1F);
+  reg_named_color("pink", 1.F, 0.65F, 0.85F);
+  reg_named_color("firebrick", 0.698F, 0.13F, 0.13F);
+  reg_named_color("chocolate", 0.555F, 0.222F, 0.111F);
+  reg_named_color("brown", 0.65F, 0.32F, 0.17F);
+  reg_named_color("wheat", 0.99F, 0.82F, 0.65F);
+  reg_named_color("violet", 1.F, 0.5F, 1.F);
 
   /* greybow */
 
@@ -1427,20 +1085,10 @@ void ColorReset(PyMOLGlobals * G)
     name[5] = (a % 10) + '0';
     name[4] = ((a % 100) / 10) + '0';
     /* sprintf(color->Name,"grey%02d",a); */
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = a / 99.0F;
-    color->Color[1] = a / 99.0F;
-    color->Color[2] = a / 99.0F;
-    n_color++;
-    color++;
+    reg_named_color(name, a / 99.F, a / 99.F, a / 99.F);
   }
 
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lightmagenta");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.2F;
-  color->Color[2] = 0.8F;
-  n_color++;
-  color++;
+  reg_named_color("lightmagenta", 1.F, 0.2F, 0.8F);
 
 #define A_DIV 83.333333333F
 
@@ -1454,12 +1102,10 @@ void ColorReset(PyMOLGlobals * G)
     name[1] = ((a % 1000) / 100) + '0';
     /* sprintf(color->Name,"s%03d",a); */
     f = 1.0F - (a - (set1 * A_DIV)) / A_DIV;
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = f * spectrumS[set1][0] + (1.0F - f) * spectrumS[set1 + 1][0];
-    color->Color[1] = f * spectrumS[set1][1] + (1.0F - f) * spectrumS[set1 + 1][1];
-    color->Color[2] = f * spectrumS[set1][2] + (1.0F - f) * spectrumS[set1 + 1][2];
-    n_color++;
-    color++;
+    reg_named_color(name,
+        f * spectrumS[set1][0] + (1.F - f) * spectrumS[set1 + 1][0],
+        f * spectrumS[set1][1] + (1.F - f) * spectrumS[set1 + 1][1],
+        f * spectrumS[set1][2] + (1.F - f) * spectrumS[set1 + 1][2]);
   }
 
   /* offset & reversed full spectrum (r000-r999) */
@@ -1472,12 +1118,10 @@ void ColorReset(PyMOLGlobals * G)
     name[2] = ((a % 100) / 10) + '0';
     name[1] = ((a % 1000) / 100) + '0';
     f = 1.0F - (a - (set1 * A_DIV)) / A_DIV;
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = f * spectrumR[set1][0] + (1.0F - f) * spectrumR[set1 + 1][0];
-    color->Color[1] = f * spectrumR[set1][1] + (1.0F - f) * spectrumR[set1 + 1][1];
-    color->Color[2] = f * spectrumR[set1][2] + (1.0F - f) * spectrumR[set1 + 1][2];
-    n_color++;
-    color++;
+    reg_named_color(name,
+        f * spectrumR[set1][0] + (1.F - f) * spectrumR[set1 + 1][0],
+        f * spectrumR[set1][1] + (1.F - f) * spectrumR[set1 + 1][1],
+        f * spectrumR[set1][2] + (1.F - f) * spectrumR[set1 + 1][2]);
   }
 
   /* complementary spectra (c000-c999) */
@@ -1490,12 +1134,10 @@ void ColorReset(PyMOLGlobals * G)
     name[2] = ((a % 100) / 10) + '0';
     name[1] = ((a % 1000) / 100) + '0';
     f = 1.0F - (a - (set1 * A_DIV)) / A_DIV;
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = f * spectrumC[set1][0] + (1.0F - f) * spectrumC[set1 + 1][0];
-    color->Color[1] = f * spectrumC[set1][1] + (1.0F - f) * spectrumC[set1 + 1][1];
-    color->Color[2] = f * spectrumC[set1][2] + (1.0F - f) * spectrumC[set1 + 1][2];
-    n_color++;
-    color++;
+    reg_named_color(name,
+        f * spectrumC[set1][0] + (1.F - f) * spectrumC[set1 + 1][0],
+        f * spectrumC[set1][1] + (1.F - f) * spectrumC[set1 + 1][1],
+        f * spectrumC[set1][2] + (1.F - f) * spectrumC[set1 + 1][2]);
   }
 
 #define W_DIV 41.666666667F
@@ -1510,32 +1152,20 @@ void ColorReset(PyMOLGlobals * G)
     name[2] = ((a % 100) / 10) + '0';
     name[1] = ((a % 1000) / 100) + '0';
     f = 1.0F - (a - (set1 * W_DIV)) / W_DIV;
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = f * spectrumW[set1][0] + (1.0F - f) * spectrumW[set1 + 1][0];
-    color->Color[1] = f * spectrumW[set1][1] + (1.0F - f) * spectrumW[set1 + 1][1];
-    color->Color[2] = f * spectrumW[set1][2] + (1.0F - f) * spectrumW[set1 + 1][2];
-    n_color++;
-    color++;
+    reg_named_color(name,
+        f * spectrumW[set1][0] + (1.F - f) * spectrumW[set1 + 1][0],
+        f * spectrumW[set1][1] + (1.F - f) * spectrumW[set1 + 1][1],
+        f * spectrumW[set1][2] + (1.F - f) * spectrumW[set1 + 1][2]);
   }
 
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "density");
-  color->Color[0] = 0.1F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.6F;
-  n_color++;
-  color++;
+  reg_named_color("density", 0.1F, 0.1F, 0.6F);
 
   strcpy(name, "gray00");       /* american */
   for(a = 0; a < 100; a = a + 1) {
     name[5] = (a % 10) + '0';
     name[4] = ((a % 100) / 10) + '0';
     /* sprintf(color->Name,"gray%02d",a); */
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = a / 99.0F;
-    color->Color[1] = a / 99.0F;
-    color->Color[2] = a / 99.0F;
-    n_color++;
-    color++;
+    reg_named_color(name, a / 99.F, a / 99.F, a / 99.F);
   }
 
   /* original full spectrum, with extra blue and red at the ends (o000-o999) */
@@ -1550,946 +1180,147 @@ void ColorReset(PyMOLGlobals * G)
     name[1] = ((a % 1000) / 100) + '0';
     /* sprintf(color->Name,"o%03d",a); */
     f = 1.0F - (a - (set1 * B_DIV)) / B_DIV;
-    color->Name = reg_name(I->Lex, I->Idx, n_color, name);
-    color->Color[0] = f * spectrumO[set1][0] + (1.0F - f) * spectrumO[set1 + 1][0];
-    color->Color[1] = f * spectrumO[set1][1] + (1.0F - f) * spectrumO[set1 + 1][1];
-    color->Color[2] = f * spectrumO[set1][2] + (1.0F - f) * spectrumO[set1 + 1][2];
-    n_color++;
-    color++;
+    reg_named_color(name,
+        f * spectrumO[set1][0] + (1.F - f) * spectrumO[set1 + 1][0],
+        f * spectrumO[set1][1] + (1.F - f) * spectrumO[set1 + 1][1],
+        f * spectrumO[set1][2] + (1.F - f) * spectrumO[set1 + 1][2]);
   }
 
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "paleyellow");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "aquamarine");
-  color->Color[0] = 0.5F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deepsalmon");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "palegreen");
-  color->Color[0] = 0.65F;
-  color->Color[1] = 0.9F;
-  color->Color[2] = 0.65F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deepolive");
-  color->Color[0] = 0.6F;
-  color->Color[1] = 0.6F;
-  color->Color[2] = 0.1F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deeppurple");
-  color->Color[0] = 0.6F;
-  color->Color[1] = 0.1F;
-  color->Color[2] = 0.6F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deepteal");
-  color->Color[0] = 0.1F;
-  color->Color[1] = 0.6F;
-  color->Color[2] = 0.6F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lightblue");
-  color->Color[0] = 0.75F;
-  color->Color[1] = 0.75;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lightorange");
-  color->Color[0] = 1.0F;
-  color->Color[1] = 0.8F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "palecyan");
-  color->Color[0] = 0.8F;
-  color->Color[1] = 1.0F;
-  color->Color[2] = 1.0F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lightteal");
-  color->Color[0] = 0.4F;
-  color->Color[1] = 0.7F;
-  color->Color[2] = 0.7F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "splitpea");
-  color->Color[0] = 0.52F;
-  color->Color[1] = 0.75F;
-  color->Color[2] = 0.00F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "raspberry");
-  color->Color[0] = 0.70F;
-  color->Color[1] = 0.30F;
-  color->Color[2] = 0.40F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "sand");
-  color->Color[0] = 0.72F;
-  color->Color[1] = 0.55F;
-  color->Color[2] = 0.30F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "smudge");
-  color->Color[0] = 0.55F;
-  color->Color[1] = 0.70F;
-  color->Color[2] = 0.40F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "violetpurple");
-  color->Color[0] = 0.55F;
-  color->Color[1] = 0.25F;
-  color->Color[2] = 0.60F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "dirtyviolet");
-  color->Color[0] = 0.70F;
-  color->Color[1] = 0.50F;
-  color->Color[2] = 0.50F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deepsalmon");
-  color->Color[0] = 1.00F;
-  color->Color[1] = 0.42F;
-  color->Color[2] = 0.42F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lightpink");
-  color->Color[0] = 1.00F;
-  color->Color[1] = 0.75F;
-  color->Color[2] = 0.87F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "greencyan");
-  color->Color[0] = 0.25F;
-  color->Color[1] = 1.00F;
-  color->Color[2] = 0.75F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "limon");
-  color->Color[0] = 0.75F;
-  color->Color[1] = 1.00F;
-  color->Color[2] = 0.25F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "skyblue");
-  color->Color[0] = 0.20F;
-  color->Color[1] = 0.50F;
-  color->Color[2] = 0.80F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "bluewhite");
-  color->Color[0] = 0.85F;
-  color->Color[1] = 0.85F;
-  color->Color[2] = 1.00F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "warmpink");
-  color->Color[0] = 0.85F;
-  color->Color[1] = 0.20F;
-  color->Color[2] = 0.50F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "darksalmon");
-  color->Color[0] = 0.73F;
-  color->Color[1] = 0.55F;
-  color->Color[2] = 0.52F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "helium");
-  color->Color[0] = 0.850980392F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lithium");
-  color->Color[0] = 0.800000000F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "beryllium");
-  color->Color[0] = 0.760784314F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "boron");
-  color->Color[0] = 1.000000000F;
-  color->Color[1] = 0.709803922F;
-  color->Color[2] = 0.709803922F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "fluorine");
-  color->Color[0] = 0.701960784F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "neon");
-  color->Color[0] = 0.701960784F;
-  color->Color[1] = 0.890196078F;
-  color->Color[2] = 0.960784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "sodium");
-  color->Color[0] = 0.670588235F;
-  color->Color[1] = 0.360784314F;
-  color->Color[2] = 0.949019608F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "magnesium");
-  color->Color[0] = 0.541176471F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "aluminum");
-  color->Color[0] = 0.749019608F;
-  color->Color[1] = 0.650980392F;
-  color->Color[2] = 0.650980392F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "silicon");
-  color->Color[0] = 0.941176471F;
-  color->Color[1] = 0.784313725F;
-  color->Color[2] = 0.627450980F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "phosphorus");
-  color->Color[0] = 1.000000000F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "chlorine");
-  color->Color[0] = 0.121568627F;
-  color->Color[1] = 0.941176471F;
-  color->Color[2] = 0.121568627F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "argon");
-  color->Color[0] = 0.501960784F;
-  color->Color[1] = 0.819607843F;
-  color->Color[2] = 0.890196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "potassium");
-  color->Color[0] = 0.560784314F;
-  color->Color[1] = 0.250980392F;
-  color->Color[2] = 0.831372549F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "calcium");
-  color->Color[0] = 0.239215686F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "scandium");
-  color->Color[0] = 0.901960784F;
-  color->Color[1] = 0.901960784F;
-  color->Color[2] = 0.901960784F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "titanium");
-  color->Color[0] = 0.749019608F;
-  color->Color[1] = 0.760784314F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "vanadium");
-  color->Color[0] = 0.650980392F;
-  color->Color[1] = 0.650980392F;
-  color->Color[2] = 0.670588235F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "chromium");
-  color->Color[0] = 0.541176471F;
-  color->Color[1] = 0.600000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "manganese");
-  color->Color[0] = 0.611764706F;
-  color->Color[1] = 0.478431373F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "iron");
-  color->Color[0] = 0.878431373F;
-  color->Color[1] = 0.400000000F;
-  color->Color[2] = 0.200000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "cobalt");
-  color->Color[0] = 0.941176471F;
-  color->Color[1] = 0.564705882F;
-  color->Color[2] = 0.627450980F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "nickel");
-  color->Color[0] = 0.313725490F;
-  color->Color[1] = 0.815686275F;
-  color->Color[2] = 0.313725490F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "copper");
-  color->Color[0] = 0.784313725F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 0.200000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "zinc");
-  color->Color[0] = 0.490196078F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 0.690196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "gallium");
-  color->Color[0] = 0.760784314F;
-  color->Color[1] = 0.560784314F;
-  color->Color[2] = 0.560784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "germanium");
-  color->Color[0] = 0.400000000F;
-  color->Color[1] = 0.560784314F;
-  color->Color[2] = 0.560784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "arsenic");
-  color->Color[0] = 0.741176471F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 0.890196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "selenium");
-  color->Color[0] = 1.000000000F;
-  color->Color[1] = 0.631372549F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "bromine");
-  color->Color[0] = 0.650980392F;
-  color->Color[1] = 0.160784314F;
-  color->Color[2] = 0.160784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "krypton");
-  color->Color[0] = 0.360784314F;
-  color->Color[1] = 0.721568627F;
-  color->Color[2] = 0.819607843F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "rubidium");
-  color->Color[0] = 0.439215686F;
-  color->Color[1] = 0.180392157F;
-  color->Color[2] = 0.690196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "strontium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "yttrium");
-  color->Color[0] = 0.580392157F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "zirconium");
-  color->Color[0] = 0.580392157F;
-  color->Color[1] = 0.878431373F;
-  color->Color[2] = 0.878431373F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "niobium");
-  color->Color[0] = 0.450980392F;
-  color->Color[1] = 0.760784314F;
-  color->Color[2] = 0.788235294F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "molybdenum");
-  color->Color[0] = 0.329411765F;
-  color->Color[1] = 0.709803922F;
-  color->Color[2] = 0.709803922F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "technetium");
-  color->Color[0] = 0.231372549F;
-  color->Color[1] = 0.619607843F;
-  color->Color[2] = 0.619607843F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "ruthenium");
-  color->Color[0] = 0.141176471F;
-  color->Color[1] = 0.560784314F;
-  color->Color[2] = 0.560784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "rhodium");
-  color->Color[0] = 0.039215686F;
-  color->Color[1] = 0.490196078F;
-  color->Color[2] = 0.549019608F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "palladium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.411764706F;
-  color->Color[2] = 0.521568627F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "silver");
-  color->Color[0] = 0.752941176F;
-  color->Color[1] = 0.752941176F;
-  color->Color[2] = 0.752941176F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "cadmium");
-  color->Color[0] = 1.000000000F;
-  color->Color[1] = 0.850980392F;
-  color->Color[2] = 0.560784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "indium");
-  color->Color[0] = 0.650980392F;
-  color->Color[1] = 0.458823529F;
-  color->Color[2] = 0.450980392F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tin");
-  color->Color[0] = 0.400000000F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 0.501960784F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "antimony");
-  color->Color[0] = 0.619607843F;
-  color->Color[1] = 0.388235294F;
-  color->Color[2] = 0.709803922F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tellurium");
-  color->Color[0] = 0.831372549F;
-  color->Color[1] = 0.478431373F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "iodine");
-  color->Color[0] = 0.580392157F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.580392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "xenon");
-  color->Color[0] = 0.258823529F;
-  color->Color[1] = 0.619607843F;
-  color->Color[2] = 0.690196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "cesium");
-  color->Color[0] = 0.341176471F;
-  color->Color[1] = 0.090196078F;
-  color->Color[2] = 0.560784314F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "barium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.788235294F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lanthanum");
-  color->Color[0] = 0.439215686F;
-  color->Color[1] = 0.831372549F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "cerium");
-  color->Color[0] = 1.000000000F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "praseodymium");
-  color->Color[0] = 0.850980392F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "neodymium");
-  color->Color[0] = 0.780392157F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "promethium");
-  color->Color[0] = 0.639215686F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "samarium");
-  color->Color[0] = 0.560784314F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "europium");
-  color->Color[0] = 0.380392157F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "gadolinium");
-  color->Color[0] = 0.270588235F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "terbium");
-  color->Color[0] = 0.188235294F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "dysprosium");
-  color->Color[0] = 0.121568627F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.780392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "holmium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 1.000000000F;
-  color->Color[2] = 0.611764706F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "erbium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.901960784F;
-  color->Color[2] = 0.458823529F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "thulium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.831372549F;
-  color->Color[2] = 0.321568627F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "ytterbium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.749019608F;
-  color->Color[2] = 0.219607843F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lutetium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.670588235F;
-  color->Color[2] = 0.141176471F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "hafnium");
-  color->Color[0] = 0.301960784F;
-  color->Color[1] = 0.760784314F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tantalum");
-  color->Color[0] = 0.301960784F;
-  color->Color[1] = 0.650980392F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "tungsten");
-  color->Color[0] = 0.129411765F;
-  color->Color[1] = 0.580392157F;
-  color->Color[2] = 0.839215686F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "rhenium");
-  color->Color[0] = 0.149019608F;
-  color->Color[1] = 0.490196078F;
-  color->Color[2] = 0.670588235F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "osmium");
-  color->Color[0] = 0.149019608F;
-  color->Color[1] = 0.400000000F;
-  color->Color[2] = 0.588235294F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "iridium");
-  color->Color[0] = 0.090196078F;
-  color->Color[1] = 0.329411765F;
-  color->Color[2] = 0.529411765F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "platinum");
-  color->Color[0] = 0.815686275F;
-  color->Color[1] = 0.815686275F;
-  color->Color[2] = 0.878431373F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "gold");
-  color->Color[0] = 1.000000000F;
-  color->Color[1] = 0.819607843F;
-  color->Color[2] = 0.137254902F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "mercury");
-  color->Color[0] = 0.721568627F;
-  color->Color[1] = 0.721568627F;
-  color->Color[2] = 0.815686275F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "thallium");
-  color->Color[0] = 0.650980392F;
-  color->Color[1] = 0.329411765F;
-  color->Color[2] = 0.301960784F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lead");
-  color->Color[0] = 0.341176471F;
-  color->Color[1] = 0.349019608F;
-  color->Color[2] = 0.380392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "bismuth");
-  color->Color[0] = 0.619607843F;
-  color->Color[1] = 0.309803922F;
-  color->Color[2] = 0.709803922F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "polonium");
-  color->Color[0] = 0.670588235F;
-  color->Color[1] = 0.360784314F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "astatine");
-  color->Color[0] = 0.458823529F;
-  color->Color[1] = 0.309803922F;
-  color->Color[2] = 0.270588235F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "radon");
-  color->Color[0] = 0.258823529F;
-  color->Color[1] = 0.509803922F;
-  color->Color[2] = 0.588235294F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "francium");
-  color->Color[0] = 0.258823529F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.400000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "radium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.490196078F;
-  color->Color[2] = 0.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "actinium");
-  color->Color[0] = 0.439215686F;
-  color->Color[1] = 0.670588235F;
-  color->Color[2] = 0.980392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "thorium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.729411765F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "protactinium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.631372549F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "uranium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.560784314F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "neptunium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.501960784F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "plutonium");
-  color->Color[0] = 0.000000000F;
-  color->Color[1] = 0.419607843F;
-  color->Color[2] = 1.000000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "americium");
-  color->Color[0] = 0.329411765F;
-  color->Color[1] = 0.360784314F;
-  color->Color[2] = 0.949019608F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "curium");
-  color->Color[0] = 0.470588235F;
-  color->Color[1] = 0.360784314F;
-  color->Color[2] = 0.890196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "berkelium");
-  color->Color[0] = 0.541176471F;
-  color->Color[1] = 0.309803922F;
-  color->Color[2] = 0.890196078F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "californium");
-  color->Color[0] = 0.631372549F;
-  color->Color[1] = 0.211764706F;
-  color->Color[2] = 0.831372549F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "einsteinium");
-  color->Color[0] = 0.701960784F;
-  color->Color[1] = 0.121568627F;
-  color->Color[2] = 0.831372549F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "fermium");
-  color->Color[0] = 0.701960784F;
-  color->Color[1] = 0.121568627F;
-  color->Color[2] = 0.729411765F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "mendelevium");
-  color->Color[0] = 0.701960784F;
-  color->Color[1] = 0.050980392F;
-  color->Color[2] = 0.650980392F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "nobelium");
-  color->Color[0] = 0.741176471F;
-  color->Color[1] = 0.050980392F;
-  color->Color[2] = 0.529411765F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lawrencium");
-  color->Color[0] = 0.780392157F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.400000000F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "rutherfordium");
-  color->Color[0] = 0.800000000F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.349019608F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "dubnium");
-  color->Color[0] = 0.819607843F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.309803922F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "seaborgium");
-  color->Color[0] = 0.850980392F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.270588235F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "bohrium");
-  color->Color[0] = 0.878431373F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.219607843F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "hassium");
-  color->Color[0] = 0.901960784F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.180392157F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "meitnerium");
-  color->Color[0] = 0.921568627F;
-  color->Color[1] = 0.000000000F;
-  color->Color[2] = 0.149019608F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "deuterium");
-  color->Color[0] = 0.9F;
-  color->Color[1] = 0.9F;
-  color->Color[2] = 0.9F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "lonepair");
-  color->Color[0] = 0.5F;
-  color->Color[1] = 0.5F;
-  color->Color[2] = 0.5F;
-  n_color++;
-  color++;
-
-  color->Name = reg_name(I->Lex, I->Idx, n_color, "pseudoatom");
-  color->Color[0] = 0.9F;
-  color->Color[1] = 0.9F;
-  color->Color[2] = 0.9F;
-  n_color++;
-  color++;
-
-  color = I->Color;
-  for(a = 0; a < n_color; a++) {
-    /* mark all current colors non-custom so that they don't get saved in session files */
-    color[a].Custom = false;
-  }
-
-  I->NColor = n_color;
-  I->NExt = 0;
+  reg_named_color("paleyellow", 1.F, 1.F, 0.5F);
+  reg_named_color("aquamarine", 0.5F, 1.F, 1.F);
+  reg_named_color("deepsalmon", 1.F, 0.5F, 0.5F);
+  reg_named_color("palegreen", 0.65F, 0.9F, 0.65F);
+  reg_named_color("deepolive", 0.6F, 0.6F, 0.1F);
+  reg_named_color("deeppurple", 0.6F, 0.1F, 0.6F);
+  reg_named_color("deepteal", 0.1F, 0.6F, 0.6F);
+  reg_named_color("lightblue", 0.75F, 0.75F, 1.F);
+  reg_named_color("lightorange", 1.F, 0.8F, 0.5F);
+  reg_named_color("palecyan", 0.8F, 1.F, 1.F);
+  reg_named_color("lightteal", 0.4F, 0.7F, 0.7F);
+  reg_named_color("splitpea", 0.52F, 0.75F, 0.F);
+  reg_named_color("raspberry", 0.7F, 0.3F, 0.4F);
+  reg_named_color("sand", 0.72F, 0.55F, 0.3F);
+  reg_named_color("smudge", 0.55F, 0.7F, 0.4F);
+  reg_named_color("violetpurple", 0.55F, 0.25F, 0.6F);
+  reg_named_color("dirtyviolet", 0.7F, 0.5F, 0.5F);
+
+  // was deepsalmon (duplicated name!)
+  reg_named_color("_deepsalmon", 1.F, 0.42F, 0.42F);
+
+  reg_named_color("lightpink", 1.F, 0.75F, 0.87F);
+  reg_named_color("greencyan", 0.25F, 1.F, 0.75F);
+  reg_named_color("limon", 0.75F, 1.F, 0.25F);
+  reg_named_color("skyblue", 0.2F, 0.5F, 0.8F);
+  reg_named_color("bluewhite", 0.85F, 0.85F, 1.F);
+  reg_named_color("warmpink", 0.85F, 0.2F, 0.5F);
+  reg_named_color("darksalmon", 0.73F, 0.55F, 0.52F);
+  reg_named_color("helium", 0.850980392F, 1.F, 1.F);
+  reg_named_color("lithium", 0.8F, 0.501960784F, 1.F);
+  reg_named_color("beryllium", 0.760784314F, 1.F, 0.F);
+  reg_named_color("boron", 1.F, 0.709803922F, 0.709803922F);
+  reg_named_color("fluorine", 0.701960784F, 1.F, 1.F);
+  reg_named_color("neon", 0.701960784F, 0.890196078F, 0.960784314F);
+  reg_named_color("sodium", 0.670588235F, 0.360784314F, 0.949019608F);
+  reg_named_color("magnesium", 0.541176471F, 1.F, 0.F);
+  reg_named_color("aluminum", 0.749019608F, 0.650980392F, 0.650980392F);
+  reg_named_color("silicon", 0.941176471F, 0.784313725F, 0.62745098F);
+  reg_named_color("phosphorus", 1.F, 0.501960784F, 0.F);
+  reg_named_color("chlorine", 0.121568627F, 0.941176471F, 0.121568627F);
+  reg_named_color("argon", 0.501960784F, 0.819607843F, 0.890196078F);
+  reg_named_color("potassium", 0.560784314F, 0.250980392F, 0.831372549F);
+  reg_named_color("calcium", 0.239215686F, 1.F, 0.F);
+  reg_named_color("scandium", 0.901960784F, 0.901960784F, 0.901960784F);
+  reg_named_color("titanium", 0.749019608F, 0.760784314F, 0.780392157F);
+  reg_named_color("vanadium", 0.650980392F, 0.650980392F, 0.670588235F);
+  reg_named_color("chromium", 0.541176471F, 0.6F, 0.780392157F);
+  reg_named_color("manganese", 0.611764706F, 0.478431373F, 0.780392157F);
+  reg_named_color("iron", 0.878431373F, 0.4F, 0.2F);
+  reg_named_color("cobalt", 0.941176471F, 0.564705882F, 0.62745098F);
+  reg_named_color("nickel", 0.31372549F, 0.815686275F, 0.31372549F);
+  reg_named_color("copper", 0.784313725F, 0.501960784F, 0.2F);
+  reg_named_color("zinc", 0.490196078F, 0.501960784F, 0.690196078F);
+  reg_named_color("gallium", 0.760784314F, 0.560784314F, 0.560784314F);
+  reg_named_color("germanium", 0.4F, 0.560784314F, 0.560784314F);
+  reg_named_color("arsenic", 0.741176471F, 0.501960784F, 0.890196078F);
+  reg_named_color("selenium", 1.F, 0.631372549F, 0.F);
+  reg_named_color("bromine", 0.650980392F, 0.160784314F, 0.160784314F);
+  reg_named_color("krypton", 0.360784314F, 0.721568627F, 0.819607843F);
+  reg_named_color("rubidium", 0.439215686F, 0.180392157F, 0.690196078F);
+  reg_named_color("strontium", 0.F, 1.F, 0.F);
+  reg_named_color("yttrium", 0.580392157F, 1.F, 1.F);
+  reg_named_color("zirconium", 0.580392157F, 0.878431373F, 0.878431373F);
+  reg_named_color("niobium", 0.450980392F, 0.760784314F, 0.788235294F);
+  reg_named_color("molybdenum", 0.329411765F, 0.709803922F, 0.709803922F);
+  reg_named_color("technetium", 0.231372549F, 0.619607843F, 0.619607843F);
+  reg_named_color("ruthenium", 0.141176471F, 0.560784314F, 0.560784314F);
+  reg_named_color("rhodium", 0.039215686F, 0.490196078F, 0.549019608F);
+  reg_named_color("palladium", 0.F, 0.411764706F, 0.521568627F);
+  reg_named_color("silver", 0.752941176F, 0.752941176F, 0.752941176F);
+  reg_named_color("cadmium", 1.F, 0.850980392F, 0.560784314F);
+  reg_named_color("indium", 0.650980392F, 0.458823529F, 0.450980392F);
+  reg_named_color("tin", 0.4F, 0.501960784F, 0.501960784F);
+  reg_named_color("antimony", 0.619607843F, 0.388235294F, 0.709803922F);
+  reg_named_color("tellurium", 0.831372549F, 0.478431373F, 0.F);
+  reg_named_color("iodine", 0.580392157F, 0.F, 0.580392157F);
+  reg_named_color("xenon", 0.258823529F, 0.619607843F, 0.690196078F);
+  reg_named_color("cesium", 0.341176471F, 0.090196078F, 0.560784314F);
+  reg_named_color("barium", 0.F, 0.788235294F, 0.F);
+  reg_named_color("lanthanum", 0.439215686F, 0.831372549F, 1.F);
+  reg_named_color("cerium", 1.F, 1.F, 0.780392157F);
+  reg_named_color("praseodymium", 0.850980392F, 1.F, 0.780392157F);
+  reg_named_color("neodymium", 0.780392157F, 1.F, 0.780392157F);
+  reg_named_color("promethium", 0.639215686F, 1.F, 0.780392157F);
+  reg_named_color("samarium", 0.560784314F, 1.F, 0.780392157F);
+  reg_named_color("europium", 0.380392157F, 1.F, 0.780392157F);
+  reg_named_color("gadolinium", 0.270588235F, 1.F, 0.780392157F);
+  reg_named_color("terbium", 0.188235294F, 1.F, 0.780392157F);
+  reg_named_color("dysprosium", 0.121568627F, 1.F, 0.780392157F);
+  reg_named_color("holmium", 0.F, 1.F, 0.611764706F);
+  reg_named_color("erbium", 0.F, 0.901960784F, 0.458823529F);
+  reg_named_color("thulium", 0.F, 0.831372549F, 0.321568627F);
+  reg_named_color("ytterbium", 0.F, 0.749019608F, 0.219607843F);
+  reg_named_color("lutetium", 0.F, 0.670588235F, 0.141176471F);
+  reg_named_color("hafnium", 0.301960784F, 0.760784314F, 1.F);
+  reg_named_color("tantalum", 0.301960784F, 0.650980392F, 1.F);
+  reg_named_color("tungsten", 0.129411765F, 0.580392157F, 0.839215686F);
+  reg_named_color("rhenium", 0.149019608F, 0.490196078F, 0.670588235F);
+  reg_named_color("osmium", 0.149019608F, 0.4F, 0.588235294F);
+  reg_named_color("iridium", 0.090196078F, 0.329411765F, 0.529411765F);
+  reg_named_color("platinum", 0.815686275F, 0.815686275F, 0.878431373F);
+  reg_named_color("gold", 1.F, 0.819607843F, 0.137254902F);
+  reg_named_color("mercury", 0.721568627F, 0.721568627F, 0.815686275F);
+  reg_named_color("thallium", 0.650980392F, 0.329411765F, 0.301960784F);
+  reg_named_color("lead", 0.341176471F, 0.349019608F, 0.380392157F);
+  reg_named_color("bismuth", 0.619607843F, 0.309803922F, 0.709803922F);
+  reg_named_color("polonium", 0.670588235F, 0.360784314F, 0.F);
+  reg_named_color("astatine", 0.458823529F, 0.309803922F, 0.270588235F);
+  reg_named_color("radon", 0.258823529F, 0.509803922F, 0.588235294F);
+  reg_named_color("francium", 0.258823529F, 0.F, 0.4F);
+  reg_named_color("radium", 0.F, 0.490196078F, 0.F);
+  reg_named_color("actinium", 0.439215686F, 0.670588235F, 0.980392157F);
+  reg_named_color("thorium", 0.F, 0.729411765F, 1.F);
+  reg_named_color("protactinium", 0.F, 0.631372549F, 1.F);
+  reg_named_color("uranium", 0.F, 0.560784314F, 1.F);
+  reg_named_color("neptunium", 0.F, 0.501960784F, 1.F);
+  reg_named_color("plutonium", 0.F, 0.419607843F, 1.F);
+  reg_named_color("americium", 0.329411765F, 0.360784314F, 0.949019608F);
+  reg_named_color("curium", 0.470588235F, 0.360784314F, 0.890196078F);
+  reg_named_color("berkelium", 0.541176471F, 0.309803922F, 0.890196078F);
+  reg_named_color("californium", 0.631372549F, 0.211764706F, 0.831372549F);
+  reg_named_color("einsteinium", 0.701960784F, 0.121568627F, 0.831372549F);
+  reg_named_color("fermium", 0.701960784F, 0.121568627F, 0.729411765F);
+  reg_named_color("mendelevium", 0.701960784F, 0.050980392F, 0.650980392F);
+  reg_named_color("nobelium", 0.741176471F, 0.050980392F, 0.529411765F);
+  reg_named_color("lawrencium", 0.780392157F, 0.F, 0.4F);
+  reg_named_color("rutherfordium", 0.8F, 0.F, 0.349019608F);
+  reg_named_color("dubnium", 0.819607843F, 0.F, 0.309803922F);
+  reg_named_color("seaborgium", 0.850980392F, 0.F, 0.270588235F);
+  reg_named_color("bohrium", 0.878431373F, 0.F, 0.219607843F);
+  reg_named_color("hassium", 0.901960784F, 0.F, 0.180392157F);
+  reg_named_color("meitnerium", 0.921568627F, 0.F, 0.149019608F);
+  reg_named_color("deuterium", 0.9F, 0.9F, 0.9F);
+  reg_named_color("lonepair", 0.5F, 0.5F, 0.5F);
+  reg_named_color("pseudoatom", 0.9F, 0.9F, 0.9F);
 }
 
 int ColorTableLoad(PyMOLGlobals * G, const char *fname, float gamma, int quiet)
@@ -2861,11 +1692,11 @@ void ColorUpdateFromLut(PyMOLGlobals * G, int index)
   if(index >= 0) {
     once = true;
   }
-  for(i = 0; i < I->NColor; i++) {
+  for(i = 0; i < I->Color.size(); i++) {
     if(!once)
       index = i;
 
-    if(index < I->NColor) {
+    if(index < I->Color.size()) {
       if(!I->LUTActive) {
         I->Color[index].LutColorFlag = false;
       } else if(!I->Color[index].Fixed) {
@@ -2914,9 +1745,6 @@ int ColorInit(PyMOLGlobals * G)
     test = 0xFF000000;
     testPtr = (unsigned char *) &test;
     I->BigEndian = (*testPtr) & 0x01;
-
-    I->Color = VLACalloc(ColorRec, 5500);
-    I->Ext = VLACalloc(ExtRec, 2);
 
     ColorReset(G);              /* will alloc I->Idx and I->Lex */
     return 1;
@@ -2977,7 +1805,7 @@ const float *ColorGet(PyMOLGlobals * G, int index)
 {
   CColor *I = G->Color;
   const float *ptr;
-  if((index >= 0) && (index < I->NColor)) {
+  if((index >= 0) && (index < I->Color.size())) {
     if(I->Color[index].LutColorFlag && SettingGetGlobal_b(G, cSetting_clamp_colors))
       ptr = I->Color[index].LutColor;
     else
@@ -3004,7 +1832,7 @@ const float *ColorGetRaw(PyMOLGlobals * G, int index)
 {
   CColor *I = G->Color;
   const float *ptr;
-  if((index >= 0) && (index < I->NColor)) {
+  if((index >= 0) && (index < I->Color.size())) {
     ptr = I->Color[index].Color;
     return (ptr);
   } else if((index & cColor_TRGB_Mask) == cColor_TRGB_Bits) {   /* a 24-bit RGB color */
@@ -3022,7 +1850,7 @@ int ColorGetEncoded(PyMOLGlobals * G, int index, float *color)
 {
   CColor *I = G->Color;
   float *ptr;
-  if((index >= 0) && (index < I->NColor)) {
+  if((index >= 0) && (index < I->Color.size())) {
     if(I->Color[index].LutColorFlag && SettingGetGlobal_b(G, cSetting_clamp_colors))
       ptr = I->Color[index].LutColor;
     else

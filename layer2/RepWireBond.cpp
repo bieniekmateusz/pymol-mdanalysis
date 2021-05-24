@@ -28,18 +28,29 @@ Z* -------------------------------------------------------------------
 #include"ShaderMgr.h"
 #include"CGO.h"
 
-typedef struct RepWireBond {
-  Rep R;
-  CGO *shaderCGO;
-  CGO *primitiveCGO;
-  bool shaderCGO_has_cylinders;
-} RepWireBond;
+struct RepWireBond : Rep {
+  using Rep::Rep;
+
+  ~RepWireBond() override;
+
+  cRep_t type() const override { return cRepLine; }
+  void render(RenderInfo* info) override;
+
+  CGO *shaderCGO = nullptr;
+  CGO *primitiveCGO = nullptr;
+  bool shaderCGO_has_cylinders = false;
+};
 
 #include"ObjectMolecule.h"
 
-void RepWireBondFree(RepWireBond * I);
-
-static int RepLine(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, float *v2, float *v1color, unsigned int b1, unsigned int b2, int a, float *v2color, bool b1masked, bool b2masked){
+static int RepLine(CGO *cgo, bool s1, bool s2, bool isRamped,
+    const float *v1,
+    const float *v2,
+    const float *v1color,
+    unsigned int b1, unsigned int b2, int a,
+    const float *v2color,
+    bool b1masked, bool b2masked)
+{
   int ok = true;
   if (s1 && s2){
     CGOColorv(cgo, v1color);
@@ -75,9 +86,15 @@ static int RepLine(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, float *
   return ok;
 }
 
-static void RepValence(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, float *v2, int *other,
-                       int a1, int a2, float *coord, float *color1, float *color2, int ord,
-                       float tube_size, int fancy, unsigned int b1, unsigned int b2, int a, bool b1masked, bool b2masked)
+static void RepValence(CGO *cgo, bool s1, bool s2, bool isRamped,
+    const float *v1,
+    const float *v2,
+    const int *other,
+    int a1, int a2,
+    const float *coord,
+    const float *color1,
+    const float *color2, int ord,
+    float tube_size, int fancy, unsigned int b1, unsigned int b2, int a, bool b1masked, bool b2masked)
 {
 
   float d[3], t[3], p0[3], p1[3], p2[3];
@@ -138,11 +155,17 @@ static void RepValence(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, flo
   }
 }
 
-static void RepAromatic(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, float *v2, int *other,
-                        int a1, int a2, float *coord, float *color1, float *color2,
+static void RepAromatic(CGO *cgo, bool s1, bool s2, bool isRamped,
+    const float *v1,
+    const float *v2,
+    const int *other,
+    int a1, int a2,
+    const float *coord,
+    const float *color1,
+    const float *color2,
                         float tube_size, int half_state, unsigned int b1, unsigned int b2, int a, bool b1masked, bool b2masked)
 {
-  float d[3], t[3], p0[3], p1[3], p2[3], *vv;
+  float d[3], t[3], p0[3], p1[3], p2[3];
   int a3;
   int double_sided;
 
@@ -160,7 +183,7 @@ static void RepAromatic(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, fl
     t[1] = p0[1];
     t[2] = -p0[2];
   } else {
-    vv = coord + 3 * a3;
+    const float* vv = coord + 3 * a3;
     t[0] = *(vv++) - v1[0];
     t[1] = *(vv++) - v1[1];
     t[2] = *(vv++) - v1[2];
@@ -227,12 +250,10 @@ static void RepAromatic(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, fl
   }
 }
 
-void RepWireBondFree(RepWireBond * I)
+RepWireBond::~RepWireBond()
 {
-    CGOFree(I->shaderCGO);
-  CGOFree(I->primitiveCGO);
-  RepPurge(&I->R);
-  OOFreeP(I);
+  CGOFree(shaderCGO);
+  CGOFree(primitiveCGO);
 }
 
 
@@ -255,14 +276,14 @@ void RepWireBondRenderImmediate(CoordSet * cs, RenderInfo * info)
      - transparency 
 
    */
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   if(info->ray || info->pick || (!(G->HaveGUI && G->ValidContext)))
     return;
   else {
     int active = false;
     ObjectMolecule *obj = cs->Obj;
     float line_width, line_width_setting =
-      SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_line_width);
+      SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_line_width);
     line_width = SceneGetDynamicLineWidth(info, line_width_setting);
 
     if(info->width_scale_flag)
@@ -277,41 +298,26 @@ void RepWireBondRenderImmediate(CoordSet * cs, RenderInfo * info)
     {
       int a;
       int nBond = obj->NBond;
-      BondType *bd = obj->Bond;
-      AtomInfoType *ai = obj->AtomInfo;
-      int *atm2idx = cs->AtmToIdx;
-      int discreteFlag = obj->DiscreteFlag;
+      const BondType *bd = obj->Bond.data();
+      const AtomInfoType *ai = obj->AtomInfo.data();
       int last_color = -9;
-      float *coord = cs->Coord;
-      const float _pt5 = 0.5F;
+      const float *coord = cs->Coord.data();
 
       for(a = 0; a < nBond; a++) {
         int b1 = bd->index[0];
         int b2 = bd->index[1];
-        AtomInfoType *ai1, *ai2;
+        const AtomInfoType *ai1, *ai2;
         bd++;
         if(GET_BIT((ai1 = ai + b1)->visRep,cRepLine) && GET_BIT((ai2 = ai + b2)->visRep,cRepLine)) {
-          int a1, a2;
           active = true;
-          if(discreteFlag) {
-            /* not optimized */
-            if((cs == obj->DiscreteCSet[b1]) && (cs == obj->DiscreteCSet[b2])) {
-              a1 = obj->DiscreteAtmToIdx[b1];
-              a2 = obj->DiscreteAtmToIdx[b2];
-            } else {
-              a1 = -1;
-              a2 = -1;
-            }
-          } else {
-            a1 = atm2idx[b1];
-            a2 = atm2idx[b2];
-          }
+          int a1 = cs->atmToIdx(b1);
+          int a2 = cs->atmToIdx(b2);
           if((a1 >= 0) && (a2 >= 0)) {
             int c1 = ai1->color;
             int c2 = ai2->color;
 
-            float *v1 = coord + 3 * a1;
-            float *v2 = coord + 3 * a2;
+            const float *v1 = coord + 3 * a1;
+            const float *v2 = coord + 3 * a2;
 
             if(c1 == c2) {      /* same colors -> one line */
               if(c1 != last_color) {
@@ -322,10 +328,7 @@ void RepWireBondRenderImmediate(CoordSet * cs, RenderInfo * info)
               glVertex3fv(v2);  /* we done */
             } else {            /* different colors -> two lines */
               float avg[3];
-
-              avg[0] = (v1[0] + v2[0]) * _pt5;
-              avg[1] = (v1[1] + v2[1]) * _pt5;
-              avg[2] = (v1[2] + v2[2]) * _pt5;
+              average3f(v1, v2, avg);
 
               if(c1 != last_color) {
                 last_color = c1;
@@ -354,7 +357,7 @@ void RepWireBondRenderImmediate(CoordSet * cs, RenderInfo * info)
 
 static int RepWireBondCGOGenerate(RepWireBond * I, RenderInfo * info)
 {
-  PyMOLGlobals *G = I->R.G;
+  PyMOLGlobals *G = I->G;
   CGO *convertcgo = NULL;
   int ok = true;
   short line_as_cylinders = 0;
@@ -404,23 +407,23 @@ static int RepWireBondCGOGenerate(RepWireBond * I, RenderInfo * info)
   return ok;
 }
 	  
-static void RepWireBondRender(RepWireBond * I, RenderInfo * info)
+void RepWireBond::render(RenderInfo* info)
 {
-  PyMOLGlobals *G = I->R.G;
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
   int ok = true;
 
   if(ray) {
 #ifndef _PYMOL_NO_RAY
-    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->R.cs->Setting, I->R.cs->Obj->Obj.Setting);
+    CGORenderRay(primitiveCGO, ray, info, NULL, NULL, cs->Setting.get(), cs->Obj->Setting.get());
     ray->transparentf(0.0);
 #endif
   } else if(G->HaveGUI && G->ValidContext) {
     bool use_shader = SettingGetGlobal_b(G, cSetting_line_use_shader) &&
                       SettingGetGlobal_b(G, cSetting_use_shaders);
     if(pick) {
-      CGORenderGLPicking(use_shader ? I->shaderCGO : I->primitiveCGO, info, &I->R.context, NULL, NULL, &I->R);
+      CGORenderGLPicking(use_shader ? I->shaderCGO : I->primitiveCGO, info, &I->context, NULL, NULL, I);
     } else { /* else not pick i.e., when rendering */
       short line_as_cylinders ;
       line_as_cylinders = SettingGetGlobal_b(G, cSetting_render_as_cylinders) && SettingGetGlobal_b(G, cSetting_line_as_cylinders);
@@ -432,48 +435,40 @@ static void RepWireBondRender(RepWireBond * I, RenderInfo * info)
         if (use_shader) {
           if (!I->shaderCGO)
             ok &= RepWireBondCGOGenerate(I, info);
-          CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, &I->R);
+          CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, I);
 	    } else {
-          CGORenderGL(I->primitiveCGO, NULL, NULL, NULL, info, &I->R);
+          CGORenderGL(I->primitiveCGO, NULL, NULL, NULL, info, I);
 	}
       }
     }
   }
   if (!ok){
     CGOFree(I->shaderCGO);
-    I->R.fInvalidate(&I->R, I->R.cs, cRepInvPurge);
-    I->R.cs->Active[cRepLine] = false;
+    I->invalidate(cRepInvPurge);
+    I->cs->Active[cRepLine] = false;
   }
 }
 
 static
 bool IsBondTerminal(ObjectMolecule *obj, int b1, int b2){
-  int *neighbor = obj->Neighbor;
-  if(neighbor) {
-    int mem, nbr;
-    int heavy1 = 0, heavy2 = 0;
-    AtomInfoType *atomInfo = obj->AtomInfo;
-    nbr = neighbor[b1] + 1;
-    while(((mem = neighbor[nbr]) >= 0)) {
-      if(atomInfo[mem].protons > 1) {
-        heavy1++;
+  auto const has_heavy_neighbors = [obj](int atm, int atm_other) {
+    for (auto const& neighbor : AtomNeighbors(obj, atm)) {
+      if (neighbor.atm != atm_other &&
+          obj->AtomInfo[neighbor.atm].protons > 1) {
+        return true;
       }
-      nbr += 2;
     }
-    nbr = neighbor[b2] + 1;
-    while(((mem = neighbor[nbr]) >= 0)) {
-      if(atomInfo[mem].protons > 1) {
-        heavy2++;
-      }
-      nbr += 2;
-    }
-    if((heavy1 < 2) || (heavy2 < 2))
-      return true;
-  }
-  return false;
+    return false;
+  };
+
+  return !has_heavy_neighbors(b1, b2) || !has_heavy_neighbors(b2, b1);
 }
 
-static int RepWireZeroOrderBond(CGO *cgo, bool s1, bool s2, float *v1, float *v2, float *rgb1, float *rgb2,
+static int RepWireZeroOrderBond(CGO *cgo, bool s1, bool s2,
+    const float *v1,
+    const float *v2,
+    const float *rgb1,
+    const float *rgb2,
                                 unsigned int b1, unsigned int b2, int a, float dash_gap, float dash_length, bool b1masked, bool b2masked)
 {
   int ok = true;
@@ -575,20 +570,20 @@ static int RepWireZeroOrderBond(CGO *cgo, bool s1, bool s2, float *v1, float *v2
 
 Rep *RepWireBondNew(CoordSet * cs, int state)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   ObjectMolecule *obj = cs->Obj;
   int a1, a2;
   unsigned int b1, b2;
   int a, c1, c2, ord;
   bool s1, s2;
-  BondType *b;
+  const BondType *b;
   int half_bonds, *other = NULL;
   float valence;
-  float *v1, *v2;
+  const float *v1, *v2;
   int visFlag;
   float line_width;
   int valence_flag = false;
-  AtomInfoType *ai1;
+  const AtomInfoType *ai1;
   int cartoon_side_chain_helper = 0;
   int ribbon_side_chain_helper = 0;
   int line_stick_helper = 0;
@@ -603,8 +598,6 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
   const float _0p9 = 0.9F;
   int ok = true;
   unsigned int line_counter = 0;
-  OOAlloc(G, RepWireBond);
-  CHECKOK(ok, I);
   PRINTFD(G, FB_RepWireBond)
     " RepWireBondNew-Debug: entered.\n" ENDFD;
 
@@ -623,39 +616,37 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
     }
   }
   if(!visFlag) {
-    OOFreeP(I);
     return (NULL);              /* skip if no dots are visible */
   }
-  marked = Calloc(bool, obj->NAtom);
+  marked = pymol::calloc<bool>(obj->NAtom);
   CHECKOK(ok, marked);
   if (!ok){
-    OOFreeP(I);
     return (NULL);
   }
   
-  valence_flag = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_valence);
-  valence = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_valence_size);
-  cartoon_side_chain_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+  valence_flag = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence);
+  valence = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence_size);
+  cartoon_side_chain_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
 					   cSetting_cartoon_side_chain_helper);
-  ribbon_side_chain_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+  ribbon_side_chain_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
 					  cSetting_ribbon_side_chain_helper);
-  line_stick_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+  line_stick_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
 				   cSetting_line_stick_helper);
-  line_color = SettingGet_color(G, cs->Setting, obj->Obj.Setting, cSetting_line_color);
-  line_width = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_line_width);
+  line_color = SettingGet_color(G, cs->Setting.get(), obj->Setting.get(), cSetting_line_color);
+  line_width = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_line_width);
   
-  if(line_stick_helper && (SettingGet_f(G, cs->Setting, obj->Obj.Setting,
+  if(line_stick_helper && (SettingGet_f(G, cs->Setting.get(), obj->Setting.get(),
 					cSetting_stick_transparency) > R_SMALL4))
     line_stick_helper = false;
-  half_bonds = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_half_bonds);
-  hide_long = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_hide_long_bonds);
+  half_bonds = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_half_bonds);
+  hide_long = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_hide_long_bonds);
   na_mode =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_cartoon_nucleic_acid_mode);
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_cartoon_nucleic_acid_mode);
   int na_mode_ribbon =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_nucleic_acid_mode);
-  fancy = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_valence_mode) == 1;
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_nucleic_acid_mode);
+  fancy = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence_mode) == 1;
   auto valence_zero_mode =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_valence_zero_mode);
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence_zero_mode);
   
   b = obj->Bond;
   
@@ -663,18 +654,8 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
     b1 = b->index[0];
     b2 = b->index[1];
 
-    if(obj->DiscreteFlag) {
-      if((cs == obj->DiscreteCSet[b1]) && (cs == obj->DiscreteCSet[b2])) {
-        a1 = obj->DiscreteAtmToIdx[b1];
-        a2 = obj->DiscreteAtmToIdx[b2];
-      } else {
-        a1 = -1;
-        a2 = -1;
-      }
-    } else {
-      a1 = cs->AtmToIdx[b1];
-      a2 = cs->AtmToIdx[b2];
-    }
+    a1 = cs->atmToIdx(b1);
+    a2 = cs->atmToIdx(b2);
     if((a1 >= 0) && (a2 >= 0)) {
       if(!variable_width)
         if (AtomInfoCheckBondSetting(G, b, cSetting_line_width)){
@@ -690,18 +671,7 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
     b++;
   }
 
-  RepInit(G, &I->R);
-
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo * info)) RepWireBondRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepWireBondFree;
-
-  I->shaderCGO = 0;
-  I->shaderCGO_has_cylinders = 0;
-  I->R.P = NULL;
-  I->R.fRecolor = NULL;
-  I->R.context.object = (void *) obj;
-  I->R.context.state = state;
-  I->R.cs = cs;
+  auto I = new RepWireBond(cs, state);
 
   I->primitiveCGO = CGONew(G);
 
@@ -732,18 +702,8 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
       if (ord == 0 && valence_zero_mode == 0)
         continue;
 
-      if(obj->DiscreteFlag) {
-        if((cs == obj->DiscreteCSet[b1]) && (cs == obj->DiscreteCSet[b2])) {
-          a1 = obj->DiscreteAtmToIdx[b1];
-          a2 = obj->DiscreteAtmToIdx[b2];
-        } else {
-          a1 = -1;
-          a2 = -1;
-        }
-      } else {
-        a1 = cs->AtmToIdx[b1];
-        a2 = cs->AtmToIdx[b2];
-      }
+      a1 = cs->atmToIdx(b1);
+      a2 = cs->atmToIdx(b2);
       if((a1 >= 0) && (a2 >= 0)) {
 
         AtomInfoType *ati1 = obj->AtomInfo + b1;
@@ -765,11 +725,32 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
           }
         }
 
+        auto const s1_before_symop = s1;
+        auto const s2_before_symop = s2;
+        int symop_pass = 0;
+
+        pymol::SymOp symop[2] = {pymol::SymOp(), b->symop_2};
+        assert(!symop[0]);
+        float vv_buf[2][3];
+
+      inv_sym_bond:
+
+        v1 = cs->coordPtrSym(a1, symop[0], vv_buf[0], symop_pass);
+        v2 = cs->coordPtrSym(a2, symop[1], vv_buf[1], symop_pass);
+
+        if (!v1 || !v2) {
+          PRINTFB(G, FB_RepCylBond, FB_Warnings)
+          " %s-Warning: Failed to get symmetry coordiantes\n",
+              __func__ ENDFB(G);
+          continue;
+        }
+
+        // show half-bond for atom which connects to a symmetry mate
+        s1 = s1_before_symop && !symop[0];
+        s2 = s2_before_symop && !symop[1];
+
         if(hide_long && (s1 || s2)) {
           float cutoff = (ati1->vdw + ati2->vdw) * _0p9;
-          v1 = cs->Coord + 3 * a1;
-          v2 = cs->Coord + 3 * a2;
-          ai1 = obj->AtomInfo + b1;
           if(!within3f(v1, v2, cutoff)) /* atoms separated by more than 90% of the sum of their vdw radii */
             s1 = s2 = 0;
         }
@@ -795,7 +776,7 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
 
           if(bd_line_color < 0) {
             if(bd_line_color == cColorObject) {
-              c1 = (c2 = obj->Obj.Color);
+              c1 = (c2 = obj->Color);
             } else if(ColorCheckRamped(G, bd_line_color)) {
               c1 = (c2 = bd_line_color);
             } else {
@@ -805,9 +786,6 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
           } else {
             c1 = (c2 = bd_line_color);
           }
-
-          v1 = cs->Coord + 3 * a1;
-          v2 = cs->Coord + 3 * a2;
 
           if (line_stick_helper && (ati1->visRep & ati2->visRep & cRepCylBit)) {
             s1 = s2 = 0;
@@ -860,6 +838,14 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
             line_counter++;
           }
         }
+
+        // If this was a half-bond to a symmetry mate, do another pass and
+        // render the other half.
+        if (symop_pass == 0 && ati1 != ati2 && symop[1]) {
+          symop_pass = 1;
+          std::swap(symop[0], symop[1]);
+          goto inv_sym_bond;
+        }
       }
       ok &= !G->Interrupt;
     }
@@ -870,7 +856,7 @@ Rep *RepWireBondNew(CoordSet * cs, int state)
   FreeP(marked);
   FreeP(other);
   if (!ok || !line_counter){
-    RepWireBondFree(I);
+    delete I;
     I = NULL;
   }
   return (Rep *) I;

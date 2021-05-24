@@ -22,9 +22,14 @@ Z* -------------------------------------------------------------------
 #include"PyMOLObject.h"
 #include"Ortho.h"
 #include"View.h"
+#include"Result.h"
+#include"SceneView.h"
 #include"SceneDef.h"
 #include"SceneRender.h"
 #include"ShaderMgr.h"
+#include"pymol/zstring_view.h"
+
+#include <vector>
 
 #define SDOF_NORMAL_MODE 0
 #define SDOF_CLIP_MODE 1
@@ -38,14 +43,23 @@ Z* -------------------------------------------------------------------
 #define cSceneImage_Draw 1
 #define cSceneImage_Ray 2
 
-#define cSceneViewSize 25
-typedef float SceneViewType[cSceneViewSize];
+#define SceneScrollBarMargin DIP2PIXEL(1)
+#define SceneScrollBarWidth DIP2PIXEL(13)
+#define SceneGetExactScreenVertexScale SceneGetScreenVertexScale
+
+enum cSceneClip {
+  cSceneClip_invalid = -1,
+  cSceneClip_near = 0,
+  cSceneClip_far = 1,
+  cSceneClip_move = 2,
+  cSceneClip_slab = 3,
+  cSceneClip_atoms = 4,
+};
 
 float SceneGetDynamicLineWidth(RenderInfo * info, float line_width);
 void SceneInvalidateStencil(PyMOLGlobals * G);
 int SceneHasImage(PyMOLGlobals * G);
 int SceneInit(PyMOLGlobals * G);
-void SceneDone(PyMOLGlobals * G);
 void SceneUpdate(PyMOLGlobals * G, int force);
 int SceneRenderCached(PyMOLGlobals * G);
 int SceneSetFog(PyMOLGlobals *G);
@@ -53,14 +67,13 @@ void SceneSetFogUniforms(PyMOLGlobals * G, CShaderPrg *);
 void SceneSetFrame(PyMOLGlobals * G, int mode, int frame);
 int SceneGetFrame(PyMOLGlobals * G);
 int SceneGetState(PyMOLGlobals * G);
-int SceneGetButtonMargin(PyMOLGlobals * G);
 
 void SceneDirty(PyMOLGlobals * G);      /* scene dirty, but leave the overlay if one exists */
 void SceneInvalidate(PyMOLGlobals * G); /* scene dirty and remove the overlay */
 void SceneChanged(PyMOLGlobals * G);    /* update 3D objects */
 
 int SceneCountFrames(PyMOLGlobals * G);
-int SceneGetNFrame(PyMOLGlobals * G, int *has_movie);
+int SceneGetNFrame(PyMOLGlobals * G, int *has_movie=nullptr);
 void SceneSetMatrix(PyMOLGlobals * G, float *);
 float *SceneGetMatrix(PyMOLGlobals * G);
 
@@ -68,13 +81,11 @@ float *SceneGetMatrix(PyMOLGlobals * G);
 
 float *SceneGetPmvMatrix(PyMOLGlobals * G);
 
-void SceneReshape(Block * block, int width, int height);
 float SceneGetScreenVertexScale(PyMOLGlobals * G, const float *v1);
 bool SceneGetVisible(PyMOLGlobals * G, const float *v1);
 float SceneGetDepth(PyMOLGlobals * G, const float *v1);
 float SceneGetRawDepth(PyMOLGlobals * G, const float *v1);
 
-void SceneTest(PyMOLGlobals * G);
 void SceneIdle(PyMOLGlobals * G);
 void SceneFree(PyMOLGlobals * G);
 
@@ -89,8 +100,8 @@ int SceneMakeMovieImage(PyMOLGlobals * G,
     int width=0, int height=0);
 int SceneValidateImageMode(PyMOLGlobals * G, int mode, bool defaultdraw);
 
-bool ScenePNG(PyMOLGlobals * G, const char *png, float dpi, int quiet,
-             int prior_only, int format);
+bool ScenePNG(PyMOLGlobals* G, const char* png, float dpi, int quiet,
+    int prior_only, int format, std::vector<unsigned char>* outbuf = nullptr);
 int SceneCopyExternal(PyMOLGlobals * G, int width, int height, int rowbytes,
                       unsigned char *dest, int mode);
 
@@ -100,13 +111,17 @@ void SceneRestartFrameTimer(PyMOLGlobals * G);
 
 void SceneGetEyeNormal(PyMOLGlobals * G, float *v1, float *normal);
 
-void SceneRotate(PyMOLGlobals * G, float angle, float x, float y, float z);
+void SceneRotateAxis(PyMOLGlobals * G, float angle, char axis);
+void SceneRotate(
+    PyMOLGlobals* G, float angle, float x, float y, float z, bool dirty = true);
 void SceneTranslate(PyMOLGlobals * G, float x, float y, float z);
 
 void SceneTranslateScaled(PyMOLGlobals * G, float x, float y, float z, int sdof_mode);
 void SceneRotateScaled(PyMOLGlobals * G, float rx, float ry, float rz, int sdof_mode);
 
 void SceneClip(PyMOLGlobals * G, int plane, float movement, const char *sele, int state);
+pymol::Result<> SceneClipFromMode(PyMOLGlobals* G, pymol::zstring_view mode, float movement,
+    pymol::zstring_view sele, int state);
 std::pair<int, int> SceneGetImageSize(PyMOLGlobals * G);
 float SceneGetGridAspectRatio(PyMOLGlobals * G);
 void SceneScale(PyMOLGlobals * G, float scale);
@@ -117,23 +132,30 @@ void SceneResetNormalToViewVector(PyMOLGlobals * G, short use_shader);
 void SceneResetNormalUseShaderAttribute(PyMOLGlobals * G, int lines, short use_shader, int attr);
 void SceneGetResetNormal(PyMOLGlobals * G, float *normal, int lines);
 
-int SceneObjectAdd(PyMOLGlobals * G, CObject * obj);
-int SceneObjectDel(PyMOLGlobals * G, CObject * obj, int allow_purge);
-int SceneObjectIsActive(PyMOLGlobals * G, CObject * obj);
+int SceneObjectAdd(PyMOLGlobals * G, pymol::CObject* obj);
+int SceneObjectDel(PyMOLGlobals * G, pymol::CObject* obj, int allow_purge);
+
+/**
+ * @brief removes object from Scene
+ * @param obj Object to be removed
+ * @return if Object removed--always true if obj==nullptr
+ */
+
+bool SceneObjectRemove(PyMOLGlobals* G, pymol::CObject* obj);
+int SceneObjectIsActive(PyMOLGlobals* G, pymol::CObject* obj);
 void SceneOriginSet(PyMOLGlobals * G, const float *origin, int preserve);
 void SceneOriginGet(PyMOLGlobals * G, float *origin);
 void SceneWindowSphere(PyMOLGlobals * G, const float *location, float radius);
 void SceneRelocate(PyMOLGlobals * G, const float *location);
 Block *SceneGetBlock(PyMOLGlobals * G);
 void SceneApplyMatrix(PyMOLGlobals * G, float *m);
-void SceneSetStereo(PyMOLGlobals * G, int flag);
+void SceneSetStereo(PyMOLGlobals * G, bool flag);
 int SceneGetStereo(PyMOLGlobals * G);
 void SceneDontCopyNext(PyMOLGlobals * G);
-void ScenePrepareExit(PyMOLGlobals * G);
 void SceneGetViewNormal(PyMOLGlobals * G, float *v);
 void SceneClipSet(PyMOLGlobals * G, float front, float back);
 void SceneGetView(PyMOLGlobals * G, SceneViewType view);
-void SceneSetView(PyMOLGlobals * G, SceneViewType view,
+void SceneSetView(PyMOLGlobals * G, const SceneViewType view,
                   int quiet, float animate, int hand);
 void SceneRestartSweepTimer(PyMOLGlobals * G);
 int SceneViewEqual(SceneViewType left, SceneViewType right);
@@ -154,7 +176,6 @@ int SceneRovingCheckDirty(PyMOLGlobals * G);
 void SceneRovingUpdate(PyMOLGlobals * G);
 void SceneRovingChanged(PyMOLGlobals * G);
 void SceneRovingPostpone(PyMOLGlobals * G);
-void SceneCleanupStereo(PyMOLGlobals * G);
 int SceneReinitialize(PyMOLGlobals * G);
 void SceneUpdateStereoMode(PyMOLGlobals * G);
 void SceneSuppressMovieFrame(PyMOLGlobals * G);
@@ -189,6 +210,7 @@ int SceneGetTwoSidedLighting(PyMOLGlobals * G);
 int SceneGetTwoSidedLightingSettings(PyMOLGlobals * G, const CSetting *set1, const CSetting *set2);
 
 float SceneGetLineWidthForCylinders(PyMOLGlobals * G, RenderInfo * info, float line_width);
+float SceneGetLineWidthForCylindersStatic(PyMOLGlobals * G, RenderInfo * info, float dynamic_line_width_arg, float line_width);
 
 void ScenePushModelViewMatrix(PyMOLGlobals * G);
 void ScenePopModelViewMatrix(PyMOLGlobals * G, bool);
@@ -218,7 +240,8 @@ int SceneIncrementTextureRefreshes(PyMOLGlobals * G);
 
 void SceneResetTextureRefreshes(PyMOLGlobals * G);
 
-void SceneGetScaledAxes(PyMOLGlobals * G, CObject *obj, float *xn, float *yn);
+void SceneGetScaledAxes(
+    PyMOLGlobals* G, pymol::CObject* obj, float* xn, float* yn);
 void SceneGetScaledAxesAtPoint(PyMOLGlobals * G, float *pt, float *xn, float *yn);
 
 int SceneGetCopyType(PyMOLGlobals * G);
@@ -245,13 +268,29 @@ void ScenePrepareUnitContext(SceneUnitContext * context, int width, int height);
 
 float GetFovWidth(PyMOLGlobals * G);
 
-void ScenePrepareMatrix(PyMOLGlobals * G, int mode);
+void ScenePrepareMatrix(PyMOLGlobals * G, int mode, int stereo_mode = 0);
 
 void SceneCopy(PyMOLGlobals * G, GLenum buffer, int force, int entire_window);
+
+// FIXME use pymol matrices
+void SceneGetModel2WorldMatrix(PyMOLGlobals * G, float *matrix);
+void SceneSetModel2WorldMatrix(PyMOLGlobals * G, float const *matrix);
+float SceneGetScale(PyMOLGlobals * G);
+
+void ScenePickAtomInWorld(PyMOLGlobals * G, int x, int y, float *atomWorldPos);
 
 void SceneInvalidatePicking(PyMOLGlobals * G);
 
 pymol::Image* SceneImagePrepare(PyMOLGlobals * G, bool prior_only);
+
+void SceneDoRoving(PyMOLGlobals * G, float old_front,
+                   float old_back, float old_origin,
+                   int adjust_flag, int zoom_flag);
+void UpdateFrontBackSafe(CScene *I);
+int stereo_via_adjacent_array(int stereo_mode);
+int SceneDeferredClick(DeferredMouse * dm);
+int SceneDeferredDrag(DeferredMouse * dm);
+int SceneDeferredRelease(DeferredMouse * dm);
 
 #endif
 

@@ -34,21 +34,15 @@ Z* -------------------------------------------------------------------
 
 #define Trace_OFF
 
-#define O3(field,P1,P2,P3,offs) Ffloat3(field,(P1)+offs[0],(P2)+offs[1],(P3)+offs[2])
+#define O3(field,P1,P2,P3,offs) ((field)->get<float>((P1)+offs[0],(P2)+offs[1],(P3)+offs[2]))
 
-#define O3Ptr(field,P1,P2,P3,offs) Ffloat3p(field,(P1)+offs[0],(P2)+offs[1],(P3)+offs[2])
+#define O3Ptr(field,P1,P2,P3,offs) ((field)->ptr<float>((P1)+offs[0],(P2)+offs[1],(P3)+offs[2]))
 
-#define O4(field,P1,P2,P3,P4,offs) Ffloat4(field,(P1)+offs[0],(P2)+offs[1],(P3)+offs[2],P4)
+#define O4Ptr(field,P1,P2,P3,P4,offs) ((field)->ptr<float>((P1)+offs[0],(P2)+offs[1],(P3)+offs[2],P4))
 
-#define O4Ptr(field,P1,P2,P3,P4,offs) Ffloat4p(field,(P1)+offs[0],(P2)+offs[1],(P3)+offs[2],P4)
+#define I3(field,P1,P2,P3) ((field)->get<int>(P1,P2,P3))
 
-#define I3(field,P1,P2,P3) Fint3(field,P1,P2,P3)
-
-#define I3Ptr(field,P1,P2,P3) Fint3p(field,P1,P2,P3)
-
-#define I4(field,P1,P2,P3,P4) Fint4(field,P1,P2,P3,P4)
-
-#define I4Ptr(field,P1,P2,P3,P4) Fint4p(field,P1,P2,P3,P4)
+#define I4(field,P1,P2,P3,P4) ((field)->get<int>(P1,P2,P3,P4))
 
 typedef struct PointType {
   float Point[3];
@@ -56,15 +50,15 @@ typedef struct PointType {
   struct PointType* Link[4];
 } PointType;
 
-#define EdgePtPtr(field,P2,P3,P4,P5) ((PointType*)Fvoid4p(field,P2,P3,P4,P5))
+#define EdgePtPtr(field,P2,P3,P4,P5) ((field)->ptr(P2,P3,P4,P5))
 
-#define EdgePt(field,P2,P3,P4,P5) (*((PointType*)Fvoid4p(field,P2,P3,P4,P5)))
+#define EdgePt(field,P2,P3,P4,P5) ((field)->get(P2,P3,P4,P5))
 
-struct _CIsosurf {
+struct CIsosurf {
   PyMOLGlobals *G;
-  CField *VertexCodes;
-  CField *ActiveEdges;
-  CField *Point;
+  CFieldTyped<int> *VertexCodes;
+  CFieldTyped<int> *ActiveEdges;
+  CFieldTyped<PointType> *Point;
   int NLine;
   int Skip;
   int AbsDim[3], CurDim[3], CurOff[3];
@@ -73,9 +67,9 @@ struct _CIsosurf {
   float Level;
   int Code[256];
 
-  int *Num;
+  pymol::vla<int>* Num = nullptr;
   int NSeg;
-  float *Line;
+  pymol::vla<float>* Line = nullptr;
 
 };
 
@@ -83,8 +77,6 @@ static int IsosurfAlloc(PyMOLGlobals * G, CIsosurf * II);
 static void IsosurfPurge(CIsosurf * II);
 static int IsosurfCurrent(CIsosurf * II);
 static int IsosurfCodeVertices(CIsosurf * II);
-static void IsosurfInterpolate(CIsosurf * II, float *v1, float *l1, float *v2, float *l2,
-                               float *pt);
 static int IsosurfFindActiveEdges(CIsosurf * II);
 static int IsosurfFindLines(CIsosurf * II);
 static int IsosurfDrawLines(CIsosurf * II);
@@ -118,9 +110,9 @@ PyObject *IsosurfAsPyList(PyMOLGlobals * G, Isofield * field)
 
   PyList_SetItem(result, 0, PConvIntArrayToPyList(field->dimensions, 3));
   PyList_SetItem(result, 1, PyInt_FromLong(field->save_points));
-  PyList_SetItem(result, 2, FieldAsPyList(G, field->data));
+  PyList_SetItem(result, 2, FieldAsPyList(G, field->data.get()));
   if(field->save_points)
-    PyList_SetItem(result, 3, FieldAsPyList(G, field->points));
+    PyList_SetItem(result, 3, FieldAsPyList(G, field->points.get()));
   else
     PyList_SetItem(result, 3, PConvAutoNone(NULL));
   return (PConvAutoNone(result));
@@ -128,9 +120,7 @@ PyObject *IsosurfAsPyList(PyMOLGlobals * G, Isofield * field)
 
 
 /*===========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
+inline
 static void IsosurfInterpolate(CIsosurf * I, float *v1, float *l1, float *v2, float *l2,
                                float *pt)
 {
@@ -157,72 +147,40 @@ Isofield *IsosurfNewFromPyList(PyMOLGlobals * G, PyObject * list)
   /* TO ENABLE BACKWARDS COMPATIBILITY...
      Always check ll when adding new PyList_GetItem's */
   if(ok)
-    ok = ((result = Alloc(Isofield, 1)) != NULL);
-  if(ok) {
-    result->data = NULL;
-    result->points = NULL;
-    result->gradients = NULL;
-  }
+    ok = (result = new Isofield()) != nullptr;
   if(ok)
     ok = PConvPyListToIntArrayInPlace(PyList_GetItem(list, 0), result->dimensions, 3);
   if(ok)
     ok = PConvPyIntToInt(PyList_GetItem(list, 1), &result->save_points);
-  if(ok)
-    ok = ((result->data = FieldNewFromPyList(G, PyList_GetItem(list, 2))) != NULL);
+  if(ok){
+    result->data.reset(FieldNewFromPyList_From_List(G, list, 2));
+    ok = result->data != nullptr;
+  }
   if(ok) {
-    if(result->save_points)
-      ok = ((result->points = FieldNewFromPyList(G, PyList_GetItem(list, 3))) != NULL);
+    if(result->save_points) {
+      result->points.reset(FieldNewFromPyList_From_List(G, list, 3));
+      ok = result->points != nullptr;
+    }
     else {
       for(a = 0; a < 3; a++)
         dim4[a] = result->dimensions[a];
       dim4[3] = 3;
-      ok = ((result->points = FieldNew(G, dim4, 4, sizeof(float), cFieldFloat)) != NULL);
+      result->points.reset(new CFieldTyped<float>(dim4, 4));
+      ok = result->points != nullptr;
     }
   }
   if(!ok) {
-    if(result) {
-      if(result->data)
-        FieldFree(result->data);
-      if(result->points)
-        FieldFree(result->points);
-      mfree(result);
-      result = NULL;
-    }
+    DeleteP(result);
   }
   return (result);
 }
-
-Isofield *IsosurfNewCopy(PyMOLGlobals * G, const Isofield * src)
-{
-  int ok = true;
-
-  Isofield *result = Calloc(Isofield, 1);
-
-  copy3f(src->dimensions, result->dimensions);
-  result->save_points = src->save_points;
-
-  ok = ((result->data = FieldNewCopy(G, src->data)) != NULL);
-  ok = ((result->points = FieldNewCopy(G, src->points)) != NULL);
-
-  result->gradients = NULL;
-  if(!ok) {
-    if(result->data)
-      FieldFree(result->data);
-    if(result->points)
-      FieldFree(result->points);
-    FreeP(result);
-  }
-  return result;
-}
-
 
 /*===========================================================================*/
 void IsofieldComputeGradients(PyMOLGlobals * G, Isofield * field)
 {
   int dim[4];
   int a, b, c;
-  CField *data = field->data;
-  CField *gradients;
+  CField *data = field->data.get();
 
   if(!field->gradients) {
 
@@ -231,8 +189,8 @@ void IsofieldComputeGradients(PyMOLGlobals * G, Isofield * field)
     for(a = 0; a < 3; a++)
       dim[a] = field->dimensions[a];
     dim[3] = 3;
-    field->gradients = FieldNew(G, dim, 4, sizeof(float), cFieldFloat);
-    gradients = field->gradients;
+    field->gradients.reset(new CFieldTyped<float>(dim, 4));
+    auto gradients = field->gradients.get();
     dim[3] = 3;
 
     /* bulk internal */
@@ -377,43 +335,18 @@ void IsofieldComputeGradients(PyMOLGlobals * G, Isofield * field)
 
 
 /*===========================================================================*/
-Isofield *IsosurfFieldAlloc(PyMOLGlobals * G, int *dims)
+Isofield::Isofield(PyMOLGlobals * G, const int * const dims)
 {
   int dim4[4];
-  int a;
-  Isofield *result;
-
-  for(a = 0; a < 3; a++)
-    dim4[a] = dims[a];
+  std::copy_n(dims, 3, dim4);
   dim4[3] = 3;
 
   /* Warning: ...FromPyList also allocs and inits from the heap */
 
-  result = Alloc(Isofield, 1);
-  ErrChkPtr(G, result);
-  result->data = FieldNew(G, dims, 3, sizeof(float), cFieldFloat);
-  ErrChkPtr(G, result->data);
-  result->points = FieldNew(G, dim4, 4, sizeof(float), cFieldFloat);
-  ErrChkPtr(G, result->points);
-  result->dimensions[0] = dims[0];
-  result->dimensions[1] = dims[1];
-  result->dimensions[2] = dims[2];
-  result->save_points = true;
-  result->gradients = NULL;
-  return (result);
+  data.reset(new CFieldTyped<float>(dims, 3));
+  points.reset(new CFieldTyped<float>(dim4, 4));
+  std::copy_n(dims, 3, dimensions);
 }
-
-
-/*===========================================================================*/
-void IsosurfFieldFree(PyMOLGlobals * G, Isofield * field)
-{
-  if(field->gradients)
-    FieldFree(field->gradients);
-  FieldFree(field->points);
-  FieldFree(field->data);
-  mfree(field);
-}
-
 
 /*===========================================================================*/
 static void IsosurfCode(CIsosurf * II, const char *bits1, const char *bits2)
@@ -460,7 +393,7 @@ static void IsosurfCode(CIsosurf * II, const char *bits1, const char *bits2)
 static CIsosurf *IsosurfNew(PyMOLGlobals * G)
 {
   int c;
-  CIsosurf *I = Calloc(CIsosurf, 1);
+  CIsosurf *I = pymol::calloc<CIsosurf>(1);
   I->G = G;
   I->VertexCodes = NULL;
   I->ActiveEdges = NULL;
@@ -583,8 +516,8 @@ int IsosurfExpand(Isofield * field1, Isofield * field2, CCrystal * cryst,
 
   /* get min/max extents of map1 in fractional space */
 
-  transform33f3f(cryst->RealToFrac, rmn, imn);
-  transform33f3f(cryst->RealToFrac, rmx, imx);
+  transform33f3f(cryst->realToFrac(), rmn, imn);
+  transform33f3f(cryst->realToFrac(), rmx, imx);
 
   /* compute step size */
 
@@ -596,11 +529,10 @@ int IsosurfExpand(Isofield * field1, Isofield * field2, CCrystal * cryst,
 
   /* compute coordinate points for second field */
 
-  if (SymmetryAttemptGeneration(sym)) {
+  if (int nMat = sym->getNSymMat()) {
     int i, j, k;
     int i_stop, j_stop, k_stop;
     float frac[3];
-    int nMat = sym->getNSymMat();
 
     i_stop = field2->dimensions[0];
     j_stop = field2->dimensions[1];
@@ -619,7 +551,7 @@ int IsosurfExpand(Isofield * field1, Isofield * field2, CCrystal * cryst,
 
           float *ptr = F4Ptr(field2->points, i, j, k, 0);
           frac[2] = imn[2] + fstep[2] * (k + range[2]);
-          transform33f3f(cryst->FracToReal, frac, ptr);
+          transform33f3f(cryst->fracToReal(), frac, ptr);
 
           /* then compute the value at the coordinate */
 
@@ -689,7 +621,7 @@ int IsosurfExpand(Isofield * field1, Isofield * field2, CCrystal * cryst,
                       y = 1.0F;
                     if(z > 1.0F)
                       z = 1.0F;
-                    average += FieldInterpolatef(field1->data, a, b, c, x, y, z);
+                    average += FieldInterpolatef(field1->data.get(), a, b, c, x, y, z);
                     cnt++;
                   } else {
                     /* allow 1 cell of extrapolation -- this saves us
@@ -702,7 +634,7 @@ int IsosurfExpand(Isofield * field1, Isofield * field2, CCrystal * cryst,
                         y = 1.0F;
                       if(z > 1.0F)
                         z = 1.0F;
-                      extrapolate_average += FieldInterpolatef(field1->data, a, b, c, x, y, z);
+                      extrapolate_average += FieldInterpolatef(field1->data.get(), a, b, c, x, y, z);
                       extrapolate_cnt++;
                     }
                   }
@@ -755,8 +687,8 @@ int IsosurfGetRange(PyMOLGlobals * G, Isofield * field,
 
   /* get min/max extents of map in fractional space */
 
-  transform33f3f(cryst->RealToFrac, rmn, imn);
-  transform33f3f(cryst->RealToFrac, rmx, imx);
+  transform33f3f(cryst->realToFrac(), rmn, imn);
+  transform33f3f(cryst->realToFrac(), rmx, imx);
 
   mix[0] = mn[0];
   mix[1] = mn[1];
@@ -793,7 +725,7 @@ int IsosurfGetRange(PyMOLGlobals * G, Isofield * field,
   /* compute min/max of query in fractional space */
 
   for(b = 0; b < 8; b++) {
-    transform33f3f(cryst->RealToFrac, mix + 3 * b, imix + 3 * b);
+    transform33f3f(cryst->realToFrac(), mix + 3 * b, imix + 3 * b);
   }
 
   for(a = 0; a < 3; a++) {
@@ -855,9 +787,9 @@ int IsosurfGetRange(PyMOLGlobals * G, Isofield * field,
 
 
 /*===========================================================================*/
-int IsosurfVolume(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
-                  Isofield * field, float level, int **num,
-                  float **vert, int *range, int mode, int skip, float alt_level)
+int IsosurfVolume(PyMOLGlobals* G, CSetting* set1, CSetting* set2,
+    Isofield* field, float level, pymol::vla<int>& num, pymol::vla<float>& vert,
+    int* range, cIsomeshMode mode, int skip, float alt_level)
 {
   int ok = true;
   CIsosurf *I;
@@ -872,8 +804,8 @@ int IsosurfVolume(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
     int c, i, j, k;
     int x, y, z;
     int range_store[6];
-    I->Num = *num;
-    I->Line = *vert;
+    I->Num = std::addressof(num);
+    I->Line = std::addressof(vert);
     I->Skip = skip;
     if(range) {
       for(c = 0; c < 3; c++) {
@@ -892,20 +824,20 @@ int IsosurfVolume(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
       }
     }
 
-    I->Coord = field->points;
-    I->Data = field->data;
+    I->Coord = field->points.get();
+    I->Data = field->data.get();
     I->Level = level;
     if(ok)
       ok = IsosurfAlloc(G, I);
 
     I->NLine = 0;
     I->NSeg = 0;
-    VLACheck(I->Num, int, I->NSeg);
-    I->Num[I->NSeg] = I->NLine;
+    I->Num->check(I->NSeg);
+    (*I->Num)[I->NSeg] = I->NLine;
 
     if(ok) {
       switch (mode) {
-      case 3:
+      case cIsomeshMode::gradient:
         ok = IsosurfGradients(G, set1, set2, I, field, range, level, alt_level);
         IsosurfPurge(I);
         break;
@@ -939,14 +871,11 @@ int IsosurfVolume(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
 
                 if(ok)
                   switch (mode) {
-                  case 0:      /* standard mode - want lines */
+                  case cIsomeshMode::isomesh:      /* standard mode - want lines */
                     ok = IsosurfCurrent(I);
                     break;
-                  case 1:      /* point mode - just want points on the isosurface */
+                  case cIsomeshMode::isodot:      /* point mode - just want points on the isosurface */
                     ok = IsosurfPoints(I);
-                    break;
-                  case 2:
-                    /* reserved */
                     break;
                   }
                 if(G->Interrupt) {
@@ -961,7 +890,7 @@ int IsosurfVolume(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
       }
     }
 
-    if(mode) {
+    if(mode != cIsomeshMode::isomesh) {
       PRINTFB(G, FB_Isomesh, FB_Blather)
         " IsosurfVolume: Surface generated using %d dots.\n", I->NLine ENDFB(G);
     } else {
@@ -975,13 +904,10 @@ int IsosurfVolume(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
     }
     /* shrinks sizes for more efficient RAM usage */
 
-    VLASize(I->Line, float, I->NLine * 3);
-    VLASize(I->Num, int, I->NSeg + 1);
+    I->Line->resize(I->NLine * 3);
+    I->Num->resize(I->NSeg + 1);
+    (*I->Num)[I->NSeg] = 0;        /* important - must terminate the segment list */
 
-    I->Num[I->NSeg] = 0;        /* important - must terminate the segment list */
-
-    *vert = I->Line;
-    *num = I->Num;
     if(!PIsGlutThread()) {
       _IsosurfFree(I);
     }
@@ -1002,12 +928,9 @@ static int IsosurfAlloc(PyMOLGlobals * G, CIsosurf * II)
     dim4[a] = I->CurDim[a];
   dim4[3] = 3;
 
-  I->VertexCodes = FieldNew(G, I->CurDim, 3, sizeof(int), cFieldInt);
-  ErrChkPtr(G, I->VertexCodes);
-  I->ActiveEdges = FieldNew(G, dim4, 4, sizeof(int), cFieldInt);
-  ErrChkPtr(G, I->ActiveEdges);
-  I->Point = FieldNew(G, dim4, 4, sizeof(PointType), cFieldOther);
-  ErrChkPtr(G, I->Point);
+  I->VertexCodes = new CFieldTyped<int>(I->CurDim, 3);
+  I->ActiveEdges = new CFieldTyped<int>(dim4, 4);
+  I->Point = new CFieldTyped<PointType>(dim4, 4);
   if(!(I->VertexCodes && I->ActiveEdges && I->Point)) {
     IsosurfPurge(I);
     ok = false;
@@ -1023,18 +946,9 @@ static int IsosurfAlloc(PyMOLGlobals * G, CIsosurf * II)
 static void IsosurfPurge(CIsosurf * II)
 {
   CIsosurf *I = II;
-  if(I->VertexCodes) {
-    FieldFree(I->VertexCodes);
-    I->VertexCodes = NULL;
-  }
-  if(I->ActiveEdges) {
-    FieldFree(I->ActiveEdges);
-    I->ActiveEdges = NULL;
-  }
-  if(I->Point) {
-    FieldFree(I->Point);
-    I->Point = NULL;
-  }
+  DeleteP(I->VertexCodes);
+  DeleteP(I->ActiveEdges);
+  DeleteP(I->Point);
 }
 
 
@@ -1083,9 +997,9 @@ static int IsosurfGradients(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
 
   int n_seg = I->NSeg;
   int n_line = I->NLine;
-  float *i_line = I->Line;
-  CField *i_data = I->Data;
-  int *i_num = I->Num;
+  auto& i_line = *I->Line;
+  auto i_data = I->Data;
+  auto& i_num = *I->Num;
 
   /* get cascaded state, object, or global settings */
 
@@ -1122,8 +1036,8 @@ static int IsosurfGradients(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
 
     /* locals for performance */
 
-    CField *gradients = field->gradients;
-    CField *points = field->points;
+    CField *gradients = field->gradients.get();
+    CField *points = field->points.get();
 
     /* flags marking excluded regions to avoid (currently wasteful) */
     int *flag = NULL;
@@ -1143,15 +1057,16 @@ static int IsosurfGradients(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
     range_dim[2] = (range[5] - range[2]);
 
     range_size = range_dim[0] * range_dim[1] * range_dim[2];
-
-    flag = Calloc(int, range_size);
-
+    if (ok)
+      flag = pymol::calloc<int>(range_size);
+    CHECKOK(ok, flag);
     flag_stride[0] = 1;
     flag_stride[1] = range_dim[0];
     flag_stride[2] = range_dim[0] * range_dim[1];
 
-    order = Calloc(int, 3 * range_size);
-
+    if (ok)
+      order = pymol::calloc<int>(3 * range_size);
+    CHECKOK(ok, order);
     if(order && flag && (range_dim[0] > 1) && (range_dim[1] > 1) && (range_dim[2] > 1)) {
 
       {
@@ -1520,8 +1435,6 @@ static int IsosurfGradients(PyMOLGlobals * G, CSetting * set1, CSetting * set2,
   }
 
   /* restore modified local copies */
-  I->Line = i_line;
-  I->Num = i_num;
   I->NLine = n_line;
   I->NSeg = n_seg;
   return (ok);
@@ -1548,8 +1461,8 @@ static int IsosurfDrawPoints(CIsosurf * II)
                                O3Ptr(I->Data, i + 1, j, k, I->CurOff),
                                &(EdgePt(I->Point, i, j, k, 0).Point[0]));
 
-            VLACheck(I->Line, float, I->NLine * 3 + 2);
-            a = I->Line + (I->NLine * 3);
+            I->Line->check(I->NLine * 3 + 2);
+            a = I->Line->data() + (I->NLine * 3);
             b = &(EdgePt(I->Point, i, j, k, 0).Point[0]);
             *(a++) = *(b++);
             *(a++) = *(b++);
@@ -1563,8 +1476,8 @@ static int IsosurfDrawPoints(CIsosurf * II)
                                O3Ptr(I->Data, i + 1, j, k, I->CurOff),
                                &(EdgePt(I->Point, i, j, k, 0).Point[0]));
 
-            VLACheck(I->Line, float, I->NLine * 3 + 2);
-            a = I->Line + (I->NLine * 3);
+            I->Line->check(I->NLine * 3 + 2);
+            a = I->Line->data() + (I->NLine * 3);
             b = &(EdgePt(I->Point, i, j, k, 0).Point[0]);
             *(a++) = *(b++);
             *(a++) = *(b++);
@@ -1594,8 +1507,8 @@ static int IsosurfDrawPoints(CIsosurf * II)
                                O3Ptr(I->Data, i, j + 1, k, I->CurOff),
                                &(EdgePt(I->Point, i, j, k, 1).Point[0]));
 
-            VLACheck(I->Line, float, I->NLine * 3 + 2);
-            a = I->Line + (I->NLine * 3);
+            I->Line->check(I->NLine * 3 + 2);
+            a = I->Line->data() + (I->NLine * 3);
             b = &(EdgePt(I->Point, i, j, k, 1).Point[0]);
             *(a++) = *(b++);
             *(a++) = *(b++);
@@ -1610,8 +1523,8 @@ static int IsosurfDrawPoints(CIsosurf * II)
                                O3Ptr(I->Data, i, j + 1, k, I->CurOff),
                                &(EdgePt(I->Point, i, j, k, 1).Point[0]));
 
-            VLACheck(I->Line, float, I->NLine * 3 + 2);
-            a = I->Line + (I->NLine * 3);
+            I->Line->check(I->NLine * 3 + 2);
+            a = I->Line->data() + (I->NLine * 3);
             b = &(EdgePt(I->Point, i, j, k, 1).Point[0]);
             *(a++) = *(b++);
             *(a++) = *(b++);
@@ -1639,8 +1552,8 @@ static int IsosurfDrawPoints(CIsosurf * II)
                              O3Ptr(I->Data, i, j, k + 1, I->CurOff),
                              &(EdgePt(I->Point, i, j, k, 2).Point[0]));
 
-          VLACheck(I->Line, float, I->NLine * 3 + 2);
-          a = I->Line + (I->NLine * 3);
+          I->Line->check(I->NLine * 3 + 2);
+          a = I->Line->data() + (I->NLine * 3);
           b = &(EdgePt(I->Point, i, j, k, 2).Point[0]);
           *(a++) = *(b++);
           *(a++) = *(b++);
@@ -1655,8 +1568,8 @@ static int IsosurfDrawPoints(CIsosurf * II)
                              O3Ptr(I->Data, i, j, k + 1, I->CurOff),
                              &(EdgePt(I->Point, i, j, k, 2).Point[0]));
 
-          VLACheck(I->Line, float, I->NLine * 3 + 2);
-          a = I->Line + (I->NLine * 3);
+          I->Line->check(I->NLine * 3 + 2);
+          a = I->Line->data() + (I->NLine * 3);
           b = &(EdgePt(I->Point, i, j, k, 2).Point[0]);
           *(a++) = *(b++);
           *(a++) = *(b++);
@@ -1672,11 +1585,11 @@ static int IsosurfDrawPoints(CIsosurf * II)
     }
   }
   if(ok) {
-    if(I->NLine != I->Num[I->NSeg]) {   /* any new points? */
-      VLACheck(I->Num, int, I->NSeg + 1);
-      I->Num[I->NSeg] = I->NLine - I->Num[I->NSeg];
+    if(I->NLine != (*I->Num)[I->NSeg]) {   /* any new points? */
+      I->Num->check(I->NSeg + 1);
+      (*I->Num)[I->NSeg] = I->NLine - (*I->Num)[I->NSeg];
       I->NSeg++;
-      I->Num[I->NSeg] = I->NLine;
+      (*I->Num)[I->NSeg] = I->NLine;
     }
   }
   return (ok);
@@ -1704,8 +1617,8 @@ static int IsosurfDrawLines(CIsosurf * II)
           Start = EdgePtPtr(I->Point, i, j, k, c);
           while(Start->NLink) {
             Cur = Start;
-            VLACheck(I->Line, float, I->NLine * 3 + 2);
-            a = I->Line + (I->NLine * 3);
+            I->Line->check(I->NLine * 3 + 2);
+            a = I->Line->data() + (I->NLine * 3);
             b = Cur->Point;
             *(a++) = *(b++);
             *(a++) = *(b++);
@@ -1750,8 +1663,8 @@ static int IsosurfDrawLines(CIsosurf * II)
 #endif
 
                 Cur = Next;
-                VLACheck(I->Line, float, I->NLine * 3 + 2);
-                a = I->Line + (I->NLine * 3);
+                I->Line->check(I->NLine * 3 + 2);
+                a = I->Line->data() + (I->NLine * 3);
                 b = Cur->Point;
                 *(a++) = *(b++);
                 *(a++) = *(b++);
@@ -1762,12 +1675,12 @@ static int IsosurfDrawLines(CIsosurf * II)
                 LCount++;
 #endif
                 Cur = NULL;
-                if(I->NLine != I->Num[I->NSeg]) {       /* any new lines? */
-                  VLACheck(I->Num, int, I->NSeg + 1);
-                  I->Num[I->NSeg] = I->NLine - I->Num[I->NSeg];
+                if(I->NLine != (*I->Num)[I->NSeg]) {       /* any new lines? */
+                  I->Num->check(I->NSeg + 1);
+                  (*I->Num)[I->NSeg] = I->NLine - (*I->Num)[I->NSeg];
                   I->NSeg++;
-                  VLACheck(I->Num, int, I->NSeg);
-                  I->Num[I->NSeg] = I->NLine;
+                  I->Num->check(I->NSeg);
+                  (*I->Num)[I->NSeg] = I->NLine;
                 }
               }
             }
@@ -2176,16 +2089,15 @@ static int IsosurfCodeVertices(CIsosurf * II)
   return (VCount);
 }
 
-/*
+/**
  * corner: output buffer of size 8 * 3
  */
 void IsofieldGetCorners(PyMOLGlobals * G, Isofield * field, float * corner) {
-  CField * points = field->points;
-  int a, i, j, k;
-  for(a = 0; a < 8; a++) {
-    i = (a & 1) ? (points->dim[0] - 1) : 0;
-    j = (a & 2) ? (points->dim[1] - 1) : 0;
-    k = (a & 4) ? (points->dim[2] - 1) : 0;
+  CField* points = field->points.get();
+  for(int a = 0; a < 8; a++) {
+    int i = (a & 1) ? (points->dim[0] - 1) : 0;
+    int j = (a & 2) ? (points->dim[1] - 1) : 0;
+    int k = (a & 4) ? (points->dim[2] - 1) : 0;
     memcpy(corner + a * 3, F3Ptr(points, i, j, k), 3 * sizeof(float));
   }
 }

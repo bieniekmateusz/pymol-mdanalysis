@@ -17,8 +17,15 @@ Z* -------------------------------------------------------------------
 #ifndef _H_Seeker
 #define _H_Seeker
 
+#include <vector>
 #include"Ortho.h"
 #include"ObjectMolecule.h"
+#include "Seq.h"
+
+#define cTempSeekerSele "_seeker"
+#define cTempCenterSele "_seeker_center"
+#define cTempSeekerSele2 "_seeker2"
+
 
 int SeekerInit(PyMOLGlobals * G);
 void SeekerFree(PyMOLGlobals * G);
@@ -32,5 +39,21 @@ enum {
     SINGLE    = 2
 };
 }//namespace GapMode
+
+struct SeekerDragInfo {
+  int start_col;
+  int last_col;
+  int row;
+  int dir;
+  int start_toggle;
+  int setting;
+  int button;
+};
+
+void SeekerSetDragInfo(PyMOLGlobals* G, const SeekerDragInfo& dragInfo);
+SeekerDragInfo SeekerGetDragInfo(PyMOLGlobals* G);
+void SeekerSelectionCenter(PyMOLGlobals * G, int action);
+void SeekerSelectionUpdateCenter(PyMOLGlobals * G, std::vector<CSeqRow>& rowVLA, int row_num,
+                                 int col_num, int start_over);
 
 #endif

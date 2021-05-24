@@ -201,7 +201,7 @@ float CharacterGetAdvance(PyMOLGlobals * G, int sampling, int id)
   return rec->Advance / sampling;
 }
 
-void CharacterRenderOpenGLPrime(PyMOLGlobals * G, RenderInfo * info)
+void CharacterRenderOpenGLPrime(PyMOLGlobals * G, const RenderInfo * info)
 {
   if(G->HaveGUI && G->ValidContext) {
     if ((info && !info->use_shaders) || (!info && !SettingGetGlobal_b(G, cSetting_use_shaders))){
@@ -213,7 +213,7 @@ void CharacterRenderOpenGLPrime(PyMOLGlobals * G, RenderInfo * info)
   }
 }
 
-void CharacterRenderOpenGLDone(PyMOLGlobals * G, RenderInfo * info)
+void CharacterRenderOpenGLDone(PyMOLGlobals * G, const RenderInfo * info)
 {
   if(G->HaveGUI && G->ValidContext) {
     if ((info && !info->use_shaders) || (!info && !SettingGetGlobal_b(G, cSetting_use_shaders))){
@@ -223,7 +223,7 @@ void CharacterRenderOpenGLDone(PyMOLGlobals * G, RenderInfo * info)
   }
 }
 
-short CharacterRenderOpenGL(PyMOLGlobals * G, RenderInfo * info, int id, short isworldlabel, short relativeMode SHADERCGOARG)
+short CharacterRenderOpenGL(PyMOLGlobals * G, const RenderInfo * info, int id, short isworldlabel, short relativeMode SHADERCGOARG)
 
 /* need orientation matrix */
 {
@@ -401,7 +401,7 @@ int CharacterGetGeometry(PyMOLGlobals * G, int id,
 int CharacterInit(PyMOLGlobals * G)
 {
   CCharacter *I = NULL;
-  if((I = (G->Character = Calloc(CCharacter, 1)))) {
+  if((I = (G->Character = pymol::calloc<CCharacter>(1)))) {
     I->MaxAlloc = 5;
     I->Char = VLACalloc(CharRec, I->MaxAlloc + 1);
     {
@@ -410,7 +410,7 @@ int CharacterInit(PyMOLGlobals * G)
         I->Char[a].Prev = a - 1;
       I->LastFree = I->MaxAlloc;
     }
-    I->Hash = Calloc(int, (HASH_MASK + 1));
+    I->Hash = pymol::calloc<int>((HASH_MASK + 1));
     I->TargetMaxUsage = 25000;
     return 1;
   } else

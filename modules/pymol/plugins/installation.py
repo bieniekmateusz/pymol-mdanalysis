@@ -6,8 +6,6 @@ License: BSD-2-Clause
 
 '''
 
-from __future__ import print_function
-
 import os
 
 # supported file types for installation. Do not support pyc and pyo binaries,
@@ -130,6 +128,9 @@ def extract_zipfile(ofile, ext):
 
     if len(names) == 0:
         raise BadInstallationFile('Missing __init__.py')
+    if len(names) > 1:
+        # filter out "tests" directory
+        names = [n for n in names if n[-1] != 'tests']
     if len(names) > 1:
         raise BadInstallationFile('Archive must contain a single package.')
     check_valid_name(names[0][-1])
@@ -320,11 +321,12 @@ def installPluginFromFile(ofile, parent=None, plugdir=None):
         showinfo('Info', 'Installation cancelled', parent=parent)
         return
 
-    except:
+    except Exception as e:
         if pref_get('verbose', False):
             import traceback
             traceback.print_exc()
-        showinfo('Error', 'unable to install plugin "%s"' % name, parent=parent)
+        msg = 'Unable to install plugin "{}".\n{}'.format(name, e)
+        showinfo('Error', msg, parent=parent)
         return
 
     finally:

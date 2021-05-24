@@ -22,6 +22,8 @@ Z* -------------------------------------------------------------------
 #include"Vector.h"
 #include"Matrix.h"
 
+#include <cassert>
+
 #define MASK_01010101 (((unsigned long)(-1))/3)
 #define MASK_00110011 (((unsigned long)(-1))/5)
 #define MASK_00001111 (((unsigned long)(-1))/17)
@@ -62,8 +64,6 @@ short countBitsInt(int bits){
 #define R_MED 0.00001
 #endif
 
-#define cPI            3.14159265358979323846   /* pi */
-
 static const float _0 = 0.0F;
 static const float _1 = 1.0F;
 static const double _d0 = 0.0;
@@ -92,7 +92,7 @@ unsigned int optimizer_workaround1u(unsigned int value)
 
 float get_random0to1f()
 {
-  return (rand() / (_1 + RAND_MAX));
+  return rand() / (1.0 + RAND_MAX);
 }
 
 int pymol_roundf(float f)
@@ -199,9 +199,9 @@ int equal3f(const float *v1, const float *v2)
 
 void get_random3f(float *x)
 {                               /* this needs to be fixed as in Tinker */
-  x[0] = 0.5F - (rand() / (_1 + RAND_MAX));
-  x[1] = 0.5F - (rand() / (_1 + RAND_MAX));
-  x[2] = 0.5F - (rand() / (_1 + RAND_MAX));
+  x[0] = 0.5F - get_random0to1f();
+  x[1] = 0.5F - get_random0to1f();
+  x[2] = 0.5F - get_random0to1f();
   normalize3f(x);
 }
 
@@ -294,11 +294,6 @@ void max3f(const float *v1, const float *v2, float *v3)
   (v3)[2] = ((v1)[2] > (v2)[2] ? (v1)[2] : (v2)[2]);
 }
 
-double dot_product3d(const double *v1, const double *v2)
-{
-  return (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]);
-}
-
 void identity33f(float *m)
 {
   m[0] = _1;
@@ -343,7 +338,7 @@ void identity44d(double *m1)
     m1[a] = _d1;
 }
 
-/*
+/**
  * Check a nxn matrix for identity
  */
 bool is_identityf(int n, const float *m, float threshold)
@@ -357,7 +352,7 @@ bool is_identityf(int n, const float *m, float threshold)
   return true;
 }
 
-/*
+/**
  * Check if two matrices are the same. The two matrices may have different
  * number of rows and columns, in that case only the overlaying upper left
  * (nrow x min(ncol1, ncol2)) submatrix is compared.
@@ -377,7 +372,7 @@ bool is_allclosef(int nrow,
   return true;
 }
 
-/*
+/**
  * Check a nxm matrix is a diagonal matrix (non-diagonal elements are zero)
  */
 bool is_diagonalf(int nrow,
@@ -394,7 +389,7 @@ bool is_diagonalf(int nrow,
   return true;
 }
 
-/*
+/**
  * Determinant of the upper left 3x3 submatrix.
  */
 double determinant33f(const float *m, int ncol)
@@ -628,6 +623,8 @@ void transform33f3f(const float *m1, const float *m2, float *m3)
 
 void transpose33f33f(const float *m1, float *m2)
 {
+  assert(m1 != m2);
+
   m2[0] = m1[0];
   m2[1] = m1[3];
   m2[2] = m1[6];
@@ -641,6 +638,8 @@ void transpose33f33f(const float *m1, float *m2)
 
 void transpose33d33d(const double *m1, double *m2)
 {
+  assert(m1 != m2);
+
   m2[0] = m1[0];
   m2[1] = m1[3];
   m2[2] = m1[6];
@@ -654,6 +653,8 @@ void transpose33d33d(const double *m1, double *m2)
 
 void transpose44f44f(const float *m1, float *m2)
 {
+  assert(m1 != m2);
+
   m2[0] = m1[0];
   m2[1] = m1[4];
   m2[2] = m1[8];
@@ -677,6 +678,8 @@ void transpose44f44f(const float *m1, float *m2)
 
 void transpose44d44d(const double *m1, double *m2)
 {
+  assert(m1 != m2);
+
   m2[0] = m1[0];
   m2[1] = m1[4];
   m2[2] = m1[8];
@@ -1269,6 +1272,8 @@ void invert_special44d44d(const double *orig, double *inv)
 
 void invert_special44f44f(const float *orig, float *inv)
 {
+  assert(orig != inv);
+
   /* inverse of the rotation matrix */
 
   inv[0] = orig[0];
@@ -1302,62 +1307,11 @@ static void normalize3dp(double *v1, double *v2, double *v3)
     v2[0] /= vlen;
     v3[0] /= vlen;
   } else {
+    // FIXME This looks wrong, should be all index 0!?
     v1[0] = _0;
     v2[1] = _0;
     v3[2] = _0;
   }
-}
-
-
-/* unused at present
-static void normalize3df( float *v1, float *v2, float *v3 )
-{
-  float vlen = (float)sqrt1f((v1[0]*v1[0]) + 
-                             (v2[0]*v2[0]) + 
-                             (v3[0]*v3[0]));
-  if(vlen>R_SMALL)
-    {
-      v1[0]/=vlen;
-      v2[0]/=vlen;
-      v3[0]/=vlen;
-    }
-  else
-    {
-      v1[0]=_0;
-      v2[1]=_0;
-      v3[2]=_0;
-    }
-} 
-*/
-void scale3d(const double *v1, const double v0, double *v2)
-{
-  v2[0] = v1[0] * v0;
-  v2[1] = v1[1] * v0;
-  v2[2] = v1[2] * v0;
-}
-
-void add3d(const double *v1, const double *v2, double *v3)
-{
-  v3[0] = v1[0] + v2[0];
-  v3[1] = v1[1] + v2[1];
-  v3[2] = v1[2] + v2[2];
-}
-
-void cross_product3d(const double *v1, const double *v2, double *cross)
-{
-  cross[0] = (v1[1] * v2[2]) - (v1[2] * v2[1]);
-  cross[1] = (v1[2] * v2[0]) - (v1[0] * v2[2]);
-  cross[2] = (v1[0] * v2[1]) - (v1[1] * v2[0]);
-}
-
-void remove_component3d(const double *v1, const double *unit, double *result)
-{
-  double dot;
-
-  dot = v1[0] * unit[0] + v1[1] * unit[1] + v1[2] * unit[2];
-  result[0] = v1[0] - unit[0] * dot;
-  result[1] = v1[1] - unit[1] * dot;
-  result[2] = v1[2] - unit[2] * dot;
 }
 
 void reorient44d(double *matrix)
@@ -1393,7 +1347,7 @@ void reorient44d(double *matrix)
   normalize3d(matrix + 8);
 
   copy3d(matrix, tmp);
-  remove_component3d(matrix + 4, tmp, tmp + 4);
+  pymol::remove_component3(matrix + 4, tmp, tmp + 4);
   cross_product3d(tmp, tmp + 4, tmp + 8);
   normalize3d(tmp + 4);
   normalize3d(tmp + 8);
@@ -1489,8 +1443,15 @@ void transform_normalTTT44f3f(const float *m1, const float *m2, float *m3)
   m3[2] = m1[8] * m2r0 + m1[9] * m2r1 + m1[10] * m2r2;
 }
 
+/**
+ * Multiplies two row-major 3x3 matrices:
+ *
+ *     m3 = m1 * m2;
+ *
+ * m2 and m3 can be the same matrix (same memory buffer)
+ */
 void multiply33f33f(const float *m1, const float *m2, float *m3)
-{                               /* m2 and m3 can be the same matrix */
+{
   int a;
   float m2r0, m2r1, m2r2;
   for(a = 0; a < 3; a++) {
@@ -1698,21 +1659,6 @@ void clamp3f(float *v1)
     v1[2] = _1;
 }
 
-void normalize3d(double *v1)
-{
-  double vlen;
-  vlen = length3d(v1);
-  if(vlen > R_SMALL) {
-    v1[0] /= vlen;
-    v1[1] /= vlen;
-    v1[2] /= vlen;
-  } else {
-    v1[0] = _0;
-    v1[1] = _0;
-    v1[2] = _0;
-  }
-}
-
 void normalize2f(float *v1)
 {
   double vlen;
@@ -1732,11 +1678,6 @@ void normalize4f(float *v1)
   v1[1] /= v1[3];
   v1[2] /= v1[3];
   v1[3] = 1.f;
-}
-
-double length3d(const double *v1)
-{
-  return (sqrt1d((v1[0] * v1[0]) + (v1[1] * v1[1]) + (v1[2] * v1[2])));
 }
 
 double distance_line2point3f(const float *base, const float *normal, const float *point,
@@ -1780,7 +1721,7 @@ double distance_halfline2point3f(const float *base, const float *normal, const f
     else
       return (sqrt1d(result));
   } else {
-    return (MAXFLOAT);
+    return FLT_MAX;
   }
 }
 
@@ -1924,17 +1865,10 @@ void rotation_to_matrix(Matrix53f rot, const float *axis, float angle)
 
 static void find_axis(Matrix33d a, float *axis)
 {
-  doublereal at[3][3], v[3][3], vt[3][3], fv1[3][3];
-  integer iv1[3];
-  integer ierr;
-  integer nm, n, matz;
-  doublereal wr[3], wi[3];
+  double at[3][3], v[3][3], vt[3][3];
+  double wr[3], wi[3];
   /*p[3][3]; */
   int x, y;
-
-  nm = 3;
-  n = 3;
-  matz = 1;
 
   recondition33d(&a[0][0]);     /* IMPORTANT! */
 
@@ -1944,7 +1878,11 @@ static void find_axis(Matrix33d a, float *axis)
     }
   }
 
-  pymol_rg_(&nm, &n, &at[0][0], wr, wi, &matz, &vt[0][0], iv1, &fv1[0][0], &ierr);
+  MatrixEigensolveC33d(nullptr,
+      &at[0][0],  // input matrix
+      wr,         // out: real component of eigenvalues
+      wi,         // out: imag component of eigenvalues
+      &vt[0][0]); // out: eigenvectors
 
   for(x = 0; x < 3; x++) {
     for(y = 0; y < 3; y++) {
@@ -1957,8 +1895,8 @@ static void find_axis(Matrix33d a, float *axis)
   axis[2] = 0.0F;
 
   {
-    doublereal max_real = 0.0F, test_real;
-    doublereal min_imag = 1.0F, test_imag;
+    double max_real = 0.0F, test_real;
+    double min_imag = 1.0F, test_imag;
     float test_inp[3], test_out[3];
 
     for(x = 0; x < 3; x++) {    /* looking for an eigvalue of (1,0) */
@@ -2120,7 +2058,7 @@ int countchrs(const char *str, char ch){
   return cnt;
 }
 
-/*
+/**
  * sigmoid smoothstep function with
  * smooth(0) = 0
  * smooth(1) = 1
@@ -2140,7 +2078,9 @@ float smooth(float x, float power)
   return 1.0F - (0.5F * powf(2.0F * (1.0F - x), power));
 }
 
-/* Divides the unit circle radially into n segments with n >= 3. */
+/**
+ * Divides the unit circle radially into n segments with n >= 3.
+ */
 void subdivide(int n, float *x, float *y)
 {
   int a;
@@ -2151,4 +2091,20 @@ void subdivide(int n, float *x, float *y)
     x[a] = (float) cos(a * 2 * PI / n);
     y[a] = (float) sin(a * 2 * PI / n);
   }
+}
+
+namespace pymol {
+/**
+ * Compute the arithmetic mean of an Nx3 array along the first axis.
+ * @param data Flat array data with N*3 elements
+ * @param[out] out 3-element output vector
+ */
+void meanNx3(float const* data, size_t N, float* out)
+{
+  double accum[3] = {};
+  for (auto const data_end = data + N * 3; data != data_end; data += 3) {
+    pymol::add3(accum, data, accum);
+  }
+  pymol::scale3(accum, 1.0 / N, out);
+}
 }

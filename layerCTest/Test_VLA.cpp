@@ -15,13 +15,14 @@ TEST_CASE("VLA Alloc And Size", "[VLA]")
 {
   vla<int> myVLA(5);
   REQUIRE(myVLA.size() == 5);
+  REQUIRE(isArrayZero(myVLA.data(), myVLA.size()));
 }
 
-TEST_CASE("VLA Default Val", "[VLA]")
+TEST_CASE("VLA size=0", "[VLA]")
 {
-  vla<int> myVLA(5, 0);
-  REQUIRE(myVLA.size() == 5);
-  REQUIRE(isArrayZero(myVLA.data(), myVLA.size()));
+  vla<int> myVLA(0);
+  REQUIRE(myVLA.size() == 0);
+  REQUIRE(!isNullptr(myVLA.data()));
 }
 
 TEST_CASE("VLA Initializer List", "[VLA]")
@@ -29,6 +30,42 @@ TEST_CASE("VLA Initializer List", "[VLA]")
   vla<int> myVLA{1, 2, 3, 4, 5};
   const std::array<int, 5> myArr{1, 2, 3, 4, 5};
   REQUIRE(isArrayEqual(myVLA.data(), myArr.data(), myVLA.size()));
+}
+
+TEST_CASE("VLA empty Initializer List", "[VLA]")
+{
+  vla<int> myVLA{};
+  REQUIRE(isNullptr(myVLA.data()));
+}
+
+TEST_CASE("VLA single zero-int Initializer List", "[VLA]")
+{
+  vla<int> myVLA{0};
+  REQUIRE(myVLA.size() == 1);
+  REQUIRE(!isNullptr(myVLA.data()));
+  REQUIRE(myVLA[0] == 0);
+}
+
+TEST_CASE("VLA single non-zero-int Initializer List", "[VLA]")
+{
+  vla<int> myVLA{5};
+  REQUIRE(myVLA.size() == 1);
+  REQUIRE(!isNullptr(myVLA.data()));
+  REQUIRE(myVLA[0] == 5);
+}
+
+TEST_CASE("VLA nullptr Assign", "[VLA]")
+{
+  vla<int> myVLA{1, 2, 3, 4, 5};
+  myVLA = nullptr;
+  REQUIRE(isNullptr(myVLA.data()));
+}
+
+TEST_CASE("VLA NULL Assign", "[VLA]")
+{
+  vla<int> myVLA{1, 2, 3, 4, 5};
+  myVLA = NULL;
+  REQUIRE(isNullptr(myVLA.data()));
 }
 
 TEST_CASE("VLA Special Member Functions", "[VLA]")
@@ -82,6 +119,14 @@ TEST_CASE("Vector_Resize", "[VLA]")
   vla<int> myVLA2;
   myVLA2.resize(3);
   REQUIRE(myVLA2.size() == 3);
+  myVLA2[0] = 123;
+  myVLA2[2] = 456;
+  myVLA2.resize(30);
+  REQUIRE(myVLA2.size() == 30);
+  REQUIRE(myVLA2[0] == 123);
+  REQUIRE(myVLA2[1] == 0);
+  REQUIRE(myVLA2[2] == 456);
+  REQUIRE(isArrayZero(myVLA2.data() + 3, myVLA2.size() - 3));
 }
 
 TEST_CASE("FreeP", "[VLA]")
@@ -111,47 +156,30 @@ TEST_CASE("Index", "[VLA]")
 
 TEST_CASE("Range Based For", "[VLA]")
 {
-  vla<int> myVLA{0, 1, 2, 3, 4};
+  vla<int> myVLA{0, 1, 9, 3, 4};
   std::size_t i{0u};
   for (auto& m : myVLA) {
-    REQUIRE(myVLA[i] == i);
+    REQUIRE(myVLA[i] == m);
     i++;
   }
   i = 0;
   for (const auto& m : myVLA) {
-    REQUIRE(myVLA[i] == i);
+    REQUIRE(myVLA[i] == m);
     i++;
   }
 }
 
-#if 0
-TEST_CASE("To_StdVector", "[VLA]")
-{
-  vla<int> myVLA{1, 2, 3, 4, 5};
-  auto myStdVec = myVLA.toStdVector();
-  REQUIRE(myStdVec.size() == myVLA.size());
-  REQUIRE(isArrayEqual(myStdVec.data(), myVLA.data(), myStdVec.size()));
-}
-
-TEST_CASE("From_StdVector", "[VLA]")
-{
-  std::vector<int> myStdVec{1, 2, 3, 4, 5};
-  vla<int> myVLA(myStdVec);
-  REQUIRE(myStdVec.size() == myVLA.size());
-  REQUIRE(isArrayEqual(myStdVec.data(), myVLA.data(), myStdVec.size()));
-}
-#endif
-
 TEST_CASE("From_VLACalloc", "[VLA]")
 {
-  vla<int> myVLA(VLACalloc(int, 5));
+  auto myVLA = pymol::vla_take_ownership(VLACalloc(int, 5));
   REQUIRE(myVLA.size() == 5);
   REQUIRE(isArrayZero(myVLA.data(), 5));
 }
 
 TEST_CASE("Classic_Copy", "[VLA]")
 {
-  vla<int> myVLA(5, 10);
+  vla<int> myVLA(5);
+  std::fill(myVLA.begin(), myVLA.end(), 10);
   auto myVLACopy = VLACopy2(myVLA);
   REQUIRE(isArrayEqual(myVLA.data(), myVLACopy.data(), myVLA.size()));
   myVLACopy[1] = 100;

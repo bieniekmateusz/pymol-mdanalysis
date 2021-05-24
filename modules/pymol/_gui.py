@@ -2,12 +2,63 @@
 PyMOL GUI Data (toolkit independant)
 '''
 
-from __future__ import print_function
-from __future__ import absolute_import
-
 import sys
 import os
 import webbrowser
+
+from .mdanalysis_manager import MDAnalysisManager
+
+
+
+def mda_session_save_as(gui):
+    """
+    This highjacks the saving mechanism. It takes over the GUI save_session, only to give it back and retrieve
+    the filename of the saved file. If it is a session .pse, we add our MDAnalysis.
+
+    fixme - This is already done in the file exporting.py with with the command mda_save.
+    This mda_save command should be plugged in instead of this function.
+    """
+    # use the legacy system to save the typical PyMOL data
+    gui.session_save_as()
+    # the filename created
+    created_file = gui.recent_filenames[0]
+    if not created_file.endswith('.pse'):
+        return
+
+    # fixme - this is going to crash if mdanalysis is not installed
+
+    # get the MDAnalysis metadata
+    json_data = MDAnalysisManager.toJSON()
+
+    # Use json to serialise the data - MDAnalysis cannot be serialised right now
+    # .mse stands for MDAnalysis sessions
+    corresponding_filename = os.path.splitext(created_file)[0] + '.mse'
+    with open(corresponding_filename, 'w') as F:
+        F.write(json_data)
+
+
+def mda_file_open(gui):
+    """
+    We highjack the opening mechanism to load MDAnalysis session along the .pse session.
+
+    fixme - This is already done in the file importing.py with with the command mda_load.
+    This mda_load command should be plugged in instead of this function.
+    """
+    gui.file_open()
+    last_used_file = gui.recent_filenames[0]
+
+    if last_used_file.endswith('.mse'):
+        print('Error: Please load the corresponding .pse session file instead.')
+        return
+
+    if not last_used_file.endswith('.pse'):
+        return
+
+    # load the MDAnalysis session
+    corresponding_mse = os.path.splitext(last_used_file)[0] + '.mse'  # .mse stands for MDAnalysis sessions
+    metadata = open(corresponding_mse).read()
+    MDAnalysisManager.fromJSON(metadata)
+
 
 class PyMOLDesktopGUI(object):
     '''Superclass for PyMOL Desktop Applications'''
@@ -27,6 +78,8 @@ class PyMOLDesktopGUI(object):
     file_save_mpeg = None
     file_save_mov = None
     file_save_mpng = None
+    file_save_gltf = None
+    file_save_stl = None
     log_open = None
     log_resume = None
     log_append = None
@@ -37,18 +90,20 @@ class PyMOLDesktopGUI(object):
     edit_colors_dialog = None
     cd_dialog = None
     show_about = None
+    shortcut_menu_edit_dialog = None
 
     def new_window(self, extra_argv=()):
-        import subprocess, pymol
+        import pymol
 
         python = sys.executable
         if os.path.isfile(python + 'w'):
             # fixes menu focus on macOS
             python += 'w'
 
-        subprocess.Popen(
-            [python, pymol.__file__, '-N', pymol.invocation.options.gui] +
-            list(extra_argv))
+        args = [python, pymol.__file__, '-N', pymol.invocation.options.gui
+                ] + list(extra_argv)
+
+        os.spawnv(os.P_NOWAITO, args[0], args)
 
     def get_menudata(self, cmd=None):
         '''Get the top level application menu as a list data structure'''
@@ -65,7 +120,7 @@ class PyMOLDesktopGUI(object):
         def transparency_menu(setting_name):
             return [
                 ('radio', lab, setting_name, val)
-                for lab, val in [ ('Off', 0.0), ('20%', 0.2), ('40%', 0.4), 
+                for lab, val in [ ('Off', 0.0), ('20%', 0.2), ('40%', 0.4),
                     ('50%', 0.5), ('60%', 0.6), ('80%', 0.8) ]
             ]
 
@@ -81,12 +136,12 @@ class PyMOLDesktopGUI(object):
                     ('command', 'Ignore .pymolrc and plugins (-k)', lambda: self.new_window(('-k',))),
                 ]),
                 ('separator',),
-                ('command', 'Open...',                      self.file_open),
+                ('command', 'Open...',                      lambda: mda_file_open(self)),
                 ('open_recent_menu',),
                 ('command', 'Get PDB...',                   self.file_fetch_pdb),
                 ('separator',),
                 ('command', 'Save Session',                 self.session_save),
-                ('command', 'Save Session As...',           self.session_save_as),
+                ('command', 'Save Session As...',           lambda: mda_session_save_as(self)),
                 ('separator',),
                 ('command', 'Export Molecule...',             self.file_save),
                 ('command', 'Export Map...',                  self.file_save_map),
@@ -96,7 +151,9 @@ class PyMOLDesktopGUI(object):
                     ('separator',),
                     ('command', 'VRML 2...',        self.file_save_wrl),
                     ('command', 'COLLADA...',       self.file_save_dae),
+                    ('command', 'GLTF...',          self.file_save_gltf),
                     ('command', 'POV-Ray...',       self.file_save_pov),
+                    ('command', 'STL...',           self.file_save_stl),
                 ]),
                 ('menu', 'Export Movie As', [
                     ('command', 'MPEG...',          self.file_save_mpeg),
@@ -131,13 +188,6 @@ class PyMOLDesktopGUI(object):
             ('menu', 'Edit', [
                 ('command', 'Undo [Ctrl-Z]', cmd.undo),
                 ('command', 'Redo [Ctrl-Y]', cmd.redo),
-                ('menu', 'Max Atom Count for Undo/Redo', [
-                    ('check', 'Disable Undo', 'suspend_undo', 1),
-                    ('separator',),
-                ] + [
-                    ('radio', 'Unlimited' if not i else str(i), 'suspend_undo_atom_count', i)
-                    for i in (1000, 10000, 100000, 0)
-                ]),
             ]),
             ('menu', 'Build', [
                 ('menu', 'Fragment', [
@@ -427,6 +477,7 @@ class PyMOLDesktopGUI(object):
                     ('command', 'Wall-Eye Stereo', 'stereo walleye'),
                     ('command', 'Quad-Buffered Stereo', 'stereo quadbuffer'),
                     ('command', 'Zalman Stereo', 'stereo byrow'),
+                    ('command', 'OpenVR', 'stereo openvr'),
                     ('separator',),
                     ('command', 'Swap Sides', 'stereo swap'),
                     ('separator',),
@@ -493,6 +544,7 @@ class PyMOLDesktopGUI(object):
             ]),
             ('menu', 'Setting', [
                 ('command', 'Edit All...', self.settings_edit_all_dialog),
+                ('command', 'Keyboard Shortcuts...', self.shortcut_menu_edit_dialog),
                 ('command', 'Colors...', self.edit_colors_dialog),
                 ('separator',),
                 ('menu', 'Label', [
@@ -674,15 +726,15 @@ class PyMOLDesktopGUI(object):
                 ]),
                 ('menu', 'Transparency', [
                     ('menu', 'Surface', transparency_menu('transparency')),
-                    ('menu', 'Sphere',  transparency_menu('sphere_transparency')),      
+                    ('menu', 'Sphere',  transparency_menu('sphere_transparency')),
                     ('menu', 'Cartoon', transparency_menu('cartoon_transparency')),
                     ('menu', 'Stick',   transparency_menu('stick_transparency')),
                     ('separator',),
                 ] + [
                     ('command', lab, lambda v=val: (
-                        cmd.set('transparency_mode', v[0]),
-                        cmd.set('backface_cull', v[1]),
-                        cmd.set('two_sided_lighting', v[2])))
+                        cmd.set('transparency_mode', v[0], quiet=0),
+                        cmd.set('backface_cull', v[1], quiet=0),
+                        cmd.set('two_sided_lighting', v[2], quiet=0)))
                     for lab, val in [
                         ('Uni-Layer',     (2, 1, 0)),
                         ('Multi-Layer',   (1, 0, 1)),
@@ -835,15 +887,13 @@ class PyMOLDesktopGUI(object):
                 ('command', 'Measurement', 'wizard measurement'),
                 ('menu', 'Mutagenesis', [
                     ('command', 'Protein', 'wizard mutagenesis'),
-                    ('command', 'Nucleic Acids', 'wizard nucmutagenesis'), 
+                    ('command', 'Nucleic Acids', 'wizard nucmutagenesis'),
                 ]),
                 ('command', 'Pair Fitting', 'wizard pair_fit'),
                 ('separator',),
                 ('command', 'Density', 'wizard density'),
                 ('command', 'Filter', 'wizard filter'),
                 ('command', 'Sculpting', 'wizard sculpting'),
-                ('separator',),
-                ('command', 'Cleanup', 'wizard cleanup'),
                 ('separator',),
                 ('command', 'Label', 'wizard label'),
                 ('command', 'Charge', 'wizard charge'),
@@ -1003,10 +1053,6 @@ class PyMOLDesktopGUI(object):
             print(' Warning: failed to connect to recent DB:', e)
             self._recent_filenames_db = False
             return False
-
-        # PYMOL-2992
-        if sys.version_info[0] < 3:
-            db.text_factory = lambda b: unicode(b, errors='replace')
 
         return True
 

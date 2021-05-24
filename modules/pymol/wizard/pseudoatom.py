@@ -3,7 +3,6 @@ from pymol.wizard import Wizard
 from pymol import cmd
 import pymol
 import types
-import string
 
 class Pseudoatom(Wizard):
 
@@ -14,7 +13,7 @@ class Pseudoatom(Wizard):
             self.prefix = 'Label text: \888'
         self.text = ''
         self.pos = pos
-        
+
     def get_event_mask(self):
         return Wizard.event_mask_key
 
@@ -28,14 +27,14 @@ class Pseudoatom(Wizard):
         elif k>32:
             self.text = self.text + chr(k)
         elif k==10 or k==13:
-            self.text = string.strip(self.text)
+            self.text = self.text.strip()
             if self.mode=='label':
-                obj_name = self.cmd.get_unused_name(string.lower(self.text[0:14]),0)
+                obj_name = self.cmd.get_unused_name(self.text[0:14].lower(),0)
                 self.cmd.pseudoatom(obj_name,pos=self.pos,label=self.text)
             self.cmd.set_wizard()
         self.cmd.refresh_wizard()
         return 1
-        
+
     def get_prompt(self):
         self.prompt = [ self.prefix + self.text + "_" ]
         return self.prompt
@@ -44,5 +43,3 @@ class Pseudoatom(Wizard):
         return [
             [ 2, 'Cancel', 'cmd.set_wizard()' ]
             ]
-
-

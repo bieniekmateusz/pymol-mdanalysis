@@ -12,8 +12,6 @@
 #-*
 #Z* -------------------------------------------------------------------
 
-from __future__ import absolute_import
-
 import pymol
 
 from pymol import _cmd
@@ -21,7 +19,7 @@ from pymol import _cmd
 import threading
 import sys
 
-pymol2_lock = threading.RLock() 
+pymol2_lock = threading.RLock()
 
 ##
 ## FIXME: The PyMOL and SingletonPyMOL classes are partly redundant with the
@@ -57,7 +55,7 @@ class SingletonPyMOL:
             raise RuntimeError('can only start SingletonPyMOL once')
 
         with pymol2_lock:
-            cmd._COb = _cmd._new(pymol, pymol.invocation.options)
+            cmd._COb = _cmd._new(pymol, pymol.invocation.options, True)
             _cmd._start(cmd._COb, cmd)
 
         # this instance tracking is redundant with the "cmd" module itself
@@ -67,7 +65,6 @@ class SingletonPyMOL:
     def stop(self):
         with pymol2_lock:
             _cmd._stop(self._COb)
-            _cmd._del(self._COb)
 
         pymol.cmd._COb = None
 
@@ -98,7 +95,7 @@ class PyMOL(SingletonPyMOL):
 
             options = self.invocation.options
 
-            if scheme!=None: #
+            if scheme is not None: #
                 if scheme == 'presentation':
                     options.quiet = 0
                     options.show_splash = 0
@@ -115,24 +112,23 @@ class PyMOL(SingletonPyMOL):
                     options.no_quit = 1
             else:
                 options.show_splash = 0 # suppress this annoyance by default
-                    
+
             self._COb = _cmd._new(self,self.invocation.options)
 
             # initialize the cmd API
 
             self.cmd = Cmd(self,self._COb)
-            
+
             # begin assembling the instance member by member
 
             self.glutThread = None
 
     def __del__(self):
-        _cmd._del(self._COb)
         self.cmd.__dict__.clear()
-        
+
     def start(self):
         with pymol2_lock:
             _cmd._start(self._COb, self.cmd)
-        
+
     def stop(self):
         _cmd._stop(self._COb)

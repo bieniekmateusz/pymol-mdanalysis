@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <cstdlib>
 #include <string.h>
+#include <glm/vec2.hpp>
 // -----------------------------------------------------------------------------
 // DESCRIPTORS
 // -----------------------------------------------------------------------------
@@ -98,7 +99,7 @@ struct AttribOpFuncData {
 
 using AttribOpFuncDataDesc = std::vector< AttribOpFuncData >;
 
-/*
+/**
  * defines an operation that copies and (optionally) creates new vertices in 
  * a VBO operation for a particular CGO operation (op).
  *
@@ -131,7 +132,7 @@ struct AttribOp {
 };
 using AttribDataOp = std::vector< AttribOp >;
 
-/*
+/**
  * defines an attribute that is used in a shader.  this description has all of the necessary information
  * for our "optimize" function to generate either an array for input into the VBO or a call to the
  * related glVertexAttrib() call when this attribute has the same value throughout the CGO.
@@ -218,11 +219,6 @@ public:
     m_buffer_usage(usage), m_layout(layout) {}
 
   ~GenericBuffer() {
-    if (m_generated)
-      freeBuffers();
-  }
-
-  bool freeBuffers() {
     for (auto &d : m_desc) {
       if (d.gl_id) {
 	glDeleteBuffers(1, &d.gl_id);
@@ -231,8 +227,6 @@ public:
     if (m_interleavedID) {
       glDeleteBuffers(1, &m_interleavedID);
     }
-    m_generated = false;
-    return true;
   }
 
   /***********************************************************************
@@ -323,7 +317,6 @@ protected:
 	}
       }
     }
-    m_generated = true;
     return true;
   }
 
@@ -350,10 +343,8 @@ protected:
       offset += d.data_size;
     }
 
-    m_generated = true;
     bool ok = true;
     ok = genBuffer(m_interleavedID, buffer_size, buffer_data);
-    m_generated = true;
     delete[] buffer_data;
     return ok;
   }
@@ -414,7 +405,6 @@ protected:
     bool ok = true;
     ok = genBuffer(m_interleavedID, interleaved_size, interleaved_data);
     m_interleaved = true;
-    m_generated = true;
     free(interleaved_data);
     return ok;
   }
@@ -434,7 +424,6 @@ protected:
 
 protected:
   bool m_status                { false };
-  bool m_generated             { false };
   bool m_interleaved           { false };
   GLuint m_interleavedID       { 0 };
   const GLenum m_buffer_usage  { GL_STATIC_DRAW };
@@ -443,7 +432,7 @@ protected:
   BufferDataDesc     m_desc;
 };
 
-/*
+/**
  * Vertex buffer specialization
  */
 class VertexBuffer : public GenericBuffer<GL_ARRAY_BUFFER> {
@@ -518,7 +507,7 @@ private:
   std::vector<GLint> m_attribmask;
 };
 
-/*
+/**
  * Index buffer specialization
  */
 class IndexBuffer : public GenericBuffer<GL_ELEMENT_ARRAY_BUFFER> {
@@ -752,18 +741,32 @@ struct rt_layout_t {
 class renderTarget_t : public gpuBuffer_t {
   friend class CShaderMgr;
 public:
-  renderTarget_t(ivec2 size) : _size(size) {}
+  using shape_type = glm::ivec2;
+
+  renderTarget_t(shape_type size) : _size(size) {}
+  renderTarget_t(int width, int height) : _size(width, height) {}
   ~renderTarget_t();
 
   void bind() const { bind(true); };
   void bind(bool clear) const;
+  void bindFBORBO() const
+  {
+    _fbo->bind();
+    _rbo->bind();
+  }
 
   void layout(std::vector<rt_layout_t>&& desc, renderBuffer_t * with_rbo = nullptr);
-  void resize(ivec2 size);
+  void resize(shape_type size);
+
+  const shape_type& size() const { return _size; };
+
+  renderBuffer_t* rbo() const noexcept { return _rbo; }
+  frameBuffer_t* fbo() const noexcept { return _fbo; }
+  const std::vector<textureBuffer_t*>& textures() const noexcept { return _textures; }
 
 protected:
   bool _shared_rbo { false };
-  ivec2 _size;
+  shape_type _size;
   frameBuffer_t * _fbo;
   renderBuffer_t * _rbo;
   std::vector<rt_layout_t> _desc;

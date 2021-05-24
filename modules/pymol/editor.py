@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 import re
 import pymol
 cmd = __import__("sys").modules["pymol.cmd"]
@@ -37,40 +35,42 @@ class undocontext:
         # not implemented in open-source
         pass
 
-def attach_fragment(selection,fragment,hydrogen,anchor,_self=cmd):
+def attach_fragment(selection,fragment,hydrogen,anchor,*,_self=cmd):
     '''
 ARGUMENTS
 
-    selection = str: must be "pk1"
+    selection = str: Name of a single-atom selection. If no such named
+    selection exists, then create a new object with name `fragment`.
 
     fragment = str: fragment name to load from fragment library
 
-    hydrogen = int: hydrogen atom ID in fragment to fuse
+    hydrogen = int: atom ID in fragment to fuse
 
-    anchor = int: none-hydrogen atom ID in fragment to fuse
+    anchor = int: (unused)
     '''
-    if not selection in _self.get_names("selections"):
+    remove_hydrogens = _self.get_setting_boolean("auto_remove_hydrogens")
+
+    if selection not in _self.get_names("selections"):
         if fragment in _self.get_names("objects"):
-            print(" Error: an object with than name already exists")
-            raise QuietException
-        else:
-            _self.fragment(fragment)
-            if _self.get_setting_boolean("auto_remove_hydrogens"):
-                _self.remove("(hydro and %s)"%fragment)
+            raise pymol.CmdException("an object with that name already exists")
+
+        _self.fragment(fragment)
+
+        if remove_hydrogens:
+            _self.remove(f"(hydro and {fragment})")
     else:
-        _self.fragment(fragment,tmp_editor, origin=0)
-        if _self.count_atoms("((%s) and elem H)"%selection,quiet=1):
-            _self.fuse("(%s and id %d)"%(tmp_editor,hydrogen),"(pk1)",1)
-            if _self.get_setting_boolean("auto_remove_hydrogens"):
-                _self.remove("(hydro and pkmol)")            
-        else:
-            _self.remove("(%s and id %d)"%(tmp_editor,hydrogen))
-            _self.fuse("(%s and id %d)"%(tmp_editor,anchor),"(pk1)",1)
-            if _self.get_setting_boolean("auto_remove_hydrogens"):
-                _self.remove("(hydro and pkmol)")            
+        fragment_label = _self.get_unused_name(_prefix + "_attach_fragment")
+        _self.fragment(fragment, fragment_label, origin=0)
+
+        try:
+            _self.fuse(f"{fragment_label} and id {hydrogen}", f"({selection})", 1)
+
+            if remove_hydrogens:
+                _self.remove("(hydro and pkmol)")
             elif _self.count_atoms('hydro and (neighbor pk2)'):
                 _self.h_fill()
-        _self.delete(tmp_editor)
+        finally:
+            _self.delete(fragment_label)
 
 def combine_fragment(selection,fragment,hydrogen,anchor,_self=cmd):
     with undocontext(_self, selection):
@@ -81,14 +81,6 @@ def combine_fragment(selection,fragment,hydrogen,anchor,_self=cmd):
             _self.fuse("?%s" % tmp_editor, "(%s)" % selection, 3)
         finally:
             _self.delete(tmp_editor)
-
-#from time import time as ___time
-#___total = 0.0
-#___seg1 = 0.0
-#___seg2 = 0.0
-#___seg3 = 0.0
-#___pass = 0
-#___last = ___time()
 
 def attach_amino_acid(selection,amino_acid,center=0,animate=-1,object="",hydro=-1,ss=-1,_self=cmd):
     '''
@@ -108,11 +100,6 @@ ARGUMENTS
 
     ss = int: Secondary structure 1=alpha helix, 2=antiparallel beta, 3=parallel beta, 4=flat
     '''
-#    global ___total, ___seg1, ___seg2, ___seg3, ___pass, ___last
-#    ___mark0 = ___time()
-#    ___mark1 = ___time()
-#    ___mark2 = ___time()
-#    ___entry = ___time()
     r = DEFAULT_SUCCESS
     ss = int(ss)
     center = int(center)
@@ -124,7 +111,7 @@ ARGUMENTS
             else _self.count_atoms(selection) == 0):
         if object == "":
             object = amino_acid
-        # create new object 
+        # create new object
         if amino_acid in _self.get_names("objects"):
             print("Error: an object with than name already exists")
             raise QuietException
@@ -181,7 +168,7 @@ ARGUMENTS
 
                 if ((_self.select(tmp3,"(name CA,CH3 & nbr. ?pk1)",domain=tmp_domain)==1) and
                     (_self.select(tmp4,"(name CA,CH3 & nbr. ?pk2)",domain=tmp_domain)==1)):
-                    _self.set_dihedral(tmp4,tmp2,tmp1,tmp3,180.0) 
+                    _self.set_dihedral(tmp4,tmp2,tmp1,tmp3,180.0)
 
                 if hydro:
                     _self.h_fix(tmp2) # fix hydrogen position
@@ -196,7 +183,7 @@ ARGUMENTS
                                           domain=tmp_domain)==1)):
                             _self.set_dihedral( # PHI
                                 tmp4, # C
-                                tmp3, # CA 
+                                tmp3, # CA
                                 tmp2, # N
                                 tmp1, # C
                                 phi)
@@ -226,15 +213,14 @@ ARGUMENTS
             _self.select(tmp_domain, "byresi (pk1 | pk2)")
 
             if not hydro:
-                _self.remove("(pkmol and hydro)") 
+                _self.remove("(pkmol and hydro)")
 
             if (( _self.select(tmp1,"?pk1",domain=tmp_domain)==1) and
                 ( _self.select(tmp2,"?pk2",domain=tmp_domain)==1)):
 
-#                ___mark1 = ___time()
                 if ((_self.select(tmp3,"(name CA,CH3 & nbr. ?pk1)",domain=tmp_domain)==1) and
                     (_self.select(tmp4,"(name CA,CH3 & nbr. ?pk2)",domain=tmp_domain)==1)):
-                    _self.set_dihedral(tmp4,tmp2,tmp1,tmp3,180.0) 
+                    _self.set_dihedral(tmp4,tmp2,tmp1,tmp3,180.0)
                 if hydro:
                     _self.h_fix("pk1") # fix hydrogen position
                 if ss:
@@ -253,7 +239,7 @@ ARGUMENTS
                             _self.set_dihedral( # PHI
                                 tmp2, # C
                                 tmp1, # N
-                                tmp3, # CA 
+                                tmp3, # CA
                                 tmp4, # C
                                 phi)
                     if ((_self.select(tmp3,"(name CA & nbr. "+tmp2+")",domain=tmp_domain)==1) and
@@ -264,7 +250,6 @@ ARGUMENTS
                             tmp2, # C
                             tmp1, # N
                             psi)
-#            ___mark2 = ___time()
             sele = ("(name C & (byres nbr. %s) & !(byres %s))"% (tmp_connect,tmp_connect))
             if _self.select(tmp1,sele,domain=tmp_domain):
                 _self.edit(tmp1)
@@ -275,23 +260,12 @@ ARGUMENTS
         elif _self.count_atoms("((%s) and elem H)"%selection):
             print("Error: please pick a nitrogen or carbonyl carbon to grow from.")
             _self.delete(tmp_wild)
-            raise QuietException            
+            raise QuietException
         else:
             print("Error: unable to attach fragment.")
             _self.delete(tmp_wild)
             raise QuietException
     _self.delete(tmp_wild)
-
-#    ___exit = ___time()
-#    ___seg1 = ___seg1 + ___mark1 - ___entry
-#    ___seg2 = ___seg2 + ___mark2 - ___mark1
-#    ___seg3 = ___seg3 + ___exit  - ___mark2
-#    ___total = ___total + ___exit - ___entry
-#    ___pass = ___pass + 1
-#    print "%0.3f %0.3f %0.3f / %0.3f + %0.3f + %0.3f = %0.3f vs %0.3f"%(___seg1/___total,___seg2/___total,___seg3/___total,
-#                                                          ___seg1/___pass, ___seg2/___pass, ___seg3/___pass,
-#                                                          ___total/___pass, (___time()-___last) - (___exit - ___entry))
-#    ___last = ___time()
 
     return r
 
@@ -337,7 +311,7 @@ def _fab(input,name,mode,resi,chain,segi,state,dir,hydro,ss,quiet,_self=cmd):
 
     if hydro < 0:
         hydro = not _self.get_setting_boolean("auto_remove_hydrogens")
-    
+
     seq_len = 0
     if (mode == 'peptide') and is_string(input):
         # '123/ ADC B/234/ AFCD' to [ '123/','A','D','C','B/234/','F','C','D' ]
@@ -350,21 +324,17 @@ def _fab(input,name,mode,resi,chain,segi,state,dir,hydro,ss,quiet,_self=cmd):
                 seq_len = seq_len + len(frag)
                 input.extend(list(frag))
                 input.append("/") # breaks chain
-    if name == None:
+    if name is None:
         name = _self.get_unused_name("obj")
     elif name in _self.get_names():
         _self.delete(name)
 
-#    if mode in [ 'smiles' ]: # small molecule (FUTURE)
-#        from chempy.champ import Champ
-#        ch = Champ()
-#        ch.insert_pattern_string(input)
     if mode in [ 'peptide' ]:  # polymers
         if (seq_len>99) and not quiet:
             print(" Generating a %d residue peptide from sequence..."%seq_len)
         input.reverse()
         sequence = input
-        if code != None:
+        if code is not None:
             while len(sequence):
                 while len(sequence) and '/' in sequence[-1]:
                     part = sequence.pop().split('/')
@@ -455,4 +425,3 @@ EXAMPLE
 def build_peptide(sequence,_self=cmd): # legacy
     for aa in sequence:
         attach_amino_acid("pk1",_aa_codes[aa])
-        

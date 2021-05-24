@@ -12,8 +12,6 @@
 #-* based on code written by Doug Hellmann. 
 #Z* -------------------------------------------------------------------
 
-from __future__ import print_function
-
 import sys
 import os
 from glob import glob
@@ -21,12 +19,7 @@ import re
 import traceback
 import Pmw
 
-if sys.version_info[0] == 2:
-    import Queue
-    from Tkinter import *
-    from tkFileDialog import *
-    import tkMessageBox
-else:
+if True:
     import queue as Queue
     from tkinter import *
     from tkinter.filedialog import *

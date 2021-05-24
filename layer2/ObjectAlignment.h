@@ -22,33 +22,37 @@ Z* -------------------------------------------------------------------
 #include"PyMOLObject.h"
 #include"CGO.h"
 #include"ObjectMolecule.h"
-#include"OVOneToAny.h"
+#include"pymol/memory.h"
 
-typedef struct ObjectAlignmentState {
-  CObjectState state;
-  int *alignVLA;
+struct ObjectAlignmentState {
+  pymol::vla<int> alignVLA;
   WordType guide;
   /* not stored */
   int valid;
-  OVOneToAny *id2tag;
-  CGO *primitiveCGO;
-  CGO *renderCGO;
+  std::unordered_map<int, int> id2tag;
+  pymol::cache_ptr<CGO> primitiveCGO;
+  pymol::cache_ptr<CGO> renderCGO;
   bool renderCGO_has_cylinders;
   bool renderCGO_has_trilines;
-} ObjectAlignmentState;
+};
 
-typedef struct ObjectAlignment {
-  CObject Obj;
-  ObjectAlignmentState *State;
-  int NState;
-  int SelectionState, ForceState;
-} ObjectAlignment;
+struct ObjectAlignment : public pymol::CObject {
+  std::vector<ObjectAlignmentState> State;
+  int SelectionState = -1;
+  int ForceState = -1;
+  ObjectAlignment(PyMOLGlobals* G);
 
-void ObjectAlignmentUpdate(ObjectAlignment * I);
+  // virtual methods
+  void update() override;
+  void render(RenderInfo* info) override;
+  void invalidate(cRep_t rep, cRepInv_t level, int state) override;
+  int getNFrame() const override;
+  pymol::CObject* clone() const override;
+};
 
 ObjectAlignment *ObjectAlignmentDefine(PyMOLGlobals * G,
                                        ObjectAlignment * obj,
-                                       int *align_vla,
+                                       const pymol::vla<int>& align_vla,
                                        int state,
                                        int merge,
                                        ObjectMolecule * guide, ObjectMolecule * flush);
@@ -58,7 +62,7 @@ void ObjectAlignmentRecomputeExtent(ObjectAlignment * I);
 PyObject *ObjectAlignmentAsPyList(ObjectAlignment * I);
 
 int ObjectAlignmentNewFromPyList(PyMOLGlobals * G, PyObject * list,
-                                 ObjectAlignment ** result, int version);
+				     ObjectAlignment ** result, int version);
 
 int ObjectAlignmentAsStrVLA(PyMOLGlobals * G, ObjectAlignment * I, int state, int format,
                             char **str_vla);

@@ -14,6 +14,9 @@ I* Additional authors of this source file include:
 Z* -------------------------------------------------------------------
 */
 
+#include <algorithm>
+#include <iterator>
+
 #include"os_predef.h"
 #include"os_std.h"
 #include"os_time.h"
@@ -29,8 +32,8 @@ struct _CUtil {
 
 int UtilInit(PyMOLGlobals *G) 
 {
-  G->Util = Calloc(CUtil,1);
-  G->Util->StartSec = UtilGetSeconds(G);
+  G->Util = pymol::calloc<CUtil>(1);
+  G->Util->StartSec = UtilGetSecondsEpoch();
   return 1;
 }
 
@@ -66,18 +69,27 @@ int UtilCountStringVLA(char *vla)
   return(result);
 }
 
+/**
+ * Get a timestamp in seconds since PyMOL was started
+ */
 double UtilGetSeconds(PyMOLGlobals *G)
 {
+  return UtilGetSecondsEpoch() - G->Util->StartSec;
+}
+
+/**
+ * Get a timestamp in seconds since 1970-01-01
+ */
+double UtilGetSecondsEpoch()
+{
 #ifndef _WIN32
-  /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
   struct timeval tv;
   gettimeofday(&tv,NULL);
-  return((tv.tv_sec+(tv.tv_usec/((double)1000000.0)))-G->Util->StartSec);
-  /* END PROPRIETARY CODE SEGMENT */
+  return tv.tv_sec + (tv.tv_usec / 1e6);
 #else
    struct __timeb64 timebuffer;
    _ftime64( &timebuffer );
-   return((timebuffer.time+(timebuffer.millitm/((double)1000.0)))-G->Util->StartSec);
+   return timebuffer.time + (timebuffer.millitm / 1e3);
 #endif
 }
 
@@ -201,7 +213,26 @@ void UtilCleanStr(char *s) /*remove flanking white and all unprintables*/
 	 }
 }
 
-/*
+/**
+ * Removes unprintables and flanking whitespace
+ * @param s string to be cleaned
+ * @return whitespace-trimmed string with readable characters
+ */
+std::string UtilCleanStdStr(const std::string& s)
+{
+  std::string ret;
+
+  auto is_not_whitespace = [](char c) { return c > ' '; };
+  auto is_printable = [](char c) { return c >= ' '; };
+
+  auto leading = std::find_if(s.begin(), s.end(), is_not_whitespace);
+  auto trailing = std::find_if(s.rbegin(), s.rend(), is_not_whitespace);
+
+  std::copy_if(leading, trailing.base(), std::back_inserter(ret), is_printable);
+  return ret;
+}
+
+/**
  * Remove ANSI Escape sequences in-place
  */
 void UtilStripANSIEscapes(char *s)
@@ -281,7 +312,7 @@ void *UtilArrayCalloc(unsigned int *dim,ov_size ndim,ov_size atom_size)
   for(a=0;a<ndim;a++)
 	 size = size * dim[a];
   size = size + sum;
-  result = (void*)mcalloc(size*2,1); /* what is this *2 for ??? */
+  result = pymol::calloc<char>(size);
 
   if(result) {
     chunk = 1;
@@ -355,7 +386,7 @@ void UtilSortIndex(int n,void *array,int *x,UtilOrderFn* fOrdered)
   for(a=0;a<n;a++) x[a]--;
 }
 
-void UtilSortIndexGlobals(PyMOLGlobals *G,int n,void *array,int *x,UtilOrderFnGlobals* fOrdered)
+void UtilSortIndexGlobals(PyMOLGlobals *G,int n,const void *array,int *x,UtilOrderFnGlobals* fOrdered)
 {
   int l,a,r,t,i;
 
@@ -405,7 +436,7 @@ int UtilSemiSortFloatIndex(int n,float *array,int *x, int forward)
 
 int UtilSemiSortFloatIndexWithNBins(int n, int nbins, float *array, int *destx, int forward)
 {
-  int *start1 = Calloc(int,n + nbins);
+  int *start1 = pymol::calloc<int>(n + nbins);
   int ret = UtilSemiSortFloatIndexWithNBinsImpl(start1, n, nbins, array, destx, forward);
   mfree(start1);
   return ret;
@@ -509,8 +540,8 @@ void UtilSortInPlace(PyMOLGlobals *G,void *array,int nItem,
   int a;
   if(nItem>0)
 	 {
-	   tmp = Alloc(char,(itemSize*nItem));
-	   index = Alloc(int,nItem+1);
+	   tmp = pymol::malloc<char>((itemSize*nItem));
+	   index = pymol::malloc<int>(nItem+1);
 	   ErrChkPtr(G,tmp);
 	   ErrChkPtr(G,index);
 	   UtilSortIndex(nItem,array,index,fOrdered);

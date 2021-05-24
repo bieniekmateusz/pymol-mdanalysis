@@ -1,0 +1,6 @@
+*.pyc
+*.d
+generated
+build
+.idea
+.idea/

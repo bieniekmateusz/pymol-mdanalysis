@@ -26,13 +26,18 @@ typedef struct {
   bool is_callable;
 } ObjectCallbackState;
 
-typedef struct ObjectCallback {
-  CObject Obj;
-  ObjectCallbackState *State;
-  int NState;
-} ObjectCallback;
+struct ObjectCallback : public pymol::CObject {
+  ObjectCallbackState *State = nullptr;
+  int NState = 0;
+  ObjectCallback(PyMOLGlobals* G);
+  ~ObjectCallback();
 
-ObjectCallback *ObjectCallbackNew(PyMOLGlobals * G);
+  // virtual methods
+  void update() override;
+  void render(RenderInfo* info) override;
+  int getNFrame() const override;
+};
+
 ObjectCallback *ObjectCallbackDefine(PyMOLGlobals * G, ObjectCallback * obj,
                                      PyObject * PObj, int state);
 void ObjectCallbackRecomputeExtent(ObjectCallback * I);

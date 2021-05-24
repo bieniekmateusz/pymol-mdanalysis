@@ -18,6 +18,12 @@ Z* -------------------------------------------------------------------
 #ifndef _H_PyMOLGlobals
 #define _H_PyMOLGlobals
 
+namespace pymol
+{
+class cif_file;
+class cif_data;
+}; // namespace pymol
+
 /* retina scale factor for ortho gui */
 extern int _gScaleFactor;
 inline int DIP2PIXEL(int v) { return v * _gScaleFactor; }
@@ -32,38 +38,50 @@ inline float DIP2PIXEL(float v) { return v * _gScaleFactor; }
 typedef int lexidx_t;
 typedef int lexborrow_t;
 
+using SelectorID_t = int;
+using SelectorMemberOffset_t = int;
+
+using StateIndex_t = int; ///< 0-based state index (C/C++/JavaScript)
+using StateIndexPython_t = int; ///< 1-based state index (Python/Settings)
+
+constexpr StateIndex_t cStateAll = -1;
+constexpr StateIndex_t cStateCurrent = -2;
+
 typedef struct _CMemoryCache CMemoryCache;
-typedef struct _CIsosurf CIsosurf;
+struct CIsosurf;
 typedef struct _CTetsurf CTetsurf;
 typedef struct _CSphere CSphere;
-typedef struct _CFeedback CFeedback;
+class CFeedback;
 typedef struct _CUtil CUtil;
 struct CColor;
 struct CMovie;
 struct CControl;
 struct CButMode;
-typedef struct _COrtho COrtho;
+class COrtho;
 typedef struct _CWord CWord;
 typedef struct _CCGORenderer CCGORenderer;
 typedef struct _CCharacter CCharacter;
 struct CPop;
 class CScene;
 struct CSeq;
-typedef struct _CSetting CSetting;
-typedef struct _CSettingUnique CSettingUnique;
-typedef struct _CText CText;
+struct CSetting;
+struct CSettingUnique;
+struct CText;
 struct CWizard;
 typedef struct _CAtomInfo CAtomInfo;
 typedef struct _CSculptCache CSculptCache;
 typedef struct _CVFont CVFont;
 typedef struct _CEditor CEditor;
 struct CExecutive;
-typedef struct _CSeeker CSeeker;
+struct CSeeker;
 struct CSelector;
+struct CSelectorManager;
 typedef struct _CTexture CTexture;
 typedef struct _CType CType;
 typedef struct _CMain CMain;
 typedef struct _CPlugIOManager CPlugIOManager;
+struct COpenVR;
+struct ObjectMolecule;
 
 class CShaderMgr;
 class CMovieScenes;
@@ -92,12 +110,6 @@ typedef struct _OVOneToOne OVOneToOne;
 #define OVONETOONE_DEFINED
 #endif
 
-
-#ifndef CObject_DEFINED
-typedef struct _CObject CObject;
-#define CObject_DEFINED
-#endif
-
 #ifndef CPyMOL_DEFINED
 typedef struct _CPyMOL CPyMOL;
 #define CPyMOL_DEFINED
@@ -111,8 +123,7 @@ class CGO;
 #define cPyMOLGlobals_LaunchStatus_StereoFailed 0x1
 #define cPyMOLGlobals_LaunchStatus_MultisampleFailed 0x2
 
-typedef struct _PyMOLGlobals PyMOLGlobals;
-struct _PyMOLGlobals {
+struct PyMOLGlobals {
 
   /* singleton objects */
 
@@ -144,6 +155,7 @@ struct _PyMOLGlobals {
   CEditor *Editor;
   CExecutive *Executive;
   CSeeker *Seeker;
+  CSelectorManager* SelectorMgr;
   CSelector *Selector;
   CTexture *Texture;
   CType *Type;
@@ -154,6 +166,7 @@ struct _PyMOLGlobals {
   OVLexicon *Lexicon;           /* lexicon for data (e.g. label) strings */
   CPlugIOManager *PlugIOManager;
   CShaderMgr* ShaderMgr;
+  COpenVR* OpenVR;
 
 #ifndef _PYMOL_NOPY
   CP_inst *P_inst;

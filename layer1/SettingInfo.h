@@ -239,9 +239,9 @@ enum {
   REC_b( 154, preserve_chempy_ids                     , global    , 0 ),
   REC_f( 155, sphere_scale                            , atom      , 1.0F ),
   REC_i( 156, two_sided_lighting                      , ostate    , -1 ),
-  REC_f( 157, secondary_structure                     , global    , 2.0F ),
+  REC_i( 157, secondary_structure                     , global    , 2, 1, 4),
   REC_b( 158, auto_remove_hydrogens                   , global    , 0 ),
-  REC_b( 159, raise_exceptions                        , global    , 1 ),
+  REC_b( 159, raise_exceptions                        , unused    , 1 ),
   REC_b( 160, stop_on_exceptions                      , global    , 0 ),
   REC_b( 161, sculpting                               , ostate    , 0 ),
   REC_b( 162, auto_sculpt                             , global    , 0 ),
@@ -262,7 +262,7 @@ enum {
   REC_b( 177, legacy_vdw_radii                        , unused    , 0 ),
   REC_b( 178, sculpt_memory                           , ostate    , 1 ),
   REC_i( 179, connect_mode                            , global    , 0 ),
-  REC_b( 180, cartoon_cylindrical_helices             , ostate    , 0 ),
+  REC_i( 180, cartoon_cylindrical_helices             , ostate    , 0, 0, 2 ),
   REC_f( 181, cartoon_helix_radius                    , ostate    , 2.25F ),
   REC_f( 182, connect_cutoff                          , global    , 0.35F ),
   REC_b( 183, save_pdb_ss                             , unused    , 0 ),
@@ -270,7 +270,7 @@ enum {
   REC_i( 185, fit_iterations                          , global    , 1000 ),
   REC_f( 186, fit_tolerance                           , global    , 0.0000001F ),
   REC_s( 187, batch_prefix                            , global    , "tmp_pymol" ),
-  REC_i( 188, stereo_mode                             , global    , 2, 1, 12 ),        /* crosseye by default */
+  REC_i( 188, stereo_mode                             , global    , 2, 1, 13 ),        /* crosseye by default */
   REC_i( 189, cgo_sphere_quality                      , global    , 1, 0, MAX_SPHERE_QUALITY ),
   REC_b( 190, pdb_literal_names                       , global    , 0 ),
   REC_b( 191, wrap_output                             , global    , 0 ),
@@ -513,7 +513,7 @@ enum {
   REC_b( 418, validate_object_names                   , global    , 1 ),
   REC_b( 419, unused_boolean_def_true                 , unused    , 1 ),
   REC_b( 420, auto_show_spheres                       , global    , 0 ),
-  REC_i( 421, sphere_mode                             , ostate    , 9, -1, 9 ),
+  REC_i( 421, sphere_mode                             , ostate    , 9, -1, 11 ),
   REC_f( 422, sphere_point_max_size                   , ostate    , 18.0f ),
   REC_f( 423, sphere_point_size                       , global    , 1.0f ),
   REC_b( 424, pdb_honor_model_number                  , global    , false ),
@@ -777,7 +777,7 @@ enum {
   REC_b( 677, stick_as_cylinders                      , global    , 1 ),
   REC_b( 678, mesh_as_cylinders                       , global    , 0 ),
   REC_b( 679, line_as_cylinders                       , global    , 0 ),
-  REC_b( 680, ribbon_as_cylinders                     , global    , 0 ),
+  REC_b( 680, ribbon_as_cylinders                     , ostate    , 0 ),
   REC_b( 681, ribbon_use_shader                       , global    , 1 ),
   REC_b( 682, excl_display_lists_shaders              , unused    , 0 ),
   REC_b( 683, dash_use_shader                         , global    , 1 ),
@@ -849,7 +849,7 @@ enum {
   REC_i( 739, volume_mode                             , global    , 1 ),
   REC_b( 740, trilines                                , global    , 0 ),
   REC_i( 741, collada_export_lighting                 , global    , 0 ),
-  REC_i( 742, collada_geometry_mode                   , global    , 0 ),
+  REC_i( 742, collada_geometry_mode                   , global    , 1 ),
   REC_b( 743, precomputed_lighting                    , global    , 0 ),
   REC_i( 744, chromadepth                             , global    , 0 ),
   REC_f( 745, pse_export_version                      , global    , 0.f ),
@@ -873,8 +873,28 @@ enum {
   REC_i( 763, chem_comp_cartn_use                     , global    , 0 ),
   REC_b( 764, colored_feedback                        , global    , 0 ),
   REC_b( 765, sdf_write_zero_order_bonds              , global    , 0 ),
-  REC_b( 766, cif_metalc_as_zero_order_bonds          , global    , 1 ),
+  REC_b( 766, cif_metalc_as_zero_order_bonds          , global    , 0 ),
   REC_i( 767, seq_view_gap_mode                       , global    , 1 ),
+  REC_i( 768, internal_gui_name_color_mode            , global    , 0, 0, 2 ),
+  REC_f( 769, openvr_gui_fov                          , global    , 35.0f, 0.0f, 89.0f ),
+  REC_f( 770, openvr_gui_alpha                        , global    , 1.0f, 0.0f, 1.0f ),
+  REC_i( 771, openvr_gui_use_alpha                    , global    , 0, 0, 2 ), // 0: off, 1: on, 2: depends (if not hit by laser)
+  REC_f( 772, openvr_gui_scene_color                  , global    , 0.0f ),
+  REC_f( 773, openvr_gui_scene_alpha                  , global    , 0.75f ),
+  REC_f( 774, openvr_gui_back_color                   , global    , 0.2f ),
+  REC_f( 775, openvr_gui_back_alpha                   , global    , 0.75f ),
+  REC_i( 776, openvr_gui_use_backdrop                 , global    , 0, 0, 2 ), // 0: off, 1: on, 2: depends (if hit by laser)
+  REC_i( 777, openvr_gui_overlay                      , global    , 0, 0, 2 ), // 0: off, 1: on, 2: depends (if hit by laser)
+  REC_i( 778, openvr_gui_text                         , global    , 0 ), // DOESN'T WORK YET ! 0: copy, 1: force, 2: only
+  REC_b( 779, openvr_disable_clipping                 , global    , false ), // turn on to disable clipping
+  REC_f( 780, openvr_near_plane                       , global    , 0.1f ),
+  REC_f( 781, openvr_far_plane                        , global    , 100.f ),
+  REC_b( 782, openvr_cut_laser                        , global    , false ), // turn on to enable tu cut laser for molecule picker
+  REC_f( 783, openvr_laser_width                      , global    , 3.0f ), // increase to make laser ray wider
+  REC_f( 784, openvr_gui_distance                     , global    , 1.5f ),
+  REC_i( 785, cartoon_smooth_cylinder_cycles          , global    , 3 ),
+  REC_i( 786, cartoon_smooth_cylinder_window          , global    , 2 ),
+  REC_i( 787, isosurface_algorithm                    , global    , 0, 0, 2 ),
 
 
 #ifdef SETTINGINFO_IMPLEMENTATION

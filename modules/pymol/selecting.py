@@ -1,27 +1,26 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
-if __name__=='pymol.selecting':
-    
+if True:
+
     from . import selector
 
     cmd = __import__("sys").modules["pymol.cmd"]
 
-    from .cmd import _cmd,lock,unlock,Shortcut, \
-          _feedback,fb_module,fb_mask, is_tuple, \
+    from .cmd import _cmd,Shortcut, \
           DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error
-    
+
     import pymol
 
     def deselect(_self=cmd):
@@ -42,11 +41,11 @@ PYMOL API
         arg = _self.get_names("selections",enabled_only=1)
         for a in arg:
             _self.disable(a)
-        if _self._raising(r,_self): raise pymol.CmdException                  
+        if _self._raising(r,_self): raise pymol.CmdException
         return r
-    
 
-    def select(name, selection="", enable=-1, quiet=1, merge=0, state=0, domain='',_self=cmd): 
+
+    def select(name, selection="", enable=-1, quiet=1, merge=0, state=0, domain='',_self=cmd):
         '''
 DESCRIPTION
 
@@ -83,40 +82,22 @@ SEE ALSO
 
     delete
         '''
-        r = DEFAULT_ERROR
-        try:
-            _self.lock(_self)
-            if selection=="":
-                selection = name                    
-                if _self.get_setting_boolean("auto_number_selections"):
-                    sel_cnt = _self.get_setting_int("sel_counter") + 1
-                    _self.set("sel_counter", sel_cnt)
-                    name = "sel%02.0f" % sel_cnt
-                else:
-                    name = "sele"
-            if name == None:
-                sel_cnt = _self.get_setting_int("sel_counter") + 1
-                _self.set("sel_counter", sel_cnt)
-                name = "sel%02.0f" % sel_cnt
-                
-            # preprocess selection (note: inside TRY)
-            selection = selector.process(selection)
-            merge = int(merge)
-            if merge==1:
-                selection = "("+selection+") or ?"+name # merge if exists
-            elif merge==2:
-                selection = "("+selection+") or ??"+name # merge if exists and active
-            #
-            r = _cmd.select(_self._COb,str(name),str(selection),int(quiet),int(state)-1,str(domain))
-            enable = int(enable)
-            if is_ok(r) and enable>0:
-                _cmd.onoff(_self._COb,str(name),1,0);
-            elif enable == 0:
-                _cmd.onoff(_self._COb,str(name),0,0)
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException                  
-        return r
+        with _self.lockcm:
+            return _cmd.select(
+                _self._COb,  #
+                "" if name is None else str(name),
+                str(selector.process(selection)),
+                int(quiet),
+                int(state) - 1,
+                str(domain),
+                int(enable),
+                int(merge))
+
+
+    def mda_select(label, selection, selection_label):
+        # apply on label
+        from .mdanalysis_manager import MDAnalysisManager
+        MDAnalysisManager.select(label, selection_label, selection)
 
 
     def pop(name, source, enable=-1, quiet=1, _self=cmd):
@@ -159,7 +140,7 @@ PYMOL API
                     r = _cmd.onoff(_self._COb,str(name),0,0)
         finally:
             _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException                  
+        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
     id_type_dict = {
@@ -167,25 +148,35 @@ PYMOL API
         'id'    : 1,
         'rank'  : 2,
         }
-    
+
     id_type_sc = Shortcut(id_type_dict.keys())
-    
+
     def select_list(name,object,id_list,state=0,mode='id',quiet=1,_self=cmd):
         '''
 DESCRIPTION
-    "select_list" is currently in development
-    
+
+    API only. Select by atom indices within a single object.
+
+    Returns the number of selected atoms.
+
+ARGUMENTS
+
+    name = str: a unique name for the selection
+
+    object = str: object name
+
+    id_list = list of integers: ID, index, or rank list.
+
+    state = int: object state, to limit selection to atoms which have
+    coordinates in that state (-1 = current, 0 = ignore) {default: 0}
+
+    mode = id|index|rank: {default: id}
         '''
         #
-        r = DEFAULT_ERROR
         mode = id_type_dict[id_type_sc.auto_err(mode,'identifier type')]
-        try:
-            _self.lock(_self)
-            r = _cmd.select_list(_self._COb,str(name),str(object),list(id_list),int(state)-1,int(mode),int(quiet))
-        finally:
-            _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException
-        return r
+        with _self.lockcm:
+            return _cmd.select_list(_self._COb, name, object, id_list,
+                                    int(state) - 1, int(mode), int(quiet))
 
     def indicate(selection="(all)",_self=cmd):
         '''
@@ -205,9 +196,9 @@ PYMOL API
         r = DEFAULT_ERROR
         # preprocess selection
         selection = selector.process(selection)
-        #      
+        #
         try:
-            _self.lock(_self)   
+            _self.lock(_self)
             r = _cmd.select(_self._COb,"indicate","("+str(selection)+")",1,-1,'')
             if is_error(r):
                 _self.delete("indicate")
@@ -215,7 +206,7 @@ PYMOL API
                 _self.enable("indicate")
         finally:
             _self.unlock(r,_self)
-        if _self._raising(r,_self): raise pymol.CmdException                  
+        if _self._raising(r,_self): raise pymol.CmdException
         return r
 
     def objsele_state_iter(selection, state=0, _self=cmd):
@@ -236,8 +227,3 @@ DESCRIPTION
                 last = _self.count_states('%' + oname)
             for ostate in range(first, last + 1):
                 yield osele, ostate
-
-
-
-
-

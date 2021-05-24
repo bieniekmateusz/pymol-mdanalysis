@@ -48,11 +48,12 @@ struct _CPyMOLOptions {
       launch_status,
       no_quit;        // prevent any action from quitting or killing PyMOL
 
-  bool retina;        // enables 4K Retina support, if available
   bool gldebug;       // enables GL debugging
 
   /* WARNING: for the sake of forward compability, never delete or
      move any fields in the above ...initialization struct in PyMOL.c */
+
+  bool openvr_stub;
 
   /* WARNING: don't add, delete, or change item order unless you also update
      PyMOL.c "CPyMOLOptions Defaults"where this global structure is initialized */

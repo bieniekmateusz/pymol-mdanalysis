@@ -1,18 +1,16 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
-
-from __future__ import print_function, absolute_import
 
 # invocation.py
 #
@@ -27,9 +25,9 @@ Options
 
   --help    display this help and exit
   --version display PyMOL version and exit
-  --retina  use retina resolution (MacPyMOL) and set display_scale_factor=2
   --gldebug use glDebugMessageCallback for GL debugging
   --testing run pymol testing
+  --diagnostics dump system diagnostics
 
   -1        config_mouse one_button
   -2        config_mouse two_button
@@ -81,7 +79,7 @@ Options
   -T name   UNSUPPORTED - Tcl/Tk GUI skin
   -u file   resume log file (execute existing content and append new log output)
   -U        UNSUPPORTED reuse the helper application
-  -v        UNUSED
+  -v        use openvr stub instead of a real hardware
   -V N      external GUI window height in pixels
   -w name   UNSUPPORTED - external gui type (pmg_qt or pmg_tk) (same as -N)
   -W N      window width in pixels
@@ -111,7 +109,7 @@ helptext2 = '''
 Mail bug reports to https://lists.sourceforge.net/lists/listinfo/pymol-users
 '''
 
-if __name__=='pymol.invocation':
+if True:
 
     import copy
     import re
@@ -119,19 +117,19 @@ if __name__=='pymol.invocation':
     import glob
     import sys
     import traceback
-    
+
     pymolrc_pat1 = '.pymolrc*'
     pymolrc_pat2 = 'pymolrc*'
-    
+
     ros_pat = 'run_on_startup*'
-    
+
     class generic:
         pass
 
     global_options = generic();
 
     options = global_options
-    
+
     options.deferred = []
     options.no_gui = 0
     options.internal_gui = 1
@@ -146,7 +144,7 @@ if __name__=='pymol.invocation':
     options.win_x = 640
     options.win_y = 480
     options.win_xy_set = False
-    options.win_px = 4 
+    options.win_px = 4
     options.sigint_handler = 1 # terminate on Ctrl-C?
     options.reuse_helper = 0
     options.auto_reinitialize = 0
@@ -167,11 +165,11 @@ if __name__=='pymol.invocation':
     options.plugins = 2
     options.exit_on_error = 0
     options.pymolrc = None
-    options.retina = 0
     options.no_spacenav = 0
     options.launch_status = 0
     options.gldebug = 0
     options.testing = 0
+    options.openvr_stub = False
 
     options.win_py = { 'irix':240,
                        'darwin': 214, # hmm...need to set to 192 for Leopard?...
@@ -186,12 +184,12 @@ if __name__=='pymol.invocation':
     options.rpcServer = 0
     # end
     options.security = 1
-    
+
     script_re = re.compile(r"pymolrc$|\.pml$|\.PML$|\.p1m$|\.P1M$")
     py_re = re.compile(r"\.py$|\.pym$|\.PY$|\.PYM$")
 
     def get_pwg_options(filename):
-        for line in open(filename, 'rU'):
+        for line in open(filename, 'r'):
             a = line.split()
             if not a or a[0].startswith('#'):
                 continue
@@ -202,10 +200,7 @@ if __name__=='pymol.invocation':
     def get_personal_folder():
         if sys.platform.startswith('win'):
             try:
-                try:
-                    import _winreg as winreg
-                except ImportError:
-                    import winreg
+                import winreg
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                         r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders') as key:
                     return winreg.QueryValueEx(key, "Personal")[0]
@@ -232,7 +227,7 @@ if __name__=='pymol.invocation':
             if py_re.search(a):
                 first.append(a) # preceeding "_ " cloaks
             elif script_re.search(a):
-                second.append(a) # preceeding "_ " cloaks 
+                second.append(a) # preceeding "_ " cloaks
 
         first.sort()
         second.sort()
@@ -243,8 +238,8 @@ if __name__=='pymol.invocation':
             global _argv
             _argv = copy.deepcopy(argv) # pymol.invocation._argv
             global global_options
-            if options == None:
-                if _pymol==None:
+            if options is None:
+                if _pymol is None:
                     options = global_options
                 else:
                     options = _pymol.invocation.options
@@ -278,16 +273,20 @@ if __name__=='pymol.invocation':
                             print(helptext2)
                         sys.exit()
                     elif a == "--retina":
-                        options.retina = 1
+                        print("Warning: --retina option has been removed")
                     elif a == "--nospnav":
                         print(' Warning: --nospnav not available in Open-Source PyMOL')
                     elif a == "--gldebug":
                         options.gldebug = 1
                     elif a == "--testing":
                         options.testing = 1
+                    elif a == "--diagnostics":
+                        # same as: -cd diagnostics
+                        options.no_gui=1
+                        options.deferred.append("_do_diagnostics")
                     else:
                         # double hypen signals end of PyMOL arguments
-                        if python_script == None:
+                        if python_script is None:
                             python_script = argv[0]
                         rev_av = copy.deepcopy(av)
                         rev_av.reverse()
@@ -300,7 +299,7 @@ if __name__=='pymol.invocation':
                 if ("A" in a) or ("a" in a): # application configuration
                     new_args = []
                     # ====== mode 1 - simple viewer window ======
-                    if a[2:3] == "1": 
+                    if a[2:3] == "1":
                         if 'A1' not in once_dict:
                             once_dict['A1'] = 1
                             new_args = ["-qxiF",
@@ -309,7 +308,7 @@ if __name__=='pymol.invocation':
                                 ]
                     # ====== mode 2 - not available -- clashes with -2 =======
                     # ====== mode 3 - internal GUI only no splash ======
-                    if a[2:3] == "3": 
+                    if a[2:3] == "3":
                         if 'A3' not in once_dict:
                             once_dict['A3'] = 1
                             new_args = ["-qx",
@@ -325,7 +324,7 @@ if __name__=='pymol.invocation':
                                 "-Y","100",
                                 ]
                     # ====== mode 5 - mode 5 helper application ======
-                    if a[2:3] == "5": 
+                    if a[2:3] == "5":
                         if 'A5' not in once_dict:
                             once_dict['A5'] = 1
                             new_args = ["-QxiICUF",
@@ -333,7 +332,7 @@ if __name__=='pymol.invocation':
                                 "-Y","100",
                                 ]
                     # ====== mode 6 - mode 6 presentation (no GUI) ======
-                    if a[2:3] == "6": 
+                    if a[2:3] == "6":
                         if 'A6' not in once_dict:
                             once_dict['A6'] = 1
                             new_args = ["-qxieICUPF",
@@ -358,7 +357,7 @@ if __name__=='pymol.invocation':
                 if "E" in a:
                     options.multisample = int(av.pop())
                 if "P" in a:
-                    options.presentation = 1 
+                    options.presentation = 1
                 if "W" in a:
                     options.win_x = int(av.pop())
                     options.win_xy_set = True
@@ -373,6 +372,8 @@ if __name__=='pymol.invocation':
                     options.win_py = int(av.pop())
                 if "D" in a:
                     options.defer_builds_mode = int(av.pop())
+                if "v" in a:
+                    options.openvr_stub = True
                 if "V" in a:
                     options.ext_y = int(av.pop())
                 if "N" in a: # external gui name...
@@ -383,7 +384,7 @@ if __name__=='pymol.invocation':
                     options.incentive_product = 1
                 if "t" in a: # type of stereo to use
                     options.stereo_mode = int(av.pop())
-                if "T" in a: # what skin to use? 
+                if "T" in a: # what skin to use?
                     options.skin = str(av.pop())
                 if "w" in a: # what gui to use
                     options.gui = str(av.pop())
@@ -406,8 +407,8 @@ if __name__=='pymol.invocation':
                                 options.win_py = 216
                         else:
                             options.external_gui = 2
-                            options.win_py = 184 
-                    
+                            options.win_py = 184
+
                     if "e" in a:
                         options.full_screen = 1
                     if "G" in a: # Game mode (reqd for Mac stereo)
@@ -418,7 +419,7 @@ if __name__=='pymol.invocation':
                         options.force_stereo = 1
                         if options.stereo_mode == 0:
                             options.stereo_mode = 1  # quadbuffer
-                        if sys.platform=='darwin': 
+                        if sys.platform=='darwin':
                             options.deferred.append(
                               "_do__ set stereo_double_pump_mono,1,quiet=1")
                     if "M" in a: # Force mono on stereo hardware (all)
@@ -472,7 +473,7 @@ if __name__=='pymol.invocation':
                             options.deferred.append("_do__ cmd.get_wizard().ray_trace1()")
                         if a[2:]=='2':
                             options.deferred.append("_do__ cmd.get_wizard().ray_trace2()")
-                        
+
                     if "p" in a:
                         options.read_stdin = 1
                     if "K" in a:
@@ -497,7 +498,7 @@ if __name__=='pymol.invocation':
             elif not restricted:
                 suffix = a[-4:].lower().split('.')[-1]
                 if suffix == "p5m":
-                    # mode 5 helper application 
+                    # mode 5 helper application
                     av.append("-A5")
                 elif suffix == "psw":
                     # presentation mode
@@ -513,7 +514,7 @@ if __name__=='pymol.invocation':
                         traceback.print_exc()
                 options.deferred.append(a)
                 loaded_something = 1
-        if pymolrc != None:
+        if pymolrc is not None:
             options.deferred = [('_do__ @' + a) if script_re.search(a) else a
                     for a in pymolrc] + options.deferred
             options.pymolrc = pymolrc

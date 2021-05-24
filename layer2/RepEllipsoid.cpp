@@ -29,38 +29,44 @@
 #include"Matrix.h"
 #include"CGO.h"
 
-typedef struct RepEllipsoid {
-  Rep R;                        /* must be first! */
-  CGO *ray, *std, *shaderCGO;
-} RepEllipsoid;
+struct RepEllipsoid : Rep {
+  using Rep::Rep;
+
+  ~RepEllipsoid() override;
+
+  cRep_t type() const override { return cRepEllipsoid; }
+  void render(RenderInfo* info) override;
+
+  CGO* ray = nullptr;
+  CGO* std = nullptr;
+  CGO* shaderCGO = nullptr;
+};
 
 #include"ObjectMolecule.h"
 
-void RepEllipsoidFree(RepEllipsoid * I);
-
-void RepEllipsoidFree(RepEllipsoid * I)
+RepEllipsoid::~RepEllipsoid()
 {
+  auto I = this;
   CGOFree(I->ray);
   CGOFree(I->std);
   CGOFree(I->shaderCGO);
-  RepPurge(&I->R);
-  OOFreeP(I);
 }
 
-static void RepEllipsoidRender(RepEllipsoid * I, RenderInfo * info)
+void RepEllipsoid::render(RenderInfo* info)
 {
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
   int ok = true;
 
-  PyMOLGlobals *G = I->R.G;
+  PyMOLGlobals *G = I->G;
   if(ray) {
     int try_std = false;
     PRINTFD(G, FB_RepEllipsoid)
       " RepEllipsoidRender: rendering ray...\n" ENDFD;
 
     if(I->ray){
-      int rayok = CGORenderRay(I->ray, ray, info, NULL, NULL, I->R.cs->Setting, I->R.obj->Setting);
+      int rayok = CGORenderRay(I->ray, ray, info, NULL, NULL, I->cs->Setting.get(), I->obj->Setting.get());
       if (!rayok){
 	CGOFree(I->ray);
 	try_std = true;
@@ -69,7 +75,7 @@ static void RepEllipsoidRender(RepEllipsoid * I, RenderInfo * info)
       try_std = true;
     }
     if(try_std && I->std){
-      ok &= CGORenderRay(I->std, ray, info, NULL, NULL, I->R.cs->Setting, I->R.obj->Setting);
+      ok &= CGORenderRay(I->std, ray, info, NULL, NULL, I->cs->Setting.get(), I->obj->Setting.get());
       if (!ok){
 	CGOFree(I->std);
       }
@@ -79,11 +85,11 @@ static void RepEllipsoidRender(RepEllipsoid * I, RenderInfo * info)
 
     if(pick) {
       if(I->shaderCGO) {
-        CGORenderGLPicking(I->shaderCGO, info, &I->R.context,
-                           I->R.cs->Setting, I->R.obj->Setting);
+        CGORenderGLPicking(I->shaderCGO, info, &I->context,
+                           I->cs->Setting.get(), I->obj->Setting.get());
       } else if(I->std) {
-        CGORenderGLPicking(I->std, info, &I->R.context,
-                           I->R.cs->Setting, I->R.obj->Setting);
+        CGORenderGLPicking(I->std, info, &I->context,
+                           I->cs->Setting.get(), I->obj->Setting.get());
       }
     } else {
       int use_shaders;
@@ -94,19 +100,16 @@ static void RepEllipsoidRender(RepEllipsoid * I, RenderInfo * info)
 
 	if (use_shaders){
 	  if (!I->shaderCGO){
-	    CGO *convertcgo = NULL;
-	    convertcgo = CGOCombineBeginEnd(I->std, 0);	    
-	    I->shaderCGO = CGOOptimizeToVBONotIndexed(convertcgo, 0);
-	    I->shaderCGO->use_shader = true;
-	    CGOFree(convertcgo);
+            I->shaderCGO = CGOOptimizeToVBONotIndexed(I->std, 0);
+            assert(I->shaderCGO->use_shader);
 	  }
 	} else {
 	  CGOFree(I->shaderCGO);	  
 	}
 	if (I->shaderCGO){
-          CGORenderGL(I->shaderCGO, NULL, I->R.cs->Setting, I->R.obj->Setting, info, &I->R);
+          CGORenderGL(I->shaderCGO, NULL, I->cs->Setting.get(), I->obj->Setting.get(), info, I);
 	} else if(I->std){
-          CGORenderGL(I->std, NULL, I->R.cs->Setting, I->R.obj->Setting, info, &I->R);
+          CGORenderGL(I->std, NULL, I->cs->Setting.get(), I->obj->Setting.get(), info, I);
 	}
     }
   }
@@ -124,7 +127,7 @@ const double problevel[50] = { 0.4299, 0.5479, 0.6334, 0.7035, 0.7644,
   2.5997, 2.7216, 2.8829, 3.1365, 6.0000
 };
 
-/*
+/**
  * Return true if backbone atom that should be hidden with side_chain_helper
  */
 static bool is_sidechainhelper_hidden(PyMOLGlobals * G, const AtomInfoType * ai) {
@@ -145,7 +148,7 @@ static bool is_sidechainhelper_hidden(PyMOLGlobals * G, const AtomInfoType * ai)
 
 Rep *RepEllipsoidNew(CoordSet * cs, int state)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   ObjectMolecule *obj;
   int ok = true;
 
@@ -153,44 +156,33 @@ Rep *RepEllipsoidNew(CoordSet * cs, int state)
   if(!cs->hasRep(cRepEllipsoidBit))
     return NULL;
 
-  OOCalloc(G, RepEllipsoid);    /* allocates & sets I */
+  auto I = new RepEllipsoid(cs, state);
   CHECKOK(ok, I);
   if (!ok)
     return NULL;
 
   obj = cs->Obj;
 
-  RepInit(G, &I->R);
-
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepEllipsoidRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepEllipsoidFree;
-  I->R.cs = cs;
-  I->R.obj = (CObject *) obj;
-  I->R.context.object = (void *) obj;
-  I->R.context.state = state;
-
-  /*  I->R.fSameVis=(int (*)(struct Rep*, struct CoordSet*))RepEllipsoidSameVis; */
-
   {
-    int ellipsoid_color = SettingGet_color(G, cs->Setting, obj->Obj.Setting,
+    int ellipsoid_color = SettingGet_color(G, cs->Setting.get(), obj->Setting.get(),
                                            cSetting_ellipsoid_color);
 
-    int cartoon_side_chain_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+    int cartoon_side_chain_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
                                                  cSetting_cartoon_side_chain_helper);
 
-    int ribbon_side_chain_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+    int ribbon_side_chain_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
                                                 cSetting_ribbon_side_chain_helper);
 
-    float ellipsoid_scale = SettingGet_f(G, cs->Setting, obj->Obj.Setting,
+    float ellipsoid_scale = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(),
                                          cSetting_ellipsoid_scale);
 
-    float transp = SettingGet_f(G, cs->Setting, obj->Obj.Setting,
+    float transp = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(),
                                 cSetting_ellipsoid_transparency);
 
-    int pickable = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+    int pickable = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
                                 cSetting_pickable);
 
-    float prob = SettingGet_f(G, cs->Setting, obj->Obj.Setting,
+    float prob = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(),
                               cSetting_ellipsoid_probability);
     double matrix_factor = 0.0F;
     float pradius = 0.0F;
@@ -212,8 +204,8 @@ Rep *RepEllipsoidNew(CoordSet * cs, int state)
       AtomInfoType *ai;
       float last_alpha = 1.0F;
 
-      double *csmatrix = SettingGet_i(G, cs->Setting, obj->Obj.Setting,
-            cSetting_matrix_mode) > 0 ? NULL : cs->State.Matrix;
+      double *csmatrix = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(),
+            cSetting_matrix_mode) > 0 ? NULL : cs->Matrix.data();
 
       for(a = 0; a < cs->NIndex; a++) {
         a1 = cs->IdxToAtm[a];
@@ -257,7 +249,7 @@ Rep *RepEllipsoidNew(CoordSet * cs, int state)
 
             if(xx_matrix_jacobi_solve(e_vec, e_val, &n_rot, matrix, 4)) {
 
-              float *v = cs->Coord + 3 * a;
+              const float* v = cs->coordPtr(a);
 
               float mag[3];
               float scale[3];
@@ -323,6 +315,10 @@ Rep *RepEllipsoidNew(CoordSet * cs, int state)
                 if(alpha != last_alpha) {
                   ok &= CGOAlpha(I->ray, alpha);
                   last_alpha = alpha;
+
+                  if (at_transp > 0) {
+                    I->setHasTransparency();
+                  }
                 }
               }
               if(ok && pickable && (!ai->masked))
@@ -341,7 +337,7 @@ Rep *RepEllipsoidNew(CoordSet * cs, int state)
     }
   }
   if (!ok){
-    RepEllipsoidFree(I);
+    delete I;
     I = NULL;
   }
   return (Rep *) I;

@@ -22,16 +22,14 @@ Z* -------------------------------------------------------------------
 #include"MemoryDebug.h"
 
 #define OOAlloc(G,type) \
-type *I;					\
-I = (type*)mmalloc(sizeof(type));		\
+auto* I = new type; \
 ErrChkPtr(G,I);
 
 #define OOCalloc(G,type) \
-type *I;					 \
-I = (type*)mcalloc(sizeof(type),1);		 \
+auto* I = new type(); \
 ErrChkPtr(G,I);
 
 #define OOFreeP(ptr) \
-{if(ptr) {mfree(ptr);ptr=NULL;}}
+{if(ptr) {delete(ptr);ptr=NULL;}}
 
 #endif

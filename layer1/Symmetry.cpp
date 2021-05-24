@@ -14,24 +14,17 @@ I* Additional authors of this source file include:
 -*
 Z* -------------------------------------------------------------------
 */
-#include"os_python.h"
-
 #include"os_predef.h"
 #include"os_python.h"
 #include"os_std.h"
 
-#include"MemoryDebug.h"
 #include"Err.h"
-#include"Base.h"
-#include"OOMac.h"
+#include"Feedback.h"
 #include"Symmetry.h"
-#include"Setting.h"
-#include"Ortho.h"
-#include"Matrix.h"
 #include"P.h"
 #include"PConv.h"
-#include"Util.h"
-#include"PConv.h"
+#ifdef SYM_TO_MAT_LIST_IN_C
+#endif
 
 PyObject *SymmetryAsPyList(CSymmetry * I)
 {
@@ -39,14 +32,15 @@ PyObject *SymmetryAsPyList(CSymmetry * I)
 
   if(I) {
     result = PyList_New(2);
-    PyList_SetItem(result, 0, CrystalAsPyList(I->Crystal));
-    PyList_SetItem(result, 1, PyString_FromString(I->SpaceGroup));
+    PyList_SetItem(result, 0, CrystalAsPyList(&I->Crystal));
+    PyList_SetItem(result, 1, PyString_FromString(I->spaceGroup()));
   }
   return (PConvAutoNone(result));
 }
 
 static int SymmetryFromPyList(CSymmetry * I, PyObject * list)
 {
+  auto G = I->G;
   int ok = true;
   ov_size ll;
   PyObject *secondval;
@@ -64,16 +58,20 @@ static int SymmetryFromPyList(CSymmetry * I, PyObject * list)
     if (PyList_Check(secondval)){
       /* if only the crystal, read it */
       if(ok)
-	ok = CrystalFromPyList(I->Crystal, list);    
+	ok = CrystalFromPyList(&I->Crystal, list);    
     } else {
-      if(ok)
-	ok = CrystalFromPyList(I->Crystal, PyList_GetItem(list, 0));
-      if(ok)
-	PConvPyStrToStr(PyList_GetItem(list, 1), I->SpaceGroup, sizeof(WordType));
+      if(ok){
+	CPythonVal *val = CPythonVal_PyList_GetItem(I->G, list, 0);
+	ok = CrystalFromPyList(&I->Crystal, val);
+	CPythonVal_Free(val);
+      }
+      if(ok) {
+        std::string sg;
+        ok = PConvFromPyListItem(G, list, 1, sg);
+        I->setSpaceGroup(sg.c_str());
+      }
     }
-  }
-  if(ok) {
-      SymmetryUpdate(I);
+    CPythonVal_Free(secondval);
   }
   /* TO SUPPORT BACKWARDS COMPATIBILITY...
      Always check ll when adding new PyList_GetItem's */
@@ -83,10 +81,10 @@ static int SymmetryFromPyList(CSymmetry * I, PyObject * list)
 CSymmetry *SymmetryNewFromPyList(PyMOLGlobals * G, PyObject * list)
 {
   CSymmetry *I = NULL;
-  I = SymmetryNew(G);
+  I = new CSymmetry(G);
   if(I) {
     if(!SymmetryFromPyList(I, list)) {
-      SymmetryFree(I);
+      delete I;
       I = NULL;
     }
   }
@@ -112,29 +110,28 @@ static void SymmetryDump44f(PyMOLGlobals * G, const float *m, const char *prefix
 #endif
 #endif
 
-/*
+/**
  * Lookup the symmetry operations by space group symbol (from Python with
  * pymol.xray) and populate SymMatVLA.
  *
  * Return false if space group unknown.
  */
-int SymmetryAttemptGeneration(CSymmetry * I, int quiet)
+bool CSymmetry::updateSymMatVLA() const
 {
+  auto I = const_cast<CSymmetry*>(this);
+
+  constexpr bool quiet = false;
+
   if (I->SymMatVLA) {
-    // don't re-run unless SymmetryUpdate() was called
+    // don't re-run unless setSpaceGroup() was called
     return true;
   }
 
   int ok = false;
+#ifdef SYM_TO_MAT_LIST_IN_C
+#else
 #ifndef _PYMOL_NOPY
 #ifdef _PYMOL_XRAY
-  PyMOLGlobals *G = I->G;
-  CrystalUpdate(I->Crystal);
-  if(!quiet) {
-    if(Feedback(G, FB_Symmetry, FB_Blather)) {
-      CrystalDump(I->Crystal);
-    }
-  }
   /* TAKEN OUT BB 2/2012  SpaceGroup can be blank, 
      sg_sym_to_mat_list has a blank entry with no operations
   if(!I->SpaceGroup[0]) {
@@ -144,10 +141,10 @@ int SymmetryAttemptGeneration(CSymmetry * I, int quiet)
     int blocked = PAutoBlock(G);
     ov_size a, l;
     PyObject *mats;
-    mats = PYOBJECT_CALLMETHOD(P_xray, "sg_sym_to_mat_list", "s", I->SpaceGroup);
+    mats = PYOBJECT_CALLMETHOD(P_xray, "sg_sym_to_mat_list", "s", spaceGroup());
     if(mats && (mats != Py_None)) {
       l = PyList_Size(mats);
-      I->SymMatVLA = VLAlloc(float, 16 * l);
+      I->SymMatVLA = pymol::vla<float>(16*l);
       if(!quiet) {
         PRINTFB(G, FB_Symmetry, FB_Details)
         " Symmetry: Found %d symmetry operators.\n", (int) l ENDFB(G);
@@ -169,80 +166,31 @@ int SymmetryAttemptGeneration(CSymmetry * I, int quiet)
   }
 #endif
 #endif
+#endif
+
   return (ok);
 }
 
-void SymmetryFree(CSymmetry * I)
+void CSymmetry::setSpaceGroup(const char* sg)
 {
-  if (!I)
-    return;
+  strncpy(SpaceGroup, sg, sizeof(SpaceGroup) - 1);
 
-  SymmetryClear(I);
-  OOFreeP(I);
+  SymMatVLA.freeP();
 }
 
-void SymmetryClear(CSymmetry * I)
-{
-  if(I->Crystal)
-    CrystalFree(I->Crystal);
-  VLAFreeP(I->SymMatVLA);
-}
-
-CSymmetry *SymmetryNew(PyMOLGlobals * G)
-{
-  OOCalloc(G, CSymmetry);
-  I->G = G;
-  I->Crystal = CrystalNew(G);
-  return (I);
-}
-
-CSymmetry *SymmetryCopy(const CSymmetry * other)
-{
-  if (!other) {
-    return NULL;
-  }
-
-  OOAlloc(other->G, CSymmetry);
-  ok_assert(1, I);
-
-  UtilCopyMem(I, other, sizeof(CSymmetry));
-  I->Crystal = CrystalCopy(I->Crystal);
-  I->SymMatVLA = NULL;
-
-  ok_assert(2, I->Crystal);
-
-  return (I);
-ok_except2:
-  SymmetryFree(I);
-ok_except1:
-  return NULL;
-}
-
-void SymmetryUpdate(CSymmetry * I)
-{
-  if(I->Crystal)
-    CrystalUpdate(I->Crystal);
-  VLAFreeP(I->SymMatVLA);
-}
-
-void SymmetryDump(CSymmetry * I)
-{
-}
-
-/*
- * Get the number of symmetry matrices
- */
 int CSymmetry::getNSymMat() const {
+  if (!updateSymMatVLA())
+    return 0;
   if (!SymMatVLA)
     return 0;
-  return VLAGetSize(SymMatVLA) / 16;
+  return SymMatVLA.size() / 16;
 }
 
-/*
+/**
  * Register a a space group with symmetry operations (if not already registered)
  *
- * sg: space group symbol, e.g. "P 1"
- * sym_op: list of symmetry operations, e.g. ["x,y,z", "-x,-y,z"]
+ * @param sg Space group symbol, e.g. "P 1"
+ * @param sym_op List of symmetry operations, e.g. ["x,y,z", "-x,-y,z"]
  */
 void SymmetrySpaceGroupRegister(PyMOLGlobals * G, const char* sg, const std::vector<std::string>& sym_op) {
 #if !defined(_PYMOL_NOPY) && defined(_PYMOL_XRAY)

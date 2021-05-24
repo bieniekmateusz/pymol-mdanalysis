@@ -11,8 +11,6 @@ License: BSD-2-Clause
 
 '''
 
-from __future__ import print_function, absolute_import
-
 import sys
 import os
 import pymol
@@ -126,26 +124,6 @@ def createlegacypmgapp():
     app.menuBar.addcascademenu = lambda *x, **y: None
     app.execute = lambda c: eval(c) if isinstance(c, str) else c()
 
-    def starttk():
-        if sys.version_info[0] == 2:
-            import Tkinter
-        else:
-            import tkinter as Tkinter
-        app.root = Tkinter.Tk()
-        app.root.withdraw()
-        app.root.mainloop()
-
-    import threading
-    t = threading.Thread(target=starttk, args=())
-    t.setDaemon(1)
-    t.start()
-
-    import time
-    wait, maxwait = 0.01, 1.0
-    while app.root is None and maxwait > 0.0:
-        time.sleep(wait)
-        maxwait -= wait
-
     return app
 
 # wrappers for tkMessageBox and tkFileDialog that always use the current
@@ -153,9 +131,10 @@ def createlegacypmgapp():
 
 class _tkMessageBox(object):
     def __getattr__(self, name):
-        if sys.version_info[0] == 2:
+        try:
+            # pmg_qt.mimic_tk provides this for all Python versions
             import tkMessageBox as module
-        else:
+        except ImportError:
             import tkinter.messagebox as module
         from . import pref_get
         wrapped = getattr(module, name)
@@ -170,9 +149,10 @@ class _tkMessageBox(object):
 
 class _tkFileDialog(object):
     def __getattr__(self, name):
-        if sys.version_info[0] == 2:
+        try:
+            # pmg_qt.mimic_tk provides this for all Python versions
             import tkFileDialog as module
-        else:
+        except ImportError:
             import tkinter.filedialog as module
         wrapped = getattr(module, name)
         def dialog(parent=None, *args, **kwargs):

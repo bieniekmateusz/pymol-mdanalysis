@@ -2,8 +2,6 @@
 Volume Color Map Editor Panel.
 """
 
-from __future__ import print_function
-
 import itertools, math
 
 import pymol
@@ -11,14 +9,10 @@ import pymol
 from pymol.Qt import QtGui, QtCore
 from pymol.Qt import QtWidgets
 
-try:
-    xrange
-except NameError:
-    xrange = range
-
 Qt = QtCore.Qt
 
 DOT_RADIUS = 5
+ALPHA_LOG_BASE = 10.0
 
 DEFAULT_COLORS = [
     (1., 1., 0.),
@@ -117,7 +111,7 @@ class VolumeEditorWidget(QtWidgets.QWidget):
         num_lines = 10
         pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
-        for line in xrange(1, num_lines):
+        for line in range(1, num_lines):
             y = y0 + h * (1.0 - self.alphaToY(line / float(num_lines)))
             painter.drawLine(x0, y, x1, y)
 
@@ -159,10 +153,10 @@ class VolumeEditorWidget(QtWidgets.QWidget):
             dnorm = norm_max-norm_min
             iwidth = 1.0 / (rect.width())
             painter_path = QtGui.QPainterPath()
-            for i in xrange(rect.width()):
+            for i in range(rect.width()):
                 pos = (i * iwidth * dnorm + norm_min) * len(self.path)
                 ipos = int(pos)
-                if ipos < 0 or ipos >= len(self.path) - 1:
+                if pos < 0 or ipos >= len(self.path) - 1:
                     continue
                 y0 = self.path[ipos][1]
                 y1 = self.path[ipos+1][1]
@@ -471,7 +465,7 @@ class VolumeEditorWidget(QtWidgets.QWidget):
         """
         Converts <0, 1> normalized Y position to alpha value.
         """
-        y = (10.0**y - 1.0) / 9.0
+        y = (ALPHA_LOG_BASE**y - 1.0) / (ALPHA_LOG_BASE - 1.0)
         return y * self.amax
 
     def alphaToY(self, a):
@@ -481,7 +475,7 @@ class VolumeEditorWidget(QtWidgets.QWidget):
         if self.amax == 0.0:
             return 0.0
         y = a / self.amax
-        return math.log(1.0 + 9.0 * y, 10.0)
+        return math.log(1.0 + (ALPHA_LOG_BASE - 1.0) * y, ALPHA_LOG_BASE)
 
     def updateVolumeColors(self):
         """
@@ -678,19 +672,33 @@ class VolumeEditorWidget(QtWidgets.QWidget):
         if self.vmin == self.vmax:
             self.vmin -= 1.0
             self.vmax += 1.0
+        elif math.isnan(self.vmin) or math.isnan(self.vmax):
+            print('Warning: setHistogram vmin={} vmax={}'.format(
+                self.vmin, self.vmax))
+            self.vmin = self.original_vmin
+            self.vmax = self.original_vmax
+            return
 
         self.original_vmin = self.vmin
         self.original_vmax = self.vmax
         self.path = []
-        if len(histogram[4:]) == 0:
+
+        hist = histogram[4:]
+        N = len(hist)
+        if N == 0:
             return
-        xstep = 1.0 / len(histogram[4:])
-        max_value = max(histogram[4:])
+
+        # cut extreme peaks in distribution
+        shist = sorted(hist)
+        q90 = shist[int(N * 0.9)]
+        max_value = min(q90 * 4, shist[N - 1])
         if max_value == 0.0:
             return
+
+        xstep = 1.0 / N
         ynorm = 1.0 / max_value
         x = 0.0
-        for v in histogram[4:]:
+        for v in hist:
             x += xstep
             y = v * ynorm
             self.path.append((x, y))
@@ -706,7 +714,7 @@ class VolumeEditorWidget(QtWidgets.QWidget):
         if self.ignore_set_colors:
             return
         self.points = []
-        for p in xrange(0, len(colors), 5):
+        for p in range(0, len(colors), 5):
             v = colors[p]
             r = colors[p + 1]
             g = colors[p + 2]
@@ -714,6 +722,11 @@ class VolumeEditorWidget(QtWidgets.QWidget):
             a = colors[p + 4]
             x = v
             y = a
+
+            if math.isnan(x):
+                print('Warning: setColors x={}'.format(x))
+                return
+
             self.points.append((x, y, r, g, b))
 
         self.update()

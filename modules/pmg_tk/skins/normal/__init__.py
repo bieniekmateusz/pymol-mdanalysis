@@ -1,6 +1,3 @@
-
-from __future__ import print_function
-
 DEBUG = False
 
 import sys
@@ -9,13 +6,7 @@ import threading
 import os
 import time
 
-if sys.version_info[0] == 2:
-    from Tkinter import *
-    import tkFileDialog
-    import tkMessageBox
-    import tkFont
-    _next_method_name = 'next'
-else:
+if True:
     from tkinter import *
     import tkinter.filedialog as tkFileDialog
     import tkinter.messagebox as tkMessageBox
@@ -40,23 +31,7 @@ import traceback
 root = None
 
 def encode(s):
-    '''If `s` is unicode, attempt to encode it. On faiure, return the
-    unicode input.
-
-    Our C file I/O implementations can't handle unicode. For some file
-    types we support reading the file in Python (supports unicode) and
-    passing the content to the underlying C routine.
-    '''
-    if sys.version_info[0] >= 3:
-        return s
-    if not isinstance(s, bytes):
-        for enc in [sys.getfilesystemencoding(), 'latin1']:
-            try:
-                e = s.encode(enc)
-                if os.path.exists(e):
-                    return e
-            except UnicodeEncodeError:
-                pass
+    # obsolete since removal of py2 
     return s
 
 def split_tk_file_list(pattern):
@@ -199,6 +174,12 @@ class Normal(PMGSkin, pymol._gui.PyMOLDesktopGUI):
         self.messageBar = Pmw.MessageBar(self.commandFrame, entry_width = 25,
              entry_relief='sunken', entry_borderwidth=1) #, labelpos = 'w')
 
+
+        self.abortButton=Button(self.commandFrame,
+                      text='Abort',highlightthickness=0,
+                      command=lambda s=self:self.abort(),padx=0,pady=0)
+        self.abortButton.pack(side=RIGHT,fill=BOTH,expand=YES)
+
         self.abortButton=Button(self.commandFrame,
                                 text='Rebuild',highlightthickness=0,
                                 #                                state=DISABLED,
@@ -308,7 +289,7 @@ class Normal(PMGSkin, pymol._gui.PyMOLDesktopGUI):
         self.volB = self.buttonAdd(row4, 'Volume',
                                     self.newVolumeFrame)
         # initialize disabled
-        self.volB.config(state=DISABLED)
+        # self.volB.config(state=DISABLED)
 
     def newVolumeFrame(self):
         volumes = self.cmd.get_names_of_type("object:volume", public=1)
@@ -572,7 +553,9 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
     def update_menus(self):
         self.setting.refresh()
 
-        if True:
+        # 2019-06-25 Disabled because cmd.get_names_of_type() is a blocking
+        # command if the API is locked, blocks progress display.
+        if False:
             # volume frame is closed, update the button
             if len(self.cmd.get_names_of_type("object:volume",public=1))>0:
                 self.volB.config(state=NORMAL)
@@ -946,9 +929,9 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
     def file_save_mpeg(self):
         try:
-            from freemol import mpeg_encode
+            from pymol import mpeg_encode
             if not mpeg_encode.validate():
-                print("produce-error: Unable to validate freemol.mpeg_encode")
+                print("produce-error: Unable to validate pymol.mpeg_encode")
                 raise
         except:
             tkMessageBox.showerror("Error",

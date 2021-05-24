@@ -18,9 +18,9 @@ Z* -------------------------------------------------------------------
 #ifndef _H_os_python
 #define _H_os_python
 
-#ifdef PYMOL_ICC_LINUX
-#include"/usr/include/bits/types.h"
-#endif
+#include "os_predef.h"
+
+#include <memory>
 
 #ifdef _PYMOL_NOPY
 typedef int PyObject;
@@ -36,7 +36,6 @@ typedef int PyObject;
 
 #include <string.h>
 
-#if PY_MAJOR_VERSION >= 3
 # define PyInt_Check            PyLong_Check
 # define PyInt_FromLong         PyLong_FromLong
 # define PyInt_AsLong           PyLong_AsLong
@@ -53,19 +52,7 @@ typedef int PyObject;
 # define PyString_AsString              PyUnicode_AsUTF8
 # define PyString_AS_STRING             PyUnicode_AsUTF8
 
-# define PyCObject_AsVoidPtr(capsule)   PyCapsule_GetPointer(capsule, "name")
-// Warning: PyCObject_FromVoidPtr destructor takes `void* p` argument,
-// but PyCapsule_New destructor takes `PyObject* capsule` argument!
-// The "capsulethunk.h" documentation is wrong about using the same destructor.
-# define PyCObject_FromVoidPtr(p, d)    PyCapsule_New(p, "name", NULL)
-# define PyCObject_Check                PyCapsule_CheckExact
-
-# define PyEval_EvalCode(o, ...)        PyEval_EvalCode((PyObject*)o, __VA_ARGS__)
-
-# define Py_TPFLAGS_HAVE_ITER   0
-#endif
-
-/*
+/**
  * For compatibility with the pickletools, this type represents
  * an optionally owned C string and has to be returned by value.
  */
@@ -93,11 +80,67 @@ inline SomeString PyBytes_AsSomeString(PyObject * o) {
   return SomeString(PyBytes_AsString(o), PyBytes_Size(o));
 }
 
+namespace pymol {
+/**
+ * Destruction policy for unique_ptr<PyObject, pymol::pyobject_delete>
+ *
+ * Must only be used if the GIL is guaranteed when operator() is called.
+ */
+struct pyobject_delete {
+  void operator()(PyObject* o) const { Py_DECREF(o); }
+};
+
+/**
+ * Destruction policy for unique_ptr<PyObject, pymol::pyobject_delete_auto_gil>
+ * Does not require GIL to be held.
+ */
+struct pyobject_delete_auto_gil {
+  void operator()(PyObject* o) const
+  {
+    if (o) {
+      auto gstate = PyGILState_Ensure();
+      Py_DECREF(o);
+      PyGILState_Release(gstate);
+    }
+  }
+};
+
+/**
+ * RAII helper to ensure the Python GIL
+ */
+class GIL_Ensure
+{
+  PyGILState_STATE state;
+
+public:
+  GIL_Ensure();
+  ~GIL_Ensure();
+};
+} // namespace pymol
+
+namespace std
+{
+/**
+ * Destruction policy which ensures the GIL before operator() is called.
+ */
+template <> struct default_delete<PyObject> {
+  void operator()(PyObject* o) const
+  {
+    pymol::GIL_Ensure gil;
+    Py_DECREF(o);
+  }
+};
+} // namespace std
+
+/**
+ * Unique pointer which must only be used if the GIL is guaranteed when it goes
+ * out of scope or is reset.
+ */
+using unique_PyObject_ptr = std::unique_ptr<PyObject, pymol::pyobject_delete>;
+
 #endif
 
-#include "os_predef.h"
-
-#define PYOBJECT_CALLMETHOD(o, m, ...) PyObject_CallMethod(o, (char*)m, (char*)__VA_ARGS__)
-#define PYOBJECT_CALLFUNCTION(o, ...) PyObject_CallFunction(o, (char*)__VA_ARGS__)
+#define PYOBJECT_CALLMETHOD PyObject_CallMethod
+#define PYOBJECT_CALLFUNCTION PyObject_CallFunction
 
 #endif

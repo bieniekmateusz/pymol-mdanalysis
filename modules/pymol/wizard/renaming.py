@@ -3,18 +3,17 @@ from pymol.wizard import Wizard
 from pymol import cmd
 import pymol
 import types
-import string
 
 class Renaming(Wizard):
 
     def __init__(self,old_name,mode='object',_self=cmd):
         Wizard.__init__(self,_self)
-        
+
         self.prefix = 'Renaming \\999%s\\--- to: \\999'%old_name
         self.old_name = old_name
         self.new_name = old_name
         self.mode = mode
-        
+
     def get_event_mask(self):
         return Wizard.event_mask_key
 
@@ -28,17 +27,17 @@ class Renaming(Wizard):
         elif k>32:
             self.new_name= self.new_name + chr(k)
         elif k==10 or k==13:
-            self.new_name = string.strip(self.new_name)
+            self.new_name = self.new_name.strip()
             if self.mode=='object':
                 cmd.do("set_name %s,%s"%
                        (self.old_name,self.new_name),log=0)
             elif self.mode=='scene':
                 cmd.do("scene %s,rename,new_key=%s"%
-                       (self.old_name,self.new_name),log=0)                
+                       (self.old_name,self.new_name),log=0)
             cmd.set_wizard()
         cmd.refresh_wizard()
         return 1
-        
+
     def get_prompt(self):
         self.prompt = [ self.prefix + self.new_name + "_" ]
         return self.prompt
@@ -48,5 +47,3 @@ class Renaming(Wizard):
             [ 1, 'Renaming', '' ],
             [ 2, 'Cancel', 'cmd.set_wizard()' ]
             ]
-
-

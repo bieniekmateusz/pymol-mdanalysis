@@ -23,6 +23,7 @@ Z* -------------------------------------------------------------------
 
 #include"MemoryDebug.h"
 #include"Err.h"
+#include"Result.h"
 
 #define ListInit(List) List = NULL
 
@@ -42,33 +43,27 @@ Z* -------------------------------------------------------------------
   (Elem)->Link = NULL; \
 }
 
-#define ListPrepend(List,Elem,Link) \
-{ \
-  (Elem)->Link = List; \
-  (List) = Elem; \
-}
+/**
+ * @brief appends element to list
+ * @param list list to append element to
+ * @param ele element to append
+ * @tparam ElemType type of the element
+ */
 
-#define ListInsert(List,Elem,After,Link,ElemType) \
-{ \
-  ElemType *current = List; \
-  ElemType *previous = NULL; \
-  while(current) \
-		{ \
-		  if(previous == (After)) \
-			 break; \
-   	  previous = current; \
-		  current = current->Link; \
-		} \
-  if(previous) \
-	 { \
-		(Elem)->Link = current; \
-		previous->Link = Elem; \
-	 } \
-  else \
-	 { \
-		(Elem)->Link = List; \
-		(List) = Elem; \
-	 } \
+template<typename ElemType>
+void ListAppendT(ElemType*& list, ElemType* ele){
+  ElemType* current = list;
+  ElemType* previous = nullptr;
+  while(current){
+    previous = current;
+    current = current->next;
+  }
+  if(previous){
+    previous->next = ele;
+  } else{
+    list = ele;
+  }
+  ele->next = nullptr;
 }
 
 #define ListFree(List,Link,ElemType) \
@@ -108,6 +103,38 @@ Z* -------------------------------------------------------------------
 	 } \
 }
 
+/**
+ * @brief removes element from list
+ * @param list list to remove element from
+ * @param ele element to remove
+ * @tparam ElemType type of the element
+ * @return removed element
+ * @note Removed element should be same as ele input.
+ */
+
+template<typename ElemType>
+ElemType* ListDetachT(ElemType*& list, ElemType* ele){
+  ElemType* current = list;
+  ElemType* previous = nullptr;
+  while(current){
+    if(current == ele){
+      break;
+    }
+    previous = current;
+    current = current->next;
+  }
+  if(current){
+    if(previous){
+      previous->next = current->next;
+    }
+    else{
+      list = current->next;
+    }
+    ele->next = nullptr;
+  }
+  return ele;
+}
+
 #define ListDelete(List,Elem,Link,ElemType) \
 { \
    ElemType *copy = (Elem); \
@@ -125,7 +152,7 @@ Z* -------------------------------------------------------------------
 {						\
     if(!(Elem))					\
       {							\
-	(Elem) = (ElemType*)mmalloc(sizeof(ElemType));	\
+	(Elem) = pymol::malloc<ElemType>(1);		\
 	ErrChkPtr(G,Elem);				\
       }							\
 }
@@ -134,113 +161,60 @@ Z* -------------------------------------------------------------------
 {						\
   if(!(Elem))						  \
     {							  \
-      (Elem) = (ElemType*)mcalloc(sizeof(ElemType),1);	  \
+      (Elem) = pymol::calloc<ElemType>(1);		  \
       ErrChkPtr(G,Elem);				  \
     }							  \
 }
-
-#define ListElemInit(List,Link) (List)->Link = NULL
 
 #define ListElemFree(Elem) { mfree(Elem); Elem = NULL; }
 
+/**
+ * Retrives position of element in list
+ * @param ele target element
+ * @return position in list
+ */
 
-#define GetListLength(VAR, List,Link,ElemType)	\
-{					  \
-  ElemType *current = (List); \
-  int length = 0; \
-  while(current) \
-	 { \
-		current = current->Link; \
-		length++; \
-	 } \
-  VAR = length; \
+template<typename ElemType>
+pymol::Result<std::size_t> ListGetPosition(ElemType*& list, ElemType* ele)
+{
+  ElemType* current = list;
+  std::size_t i = 0;
+  for (; current; i++, current = current->next) {
+    if (current == ele) {
+      return i;
+    }
+  }
+  return pymol::make_error("Element not found");
 }
 
-/* -- JV
- * Doubly linked list macros
- * -- JV
+/**
+ * Inserts an element at given position
+ * @param ele target element
+ * @param pos position in list
  */
 
-/* Create the circular, doubly linked list w/a sentinel node */
-#define DListInit(List, Pre, Post, ElemType)	    \
-do { \
-  List = (ElemType*)malloc(sizeof(ElemType));	    \
-  (List)->Pre = (List)->Post = List;		    \
-} while(0)
-
-/* DListInsert -- Insert Elem at head of list
- * List -- any structure with previous and next pointers (a doubly linked list)
- * Elem -- the Element to add
- * Pre  -- pointer to previous element in list
- * Post -- pointer to next element in list
- */
-#define DListInsert(List,Elem,Pre,Post) \
-do {\
-  (Elem)->Post = List;			\
-  (Elem)->Pre = (List)->Pre;		\
-  (List)->Pre = (Elem);		\
-  (Elem)->Pre->Post = (Elem);	\
-} while(0)
-
-/* DListRemove -- remove Element from the list, do not delete it
- * Elem -- the element to remove
- * Pre  -- the link to the previous element 
- * Post -- the link to the next element
- */
-#define DListRemove(Elem,Pre,Post) \
-do { \
-  if ((Elem)->Pre && (Elem)->Post) {			  \
-      (Elem)->Pre->Post = (Elem)->Post;			  \
-      (Elem)->Post->Pre = (Elem)->Pre;			  \
-  }							  \
-  (Elem)->Pre = (Elem)->Post = NULL;			  \
-} while (0)
-
-/* DListIterate -- Iterate Elem across all items in List using Post as the link to next */
-#define DListIterate(List,Elem,Post) \
-    for((Elem) = (List)->Post; (Elem) != (List); (Elem) = (Elem)->Post) 
-
-/* Can similarly do reverse iteration w/Post=Pre */
-
-/* For all these ElemAlloc macros, it calls if(!Elem)
- * indicating that all blank incoming Elem's must be initialized
- * to NULL.  Just calling :ElemType* foo;" won't do.
- */
-#define DListElemAlloc(G,Elem,ElemType) \
-do {						\
- if(!(Elem))						\
-   {							\
-     (Elem) = (ElemType*)mmalloc(sizeof(ElemType));	\
-     ErrChkPtr(G,Elem);					\
-   }							\
- } while (0)
-
-#define DListElemCalloc(G,Elem,ElemType) \
-do {							  \
-  if(!(Elem))						  \
-    {							  \
-      (Elem) = (ElemType*)mcalloc(sizeof(ElemType),1);	  \
-      ErrChkPtr(G,Elem);				  \
-    }							  \
-} while (0)
-
-#define DListElemInit(Elem,Pre,Post) (Elem)->Pre = (Elem)->Post = NULL
-
-#define DListElemFree(Elem) { mfree(Elem); Elem = NULL; }
+template<typename ElemType>
+pymol::Result<> ListInsertAt(ElemType*& list, ElemType* ele, std::size_t pos)
+{
+  ElemType* current = list;
+  ElemType* previous = nullptr;
+  std::size_t i = 0;
+  while (current) {
+    if (i++ == pos) {
+      ele->next = current;
+      if (previous) {
+        previous->next = ele;
+      }
+      return {};
+    }
+    previous = current;
+    current = current->next;
+  }
+  if (i == pos) {
+    previous->next = ele;
+    return {};
+  }
+  return pymol::make_error("Invalid pos");
+}
 
 #endif /* _H_ListMacros */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,21 +1,19 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* Copyright (c) Schrodinger, LLC. 
+#C* Copyright (c) Schrodinger, LLC.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
-#-* 
-#-* 
+#-*
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
-from __future__ import print_function
+if True:
 
-if __name__=='pymol.externing':
-    
     import os
     import pymol
     import string
@@ -23,16 +21,13 @@ if __name__=='pymol.externing':
     import threading
     cmd = __import__("sys").modules["pymol.cmd"]
     import traceback
-    
+
     from glob import glob
     from .cmd import _cmd,lock,unlock,Shortcut,QuietException, \
           _feedback,fb_module,fb_mask, exp_path, \
-          DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error        
+          DEFAULT_ERROR, DEFAULT_SUCCESS, _raising, is_ok, is_error
 
-    try:
-        from os import getcwdu
-    except ImportError:
-        from os import getcwd as getcwdu
+    from os import getcwd as getcwdu
 
     def cd(dir="~",complain=1,quiet=1):
         '''
@@ -95,7 +90,7 @@ SEE ALSO
 
     cd, pwd, system   
         '''
-        if pattern==None:
+        if pattern is None:
             pattern = u"*"
         else:
             pattern = exp_path(pattern)
@@ -176,5 +171,4 @@ SEE ALSO
                         new_lst.append(a)
             r = _cmd.paste(_self._COb,new_lst)
         if _raising(r,_self): raise pymol.CmdException
-        return r 
-
+        return r

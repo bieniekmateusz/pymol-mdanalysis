@@ -1,6 +1,3 @@
-
-from __future__ import print_function, absolute_import
-
 import os
 import sys
 cmd = sys.modules["pymol.cmd"]
@@ -8,12 +5,8 @@ from pymol import _cmd
 import threading
 import traceback
 
-if sys.version_info[0] == 2:
-    import thread
-    import urllib2
-else:
-    import _thread as thread
-    import urllib.request as urllib2
+import _thread as thread
+import urllib.request as urllib2
 
 import re
 import time
@@ -28,43 +21,33 @@ from .cmd import DEFAULT_ERROR, DEFAULT_SUCCESS, loadable, _load2str, Shortcut, 
 
 def _cache_validate(_self=cmd):
     r = DEFAULT_SUCCESS
-    try:
-        _self.lock_data(_self)
+    with _self.lock_api_data:
         _pymol = _self._pymol
         if not hasattr(_pymol,"_cache"):
             _pymol._cache = []
         if not hasattr(_pymol,"_cache_memory"):
             _pymol._cache_memory = 0
-    finally:
-        _self.unlock_data(_self)
-        
+
 def _cache_clear(_self=cmd):
     r = DEFAULT_SUCCESS
-    try:
-        _self.lock_data(_self)
+    with _self.lock_api_data:
         _pymol = _self._pymol
         _pymol._cache = []
         _pymol._cache_memory = 0
-    finally:
-        _self.unlock_data(_self)
     return r
-    
+
 def _cache_mark(_self=cmd):
     r = DEFAULT_SUCCESS
-    try:
-        _self.lock_data(_self)
+    with _self.lock_api_data:
         _pymol = _self._pymol
         _cache_validate(_self)
-        for entry in _self._pymol._cache: 
+        for entry in _self._pymol._cache:
             entry[5] = 0.0
-    finally:
-        _self.unlock_data(_self)
     return r
 
 def _cache_purge(max_size, _self=cmd):
     r = DEFAULT_SUCCESS
-    try:
-        _self.lock_data(_self)
+    with _self.lock_api_data:
         _pymol = _self._pymol
         _cache_validate(_self)
         if len(_pymol._cache):
@@ -77,7 +60,7 @@ def _cache_purge(max_size, _self=cmd):
                 new_cache = [x[1] for x in new_cache]
                 # remove oldest entries one by one until size requirement is met
                 while (cur_size>max_size) and (len(new_cache)>1):
-                    entry = new_cache.pop() 
+                    entry = new_cache.pop()
                     cur_size = cur_size - entry[0]
                 _pymol._cache = new_cache
                 _pymol._cache_memory = cur_size
@@ -91,16 +74,13 @@ def _cache_purge(max_size, _self=cmd):
                 _pymol._cache = new_cache
                 _pymol._cache_memory = cur_size
         result = _pymol._cache_memory
-    finally:
-        _self.unlock_data(_self)
     return result
-        
+
 def _cache_get(target, hash_size = None, _self=cmd):
     result = None
-    try:
-        _self.lock_data(_self)
+    with _self.lock_api_data:
         try:
-            if hash_size == None:
+            if hash_size is None:
                 hash_size = len(target[1])
             key = target[1][0:hash_size]
             # should optimize this with a dictionary lookup, key -> index in _cache
@@ -115,14 +95,11 @@ def _cache_get(target, hash_size = None, _self=cmd):
                         break
         except:
             traceback.print_exc()
-    finally:
-        _self.unlock_data(_self)
     return result
 
 def _cache_set(new_entry, max_size, _self=cmd):
     r = DEFAULT_SUCCESS
-    try:
-        _self.lock_data(_self)
+    with _self.lock_api_data:
         _pymol = _self._pymol
         _cache_validate(_self)
         try:
@@ -132,10 +109,10 @@ def _cache_set(new_entry, max_size, _self=cmd):
             found = 0
             new_entry[4] = new_entry[4] + 1 # incr access count
             new_entry[5] = time.time() # timestamp
-            for entry in _pymol._cache: 
+            for entry in _pymol._cache:
                 if entry[1][0:hash_size] == key:
                     if entry[2] == new_entry[2]: # dupe (shouldn't happen)
-                        entry[3] = new_entry[3] 
+                        entry[3] = new_entry[3]
                         found = 1
                         break
                 count = count + 1
@@ -147,14 +124,12 @@ def _cache_set(new_entry, max_size, _self=cmd):
                         _cache_purge(max_size, _self)
         except:
             traceback.print_exc()
-    finally:
-        _self.unlock_data(_self)
     return r
-        
+
 # ray tracing threads
 
 def _ray_anti_spawn(thread_info,_self=cmd):
-    # WARNING: internal routine, subject to change      
+    # WARNING: internal routine, subject to change
     # internal routine to support multithreaded raytracing
     thread_list = []
     for a in thread_info[1:]:
@@ -169,24 +144,24 @@ def _ray_anti_spawn(thread_info,_self=cmd):
         t.join()
 
 def _ray_hash_spawn(thread_info,_self=cmd):
-    # WARNING: internal routine, subject to change      
+    # WARNING: internal routine, subject to change
     # internal routine to support multithreaded raytracing
     thread_list = []
     for a in thread_info[1:]:
-        if a != None:
+        if a is not None:
             t = threading.Thread(target=_cmd.ray_hash_thread,
                                  args=(_self._COb,a))
             t.setDaemon(1)
             thread_list.append(t)
     for t in thread_list:
         t.start()
-    if thread_info[0] != None:
+    if thread_info[0] is not None:
         _cmd.ray_hash_thread(_self._COb,thread_info[0])
     for t in thread_list:
         t.join()
 
 def _ray_spawn(thread_info,_self=cmd):
-    # WARNING: internal routine, subject to change      
+    # WARNING: internal routine, subject to change
     # internal routine to support multithreaded raytracing
     thread_list = []
     for a in thread_info[1:]:
@@ -272,7 +247,7 @@ def _mpng(prefix, first=-1, last=-1, preserve=0, modal=0,
     format = int(format)
     # WARNING: internal routine, subject to change
     try:
-        _self.lock(_self)   
+        _self.lock(_self)
         fname = prefix
         if re.search("[0-9]*\.png$",fname): # remove numbering, etc.
             fname = re.sub("[0-9]*\.png$","",fname)
@@ -294,13 +269,8 @@ def _mpng(prefix, first=-1, last=-1, preserve=0, modal=0,
 # copy image
 
 def _copy_image(_self=cmd,quiet=1):
-    r = DEFAULT_ERROR
-    try:
-        _self.lock(_self)   
-        r = _cmd.copy_image(_self._COb,int(quiet))
-    finally:
-        _self.unlock(r,_self)
-    return r
+    # cmd._copy_image may be monkey-patched by GUI implementations
+    raise NotImplementedError
 
 
 # loading
@@ -382,13 +352,15 @@ def _load(oname,finfo,state,ftype,finish,discrete,
     # caller must already hold API lock
     # NOTE: state index assumes 1-based state
     r = DEFAULT_ERROR
+    contents = None
     size = 0
     if ftype not in (loadable.model,loadable.brick):
         if True:
             if ftype in _load2str:
-                finfo = _self.file_read(finfo)
+                contents = _self.file_read(finfo)
                 ftype = _load2str[ftype]
-            r = _cmd.load(_self._COb,str(oname),finfo,int(state)-1,int(ftype),
+        return _cmd.load(_self._COb, str(oname), str(finfo), contents,
+                          int(state) - 1, int(ftype),
                           int(finish),int(discrete),int(quiet),
                           int(multiplex),int(zoom), plugin,
                           object_props, atom_props, int(mimic))
@@ -496,7 +468,7 @@ def _special(k,x,y,m=0,_self=cmd): # INTERNAL (invoked when special key is press
     # check for scenes and views
 
     for (fn, sc) in [
-            (_self.scene, pymol._scene_dict_sc),
+            (_self.scene, Shortcut(_self.get_scene_list())),
             (_self.view,  pymol._view_dict_sc),
             ]:
         if key in sc.keywords:
@@ -530,47 +502,25 @@ def _cmmd(k,_self=cmd):
     # command-key on macs
     if k in _self.cmmd:
         ak = _self.cmmd[k]
-        if ak[0]!=None:
+        if ak[0] is not None:
             ak[0](*ak[1], **ak[2])
     return None
 
 def _ctsh(k,_self=cmd):
     # WARNING: internal routine, subject to change
     _invoke_key('CTSH-' + k, 0, _self)
-    
 
-# writing PNG files (thread-unsafe)
-
-def _png(a,width=0,height=0,dpi=-1.0,ray=0,quiet=1,prior=0,format=-1,_self=cmd):
-    # INTERNAL - can only be safely called by GLUT thread (unless prior == 1)
-    # WARNING: internal routine, subject to change
-    try:
-        _self.lock(_self)   
-        fname = a
-        if re.search("\.ppm$",fname):
-            if format<0:
-                format = 1 # PPM
-        elif not re.search("\.png$",fname):
-            if a[0:1] != chr(1): # not an encoded file descriptor (integer)
-                fname = fname +".png"
-        if format<0:
-            format = 0 # PNG
-        fname = cmd.exp_path(fname)
-        r = _cmd.png(_self._COb,str(fname),int(width),int(height),
-                     float(dpi),int(ray),int(quiet),int(prior),int(format))
-    finally:
-        _self.unlock(-1,_self)
-    return r
 
 # quitting (thread-specific)
 
 def _quit(code=0, _self=cmd):
     pymol=_self._pymol
     # WARNING: internal routine, subject to change
+    _self.interrupt()
     try:
         _self.lock(_self)
         try: # flush and close log if possible to avoid threading exception
-            if pymol._log_file!=None:
+            if pymol._log_file is not None:
                 try:
                     pymol._log_file.flush()
                 except:
@@ -579,7 +529,7 @@ def _quit(code=0, _self=cmd):
                 del pymol._log_file
         except:
             pass
-        if _self.reaper!=None:
+        if _self.reaper is not None:
             try:
                 _self.reaper.join()
             except:
@@ -594,34 +544,19 @@ def _quit(code=0, _self=cmd):
 def _refresh(swap_buffers=1,_self=cmd):  # Only call with GLUT thread!
     # WARNING: internal routine, subject to change
     r = None
-    try:
-        _self.lock(_self)
-        if hasattr(_self._pymol,'glutThread'):
-            if thread.get_ident() == _self._pymol.glutThread:
+    if _self.is_gui_thread():
+        def func():
+            with _self.lockcm:
                 if swap_buffers:
                     r = _cmd.refresh_now(_self._COb)
                 else:
                     r = _cmd.refresh(_self._COb)
-            else:
-                r = _cmd.refresh_later(_self._COb)                
-        else:
+                return r
+        r = _self._call_with_opengl_context(func)
+    else:
+        with _self.lockcm:
             r = _cmd.refresh_later(_self._COb)
-    finally:
-        _self.unlock(-1,_self)
     return r
-
-# stereo (platform dependent )
-
-def _sgi_stereo(flag): # SGI-SPECIFIC - bad bad bad
-    # WARNING: internal routine, subject to change
-    if sys.platform[0:4]=='irix':
-        if os.path.exists("/usr/gfx/setmon"):
-            if flag:
-                mode = os.environ.get('PYMOL_SGI_STEREO','1024x768_96s')
-                os.system("/usr/gfx/setmon -n "+mode)
-            else:
-                mode = os.environ.get('PYMOL_SGI_MONO','72hz')
-                os.system("/usr/gfx/setmon -n "+mode)
 
 # color alias interpretation
 
@@ -639,7 +574,7 @@ def _interpret_color(_self,color):
 
 def _validate_color_sc(_self=cmd):
     # WARNING: internal routine, subject to change
-    if _self.color_sc == None: # update color shortcuts if needed
+    if _self.color_sc is None: # update color shortcuts if needed
         lst = _self.get_color_indices()
         names = [x[0] for x in lst]
         names.extend(['default', 'auto', 'current', 'atomic'])
@@ -670,8 +605,6 @@ def _get_feedback(_self=cmd): # INTERNAL
         l = None
     return l
 
-get_feedback = _get_feedback # for legacy compatibility
-
 def _fake_drag(_self=cmd): # internal
     _self.lock(_self)
     try:
@@ -682,7 +615,7 @@ def _fake_drag(_self=cmd): # internal
 
 def _sdof(tx,ty,tz,rx,ry,rz,_self=cmd):
     _cmd._sdof(_self._COb,tx,ty,tz,rx,ry,rz)
-    
+
 # testing tools
 
 # for comparing floating point numbers calculated using

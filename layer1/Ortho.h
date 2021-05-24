@@ -25,8 +25,6 @@ Z* -------------------------------------------------------------------
 #define cOrthoBottomSceneMargin DIP2PIXEL(18)
 #define cOrthoLineHeight DIP2PIXEL(12)
 
-#include <vector>
-#include <memory>
 #include <string>
 
 #include"os_gl.h"
@@ -34,6 +32,8 @@ Z* -------------------------------------------------------------------
 #include"Feedback.h"
 #include"Deferred.h"
 #include"Image.h"
+#include"pymol/memory.h"
+#include"PyMOLEnums.h"
 
 #define cOrthoScene 1
 #define cOrthoTool 2
@@ -45,18 +45,17 @@ void OrthoFree(PyMOLGlobals * G);
 void OrthoAttach(PyMOLGlobals * G, Block * block, int type);
 void OrthoDetach(PyMOLGlobals * G, Block * block);
 
-void OrthoSetMargins(Block * block, int t, int l, int b, int r);
-
 void OrthoReshape(PyMOLGlobals * G, int width, int height, int force);
 int OrthoGetWidth(PyMOLGlobals * G);
 int OrthoGetHeight(PyMOLGlobals * G);
-void OrthoDoDraw(PyMOLGlobals * G, int render_mode);
+void OrthoDoDraw(PyMOLGlobals * G, OrthoRenderMode render_mode);
 void OrthoDoViewportWhenReleased(PyMOLGlobals *G);
 void OrthoPushMatrix(PyMOLGlobals * G);
 void OrthoPopMatrix(PyMOLGlobals * G);
 int OrthoGetPushed(PyMOLGlobals * G);
 
 int OrthoButton(PyMOLGlobals * G, int button, int state, int x, int y, int mod);
+int OrthoButtonDefer(PyMOLGlobals * G, int button, int state, int x, int y, int mod);
 
 void OrthoKey(PyMOLGlobals * G, unsigned char k, int x, int y, int mod);
 
@@ -75,7 +74,6 @@ void OrthoBusyDraw(PyMOLGlobals * G, int force);
 
 void OrthoDirty(PyMOLGlobals * G);
 int OrthoGetDirty(PyMOLGlobals * G);
-void OrthoWorking(PyMOLGlobals * G);
 void OrthoClear(PyMOLGlobals * G);
 void OrthoFakeDrag(PyMOLGlobals * G);
 void OrthoBusyMessage(PyMOLGlobals * G, const char *message);
@@ -87,7 +85,6 @@ void OrthoCommandIn(COrtho&, const char *buffer);
 inline void OrthoCommandIn(PyMOLGlobals * G, const char *buffer){
   OrthoCommandIn(*G->Ortho, buffer);
 }
-int OrthoCommandSize(PyMOLGlobals * G);
 std::string OrthoCommandOut(COrtho& ortho);
 void OrthoCommandNest(PyMOLGlobals * G, int dir);
 bool OrthoCommandIsEmpty(COrtho& ortho);
@@ -114,8 +111,7 @@ void OrthoDefer(PyMOLGlobals * G, std::unique_ptr<CDeferred> && D);
 void OrthoExecDeferred(PyMOLGlobals * G);
 int OrthoDeferredWaiting(PyMOLGlobals * G);
 
-void OrthoSetLoop(PyMOLGlobals * G, int flag, int l, int r, int t, int b);
-int OrthoGetRenderMode(PyMOLGlobals * G);
+OrthoRenderMode OrthoGetRenderMode(PyMOLGlobals * G);
 void OrthoDrawBuffer(PyMOLGlobals * G, GLenum mode);
 int OrthoGetWrapClickSide(PyMOLGlobals * G);
 float *OrthoGetOverlayColor(PyMOLGlobals * G);

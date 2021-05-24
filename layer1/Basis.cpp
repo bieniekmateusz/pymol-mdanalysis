@@ -15,8 +15,6 @@ I* Additional authors of this source file include:
 Z* -------------------------------------------------------------------
 */
 
-#ifndef _PYMOL_INLINE
-
 #include"os_predef.h"
 #include"os_std.h"
 
@@ -34,9 +32,6 @@ static const float kR_SMALL5 = 0.0001F;
 #define EPSILON 0.000001F
 
 /*========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int ZLineToSphere(float *base, float *point, float *dir, float radius,
                          float maxial, float *sphere, float *asum, float *pre)
 {
@@ -90,7 +85,7 @@ static int ZLineToSphere(float *base, float *point, float *dir, float radius,
   if(ab_dangle > kR_SMALL4)
     tan_acos_dangle = (float) (sqrt1d(1.0 - dangle * dangle) / dangle);
   else
-    tan_acos_dangle = MAXFLOAT;
+    tan_acos_dangle = FLT_MAX;
 
   /* now we need to define the triangle in the perp-plane  
      to figure out where the projected line intersection point is */
@@ -159,9 +154,6 @@ static int ZLineToSphere(float *base, float *point, float *dir, float radius,
   return (1);
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int LineToSphere(float *base, float *ray, float *point, float *dir, float radius,
                         float maxial, float *sphere, float *asum)
 {
@@ -244,7 +236,7 @@ static int LineToSphere(float *base, float *ray, float *point, float *dir, float
   if(ab_dangle > kR_SMALL4)
     tan_acos_dangle = (float) (sqrt1d(1.0 - dangle * dangle) / dangle);
   else
-    tan_acos_dangle = MAXFLOAT;
+    tan_acos_dangle = FLT_MAX;
 
   /* now we need to define the triangle in the perp-plane  
      to figure out where the projected line intersection point is */
@@ -315,9 +307,6 @@ static int LineToSphere(float *base, float *ray, float *point, float *dir, float
   return (1);
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int FrontToInteriorSphere(float *front,
                                  float *point,
                                  float *dir, float radius, float radius2, float maxial)
@@ -347,12 +336,9 @@ static int FrontToInteriorSphere(float *front,
 
 
 /*========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int ZLineToSphereCapped(float *base, float *point,
                                float *dir, float radius, float maxial,
-                               float *sphere, float *asum, int cap1, int cap2, float *pre)
+                               float *sphere, float *asum, cCylCap cap1, cCylCap cap2, float *pre)
 {
   /* Strategy - find an imaginary sphere that lies at the correct point on
      the line segment, then treat as a sphere reflection */
@@ -572,12 +558,9 @@ static int ZLineToSphereCapped(float *base, float *point,
   return (1);
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int LineToSphereCapped(float *base, float *ray,
                               float *point, float *dir, float radius, float maxial,
-                              float *sphere, float *asum, int cap1, int cap2)
+                              float *sphere, float *asum, cCylCap cap1, cCylCap cap2)
 {
   /* Strategy - find an imaginary sphere that lies at the correct point on
      the line segment, then treat as a sphere reflection */
@@ -799,7 +782,7 @@ static int ConeLineToSphereCapped(float *base, float *ray,
                                   float *point, float *dir, float radius,
                                   float small_radius, float maxial, float *sphere,
                                   float *asum, float *sph_rad, float *sph_rad_sq,
-                                  int cap1, int cap2)
+                                  cCylCap cap1, cCylCap cap2)
 {
   /* Strategy - find an imaginary sphere that lies at the correct point on
      the line segment, then treat as a sphere reflection */
@@ -1073,14 +1056,12 @@ static int ConeLineToSphereCapped(float *base, float *ray,
   return 0;
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int FrontToInteriorSphereCapped(float *front,
                                        float *point,
                                        float *dir,
                                        float radius,
-                                       float radius2, float maxial, int cap1, int cap2)
+                                       float radius2, float maxial,
+                                       cCylCap cap1, cCylCap cap2)
 {
   float intra_p[3];
   float axial;
@@ -1108,13 +1089,10 @@ static int FrontToInteriorSphereCapped(float *front,
 
 
 /*========================================================================*/
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static float ZLineClipPoint(float *base, float *point, float *alongNormalSq, float cutoff)
 {
   float hyp0, hyp1, hyp2;
-  float result = MAXFLOAT;
+  float result = FLT_MAX;
 
   /* this routine determines whether or not a vector starting at "base"
      heading in the direction "normal" intersects a sphere located at "point".
@@ -1143,14 +1121,11 @@ static float ZLineClipPoint(float *base, float *point, float *alongNormalSq, flo
   return result;
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static float ZLineClipPointNoZCheck(float *base, float *point, float *alongNormalSq,
                                     float cutoff)
 {
   float hyp0, hyp1, hyp2;
-  float result = MAXFLOAT;
+  float result = FLT_MAX;
 
   /* this routine determines whether or not a vector starting at "base"
      heading in the direction "normal" intersects a sphere located at "point".
@@ -1178,9 +1153,6 @@ static float ZLineClipPointNoZCheck(float *base, float *point, float *alongNorma
   return result;
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 static int LineClipPoint(float *base, float *ray,
                          float *point, float *dist, float cutoff, float cutoff2)
 {
@@ -1524,9 +1496,6 @@ int n_sausages = 0;
 int n_skipped = 0;
 #endif
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 int BasisHitPerspective(BasisCallRec * BC)
 {
   CBasis *BI = BC->Basis;
@@ -1617,7 +1586,7 @@ int BasisHitPerspective(BasisCallRec * BC)
 
     elist = map->EList;
 
-    r_dist = MAXFLOAT;
+    r_dist = FLT_MAX;
 
     excl_trans_flag = (excl_trans != _0);
 
@@ -2021,9 +1990,6 @@ int BasisHitPerspective(BasisCallRec * BC)
   }
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 int BasisHitOrthoscopic(BasisCallRec * BC)
 {
   const float _0 = 0.0F, _1 = 1.0F;
@@ -2073,7 +2039,7 @@ int BasisHitOrthoscopic(BasisCallRec * BC)
 
     excl_trans_flag = (excl_trans != _0);
 
-    r_dist = MAXFLOAT;
+    r_dist = FLT_MAX;
 
     xxtmp = BI->Map->EHead + (a * BI->Map->D1D2) + (b * BI->Map->Dim[2]) + c;
 
@@ -2345,9 +2311,6 @@ int BasisHitOrthoscopic(BasisCallRec * BC)
   return (-1);
 }
 
-#ifdef _PYMOL_INLINE
-__inline__
-#endif
 int BasisHitShadow(BasisCallRec * BC)
 {
   const float _0 = 0.0F;
@@ -2398,7 +2361,7 @@ int BasisHitShadow(BasisCallRec * BC)
       except2 = vert2prim[except2];
 
     r_trans = _1;
-    r_dist = MAXFLOAT;
+    r_dist = FLT_MAX;
 
     xxtmp = BI->Map->EHead + (a * BI->Map->D1D2) + (b * BI->Map->Dim[2]) + c;
 
@@ -2646,7 +2609,7 @@ int BasisHitShadow(BasisCallRec * BC)
                 if(ConeLineToSphereCapped(r->base, minusZ, BI->Vertex + i * 3,
                                           BI->Normal + BI->Vert2Normal[i] * 3,
                                           BI->Radius[i], prm->r2, prm->l1, sph, &tri1,
-                                          &sph_rad, &sph_rad_sq, 1, 1)) {
+                                          &sph_rad, &sph_rad_sq, cCylCap::Flat, cCylCap::Flat)) {
 
                   oppSq = ZLineClipPoint(r->base, sph, &dist, sph_rad);
                   if(oppSq <= sph_rad_sq) {
@@ -3283,10 +3246,10 @@ int BasisMakeMap(CBasis * I, int *vert2prim, CPrimitive * prim, int n_prim,
       int prm_index;
       MapType *map = I->Map;
 
-      prm_spanner = Calloc(int, n_prim);
+      prm_spanner = pymol::calloc<int>(n_prim);
       CHECKOK(ok, prm_spanner);
       if (ok)
-	spanner = Calloc(int, n);
+	spanner = pymol::calloc<int>(n);
       CHECKOK(ok, spanner);
 
       /* figure out which primitives span more than one voxel */
@@ -3681,8 +3644,3 @@ void BasisCylinderSausagePrecompute(float *dir, float *pre)
   pre[0] = dir[1] * ln;
   pre[1] = -dir[0] * ln;
 }
-
-#else
-typedef int this_file_is_no_longer_empty;
-
-#endif

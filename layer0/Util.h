@@ -35,15 +35,17 @@ void UtilFillVLA(char **vla, ov_size * cc, char what, ov_size len);
 void UtilNCopy(char *dst, const char *src, ov_size n);        /* up to N-1 chars */
 void UtilNCopyToLower(char *dst, const char *src, ov_size n); /* up to N-1 chars */
 void UtilCleanStr(char *s);
+std::string UtilCleanStdStr(const std::string& s);
 void UtilStripANSIEscapes(char *s);
 void UtilStripANSIEscapes(std::string& str);
 int UtilCountStringVLA(char *vla);
 
+double UtilGetSecondsEpoch();
 double UtilGetSeconds(PyMOLGlobals * G);
 int UtilInit(PyMOLGlobals * G);
 void UtilFree(PyMOLGlobals * G);
 
-typedef int UtilOrderFn(void *array, int l, int r);
+typedef int UtilOrderFn(const void *array, int l, int r);
 void UtilSortIndex(int n, void *array, int *x, UtilOrderFn * fOrdered);
 
 int UtilSemiSortFloatIndex(int n, float *array, int *x, int forward);
@@ -57,8 +59,8 @@ void UtilSortInPlace(PyMOLGlobals * G, void *array, int nItem, unsigned int item
 
 void UtilExpandArrayElements(void *src, void *dst, int n_entries, int old_rec_size,
                              int new_rec_size);
-typedef int UtilOrderFnGlobals(PyMOLGlobals * G, void *array, int l, int r);
-void UtilSortIndexGlobals(PyMOLGlobals * G, int n, void *array, int *x,
+typedef int UtilOrderFnGlobals(PyMOLGlobals * G, const void *array, int l, int r);
+void UtilSortIndexGlobals(PyMOLGlobals * G, int n, const void *array, int *x,
                           UtilOrderFnGlobals * fOrdered);
 
 int UtilShouldWePrintQuantity(int quantity);

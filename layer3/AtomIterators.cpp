@@ -12,7 +12,7 @@
 
 /*========================================================================*/
 bool CoordSetAtomIterator::next() {
-  for (atm++; atm < cs->NAtIndex; atm++) {
+  for (++atm; atm < obj->NAtom; ++atm) {
     idx = cs->atmToIdx(atm);
 
     if(idx < 0)
@@ -25,6 +25,9 @@ bool CoordSetAtomIterator::next() {
 }
 
 /*========================================================================*/
+/**
+ * Make a new (owned) atom selection and update the global selector table for it.
+ */
 SeleAtomIterator::SeleAtomIterator(PyMOLGlobals * G_, const char * sele_) {
   G = G_;
 
@@ -48,14 +51,14 @@ void SeleAtomIterator::reset() {
   a = cNDummyAtoms - 1;
 }
 
-/*
+/**
  * advance the internal state to the next atom, return false if there is no
  * next atom
  */
 bool SeleAtomIterator::next() {
   CSelector *I = G->Selector;
 
-  while ((++a) < I->NAtom) {
+  while ((++a) < I->Table.size()) {
     atm = I->Table[a].atom;
     obj = I->Obj[I->Table[a].model];
 
@@ -69,25 +72,37 @@ bool SeleAtomIterator::next() {
 }
 
 /*========================================================================*/
-/*
- * Quasi constructor, call this if `SeleCoordIterator` has been constructed
- * with the default constructor.
+/**
+ * @param sele_ Atom selection to iterate over
+ * @param state_ Object state to iterate over (can be current (-2) or all (-1))
+ * @param update_table If true, then update the table (once) and do not call
+ * `SelectorIsMember` during iteration, assuming that the table stays valid and
+ * contains exactly the selected atoms. If false, then assume the table is
+ * up-to-date with a selection different to `sele_` (e.g. with all atoms) and
+ * ::SelectorIsMember needs to be called during iteration.
  */
-void SeleCoordIterator::init(PyMOLGlobals * G_, int sele_, int state_) {
+SeleCoordIterator::SeleCoordIterator(
+    PyMOLGlobals* G_, int sele_, int state_, bool update_table)
+{
   G = G_;
   statearg = state_;
 
   // current state (use -3 for "effective" state)
-  if (statearg == -2) {
+  if (statearg == cStateCurrent) {
     statearg = SettingGetGlobal_i(G, cSetting_state) - 1;
   }
 
   // safety check
-  if (statearg < -1) {
-    statearg = -3;
+  if (statearg < cStateAll) {
+    statearg = cSelectorUpdateTableEffectiveStates;
   }
 
-  SelectorUpdateTable(G, statearg, sele_);
+  if (update_table) {
+    SelectorUpdateTable(G, statearg, sele_);
+  } else {
+    sele = sele_;
+  }
+
   setPerObject(false);
   reset();
 }
@@ -104,14 +119,14 @@ void SeleCoordIterator::reset() {
   }
 }
 
-/*
+/**
  * advance the internal state to the next atom, return false if there is no
  * next atom
  */
 bool SeleCoordIterator::next() {
   CSelector *I = G->Selector;
 
-  for (a++; a < I->NAtom; a++) {
+  for (a++; a < I->Table.size(); a++) {
     obj = I->Obj[I->Table[a].model];
 
     if (isMultistate()) {
@@ -127,9 +142,10 @@ bool SeleCoordIterator::next() {
       } else if(statemax < obj->NCSet) {
         statemax = obj->NCSet;
       }
-    } else if (statearg == -3 && obj != prev_obj) {
+    } else if (statearg == cSelectorUpdateTableEffectiveStates &&
+               obj != prev_obj) {
       // "effective" state (no support here for settings all_states=1 or state=0)
-      state = std::max(0, obj->getState());
+      state = std::max(0, obj->getCurrentState());
       prev_obj = obj;
     }
 
@@ -140,6 +156,9 @@ bool SeleCoordIterator::next() {
     idx = cs->atmToIdx(atm);
 
     if(idx < 0)
+      continue;
+
+    if (sele > 0 && !SelectorIsMember(G, getAtomInfo()->selEntry, sele))
       continue;
 
     return true;

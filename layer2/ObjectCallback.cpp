@@ -30,18 +30,15 @@ Z* -------------------------------------------------------------------
 #include"main.h"
 #include"Setting.h"
 
-static void ObjectCallbackFree(ObjectCallback * I);
-
-
 /*========================================================================*/
 
-static void ObjectCallbackFree(ObjectCallback * I)
+ObjectCallback::~ObjectCallback()
 {
+  auto I = this;
 #ifndef _PYMOL_NOPY
-  int a;
-  PyMOLGlobals *G = I->Obj.G;
+  PyMOLGlobals *G = I->G;
   int blocked = PAutoBlock(G);
-  for(a = 0; a < I->NState; a++) {
+  for(int a = 0; a < I->NState; a++) {
     if(I->State[a].PObj) {
       Py_DECREF(I->State[a].PObj);
       I->State[a].PObj = NULL;
@@ -50,32 +47,31 @@ static void ObjectCallbackFree(ObjectCallback * I)
   PAutoUnblock(G, blocked);
 #endif
   VLAFreeP(I->State);
-  ObjectPurge(&I->Obj);
-  OOFreeP(I);
 }
 
 
 /*========================================================================*/
 
-static void ObjectCallbackUpdate(ObjectCallback * I)
+void ObjectCallback::update()
 {
-  SceneInvalidate(I->Obj.G);
+  SceneInvalidate(G);
 }
 
 
 /*========================================================================*/
 
-static void ObjectCallbackRender(ObjectCallback * I, RenderInfo * info)
+void ObjectCallback::render(RenderInfo * info)
 {
 #ifndef _PYMOL_NOPY
+  auto I = this;
   int state = info->state;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  int pass = info->pass;
-  PyMOLGlobals *G = I->Obj.G;
+  const RenderPass pass = info->pass;
+  PyMOLGlobals *G = I->G;
   ObjectCallbackState *sobj = NULL;
 
-  if(pass != 1) /* for now, the callback should be called during the first pass (opaque), so 
+  if(pass != RenderPass::Opaque) /* for now, the callback should be called during the first pass (opaque), so
 		  that it is possible to set positions for any object that is rendered in the 
 		  opaque pass.  This is still a kludge, since the callback should probably 
 		  happen in a pass before this (should we add a new pass 2?  this will probably
@@ -96,11 +92,11 @@ static void ObjectCallbackRender(ObjectCallback * I, RenderInfo * info)
   if(!I->State || I->NState == 0)
     return;
 
-  ObjectPrepareContext(&I->Obj, info);
+  ObjectPrepareContext(I, info);
 
-  if((I->Obj.visRep & cRepCallbackBit)) {
+  if((I->visRep & cRepCallbackBit)) {
     int blocked = PAutoBlock(G);
-    for(StateIterator iter(G, I->Obj.Setting, state, I->NState); iter.next();) {
+    for(StateIterator iter(G, I->Setting.get(), state, I->NState); iter.next();) {
       sobj = I->State + iter.state;
       if(!sobj->is_callable)
         continue;
@@ -116,30 +112,17 @@ static void ObjectCallbackRender(ObjectCallback * I, RenderInfo * info)
 
 
 /*========================================================================*/
-static int ObjectCallbackGetNStates(ObjectCallback * I)
+int ObjectCallback::getNFrame() const
 {
-  return (I->NState);
+  return NState;
 }
 
 
 /*========================================================================*/
-ObjectCallback *ObjectCallbackNew(PyMOLGlobals * G)
+ObjectCallback::ObjectCallback(PyMOLGlobals * G) : pymol::CObject(G)
 {
-  OOAlloc(G, ObjectCallback);
-
-  ObjectInit(G, (CObject *) I);
-
-  I->State = VLACalloc(ObjectCallbackState, 10);       /* autozero */
-  I->NState = 0;
-
-  I->Obj.type = cObjectCallback;
-  I->Obj.fFree = (void (*)(CObject *)) ObjectCallbackFree;
-  I->Obj.fUpdate = (void (*)(CObject *)) ObjectCallbackUpdate;
-  I->Obj.fRender = (void (*)(CObject *, RenderInfo *))
-    ObjectCallbackRender;
-  I->Obj.fGetNFrame = (int (*)(CObject *)) ObjectCallbackGetNStates;
-
-  return (I);
+  State = VLACalloc(ObjectCallbackState, 10);       /* autozero */
+  type = cObjectCallback;
 }
 
 
@@ -153,7 +136,7 @@ ObjectCallback *ObjectCallbackDefine(PyMOLGlobals * G, ObjectCallback * obj,
   ObjectCallback *I = NULL;
 
   if(!obj) {
-    I = ObjectCallbackNew(G);
+    I = new ObjectCallback(G);
   } else {
     I = obj;
   }
@@ -205,11 +188,11 @@ void ObjectCallbackRecomputeExtent(ObjectCallback * I)
           if(PConvPyListToExtent(py_ext, mn, mx)) {
             if(!extent_flag) {
               extent_flag = true;
-              copy3f(mx, I->Obj.ExtentMax);
-              copy3f(mn, I->Obj.ExtentMin);
+              copy3f(mx, I->ExtentMax);
+              copy3f(mn, I->ExtentMin);
             } else {
-              max3f(mx, I->Obj.ExtentMax, I->Obj.ExtentMax);
-              min3f(mn, I->Obj.ExtentMin, I->Obj.ExtentMin);
+              max3f(mx, I->ExtentMax, I->ExtentMax);
+              min3f(mn, I->ExtentMin, I->ExtentMin);
             }
           }
           Py_DECREF(py_ext);
@@ -217,7 +200,7 @@ void ObjectCallbackRecomputeExtent(ObjectCallback * I)
       }
     }
 #endif
-  I->Obj.ExtentFlag = extent_flag;
+  I->ExtentFlag = extent_flag;
 
 }
 
@@ -254,7 +237,7 @@ static int ObjectCallbackAllStatesFromPyObject(ObjectCallback * I, PyObject * ob
 
   for(int a = 0; a < I->NState; a++) {
     PyObject *val = PyList_GetItem(list, a);
-    ObjectCallbackStateFromPyObject(I->Obj.G, I->State + a, val);
+    ObjectCallbackStateFromPyObject(I->G, I->State + a, val);
   }
 
   result = true;
@@ -262,9 +245,9 @@ ok_except1:
   if(PyErr_Occurred()) {
     PyErr_Print();
 
-    PRINTFB(I->Obj.G, FB_ObjectCallback, FB_Warnings)
+    PRINTFB(I->G, FB_ObjectCallback, FB_Warnings)
       " Warning: could not load callback object\n"
-      ENDFB(I->Obj.G);
+      ENDFB(I->G);
   }
 
   Py_XDECREF(list);
@@ -279,10 +262,10 @@ int ObjectCallbackNewFromPyList(PyMOLGlobals * G, PyObject * list, ObjectCallbac
   ok_assert(1, list != NULL);
   ok_assert(1, PyList_Check(list));
 
-  ok_assert(1, I = ObjectCallbackNew(G));
+  ok_assert(1, I = new ObjectCallback(G));
 
   val = PyList_GetItem(list, 0);
-  ok_assert(2, ObjectFromPyList(G, val, &I->Obj));
+  ok_assert(2, ObjectFromPyList(G, val, I));
 
   val = PyList_GetItem(list, 1);
   ok_assert(2, ObjectCallbackAllStatesFromPyObject(I, val));
@@ -292,7 +275,7 @@ int ObjectCallbackNewFromPyList(PyMOLGlobals * G, PyObject * list, ObjectCallbac
   *result = I;
   return true;
 ok_except2:
-  ObjectCallbackFree(I);
+  DeleteP(I);
 ok_except1:
   *result = NULL;
   return false;
@@ -324,9 +307,9 @@ static PyObject *ObjectCallbackAllStatesAsPyObject(ObjectCallback * I)
   if(PyErr_Occurred()) {
     PyErr_Print();
 
-    PRINTFB(I->Obj.G, FB_ObjectCallback, FB_Warnings)
+    PRINTFB(I->G, FB_ObjectCallback, FB_Warnings)
       " Warning: callable needs to be picklable for session storage\n"
-      ENDFB(I->Obj.G);
+      ENDFB(I->G);
   }
 
   return result;
@@ -339,7 +322,7 @@ PyObject *ObjectCallbackAsPyList(ObjectCallback * I)
   ok_assert(1, states = ObjectCallbackAllStatesAsPyObject(I));
 
   result = PyList_New(2);
-  PyList_SetItem(result, 0, ObjectAsPyList(&I->Obj));
+  PyList_SetItem(result, 0, ObjectAsPyList(I));
   PyList_SetItem(result, 1, states);
 
 ok_except1:

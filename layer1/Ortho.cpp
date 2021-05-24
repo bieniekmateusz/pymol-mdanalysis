@@ -15,6 +15,8 @@ I* Additional authors of this source file include:
 Z* -------------------------------------------------------------------
 */
 
+#include <vector>
+#include <memory>
 #include <queue>
 #include <string>
 #include <array>
@@ -50,9 +52,11 @@ Z* -------------------------------------------------------------------
 #include "Vector.h"
 #include "CGO.h"
 #include "MyPNG.h"
-#include "MacPyMOL.h"
 #include "File.h"
-#include "LangUtil.h"
+
+#ifdef _PYMOL_OPENVR
+#include "OpenVRMode.h"
+#endif
 
 #define OrthoSaveLines 0xFF
 #define OrthoHistoryLines 0xFF
@@ -63,60 +67,82 @@ Z* -------------------------------------------------------------------
 
 #define CMD_QUEUE_MASK 0x3
 
-struct _COrtho {
-  Block *Blocks;
-  Block *GrabbedBy, *ClickedIn;
-  int X, Y, Height, Width;
-  int LastX, LastY, LastModifiers;
-  int ActiveButton;
-  int DrawText;
-  int InputFlag;                /* whether or not we have active input on the line */
+class COrtho {
+public:
+  std::vector<Block*> Blocks{};
+  Block *GrabbedBy{}, *ClickedIn{};
+  int X{}, Y{}, Height{}, Width{};
+  int LastX{}, LastY{}, LastModifiers{};
+  int ActiveButton{};
+  int DrawText{};
+  int InputFlag{};                /* whether or not we have active input on the line */
 
-  OrthoLineType Line[OrthoSaveLines + 1];
-  OrthoLineType History[OrthoHistoryLines + 1];
-  int HistoryLine, HistoryView;
-  int CurLine, CurChar, PromptChar, CursorChar;
-  int AutoOverlayStopLine;
-  FILE *Pipe;
-  char Prompt[255];
-  int ShowLines;
-  char Saved[OrthoLineLength];
-  int SavedPC, SavedCC;
-  float TextColor[3], OverlayColor[3], WizardBackColor[3], WizardTextColor[3];
-  int DirtyFlag;
-  double BusyLast, BusyLastUpdate;
-  int BusyStatus[4];
-  char BusyMessage[255];
-  char *WizardPromptVLA;
-  int SplashFlag;
-  int HaveSeqViewer;
-  BlockRect LoopRect;
-  int LoopFlag;
-  int cmdNestLevel;
+  OrthoLineType Line[OrthoSaveLines + 1]{};
+  OrthoLineType History[OrthoHistoryLines + 1]{};
+  int HistoryLine{}, HistoryView{};
+  int CurLine{}, CurChar{}, PromptChar{}, CursorChar{};
+  int AutoOverlayStopLine{};
+  char Prompt[255]{};
+  int ShowLines{};
+  char Saved[OrthoLineLength]{};
+  int SavedPC{}, SavedCC{};
+  float TextColor[3]{}, OverlayColor[3]{}, WizardBackColor[3]{}, WizardTextColor[3]{};
+  int DirtyFlag{};
+  double BusyLast{}, BusyLastUpdate{};
+  int BusyStatus[4]{};
+  char BusyMessage[255]{};
+  char *WizardPromptVLA{};
+  int SplashFlag{};
+  int HaveSeqViewer{};
+  BlockRect LoopRect{};
+  int LoopFlag{};
+  int cmdNestLevel{};
   std::array<std::queue<std::string>, CMD_QUEUE_MASK + 1> cmdQueue;
   std::queue<std::string> *cmdActiveQueue;
-  int cmdActiveBusy;
+  int cmdActiveBusy{};
   std::queue<std::string> feedback;
-  int Pushed;
+  int Pushed{};
   std::vector<std::unique_ptr<CDeferred>> deferred; //Ortho manages DeferredObjs
-  int RenderMode;
-  GLint ViewPort[4];
-  int WrapXFlag;
-  GLenum ActiveGLBuffer;
-  double DrawTime, LastDraw;
-  int WrapClickSide;            /* ugly kludge for finding click side in geowall stereo mode */
+  OrthoRenderMode RenderMode = OrthoRenderMode::Main;
+  GLint ViewPort[4]{};
+  int WrapXFlag{};
+  GLenum ActiveGLBuffer{};
+  double DrawTime{}, LastDraw{};
+  int WrapClickSide{};            /* ugly kludge for finding click side in geowall stereo mode */
 
   /* packing information */
-  int WizardHeight;
-  int TextBottom;
+  int WizardHeight{};
+  int TextBottom{};
 
-  int IssueViewportWhenReleased;
-  GLuint bg_texture_id;
-  short bg_texture_needs_update;
-  CGO *bgCGO;
-  //void *bgData;  // this is the image data set from CMol, takes precedence of bg_gradient or bg_image_filename
-  std::shared_ptr<pymol::Image> bgData;
-  CGO *orthoCGO, *orthoFastCGO;
+  int IssueViewportWhenReleased{};
+  GLuint bg_texture_id{};
+  short bg_texture_needs_update{};
+  CGO *bgCGO{};
+  int bgWidth = 0, bgHeight = 0;
+  std::shared_ptr<pymol::Image> bgData; // this is the image data set from CMol, takes precedence of bg_gradient or bg_image_filename
+  CGO *orthoCGO{}, *orthoFastCGO{};
+
+  /**
+   * Finds last block located and coordinate (x, y)
+   * @param x cursor X location
+   * @param y cursor Y location
+   * @return pointer to last block located at (x, y)
+   */
+  Block* findBlock(int x, int y);
+
+public:
+  /**
+   * Draws all blocks
+   * @param orthoCGO CGO to append to
+   */
+  void draw(CGO* orthoCGO);
+
+  /**
+   * Draws all blocks
+   * @param orthoCGO CGO to append to
+   * @return true if anything was drawn to CGO
+   */
+  bool fastDraw(CGO* orthoCGO);
 };
 
 bool OrthoBackgroundDataIsSet(const COrtho& ortho)
@@ -137,19 +163,12 @@ std::pair<int, int> OrthoGetBackgroundSize(const COrtho& ortho){
   if(ortho.bgData){
     return ortho.bgData->getSize();
   } else{
-    return std::make_pair(0, 0);
+    return std::make_pair(ortho.bgWidth, ortho.bgHeight);
   }
 }
 
+static
 void OrthoParseCurrentLine(PyMOLGlobals * G);
-
-Block *OrthoFindBlock(PyMOLGlobals * G, int x, int y);
-void OrthoKeyControl(PyMOLGlobals * G, unsigned char k);
-void OrthoKeyAlt(PyMOLGlobals * G, unsigned char k);
-void OrthoKeyCtSh(PyMOLGlobals * G, unsigned char k);
-void OrthoKeyCmmd(PyMOLGlobals * G, unsigned char k);
-
-
 
 #define cBusyWidth 240
 #define cBusyHeight 60
@@ -215,10 +234,9 @@ int OrthoGetDirty(PyMOLGlobals * G)
   return I->DirtyFlag;
 }
 
-int OrthoGetRenderMode(PyMOLGlobals * G)
+OrthoRenderMode OrthoGetRenderMode(PyMOLGlobals * G)
 {
-  COrtho *I = G->Ortho;
-  return I->RenderMode;
+  return G->Ortho->RenderMode;
 }
 
 void OrthoSetLoopRect(PyMOLGlobals * G, int flag, BlockRect * rect)
@@ -606,18 +624,6 @@ void OrthoBusyDraw(PyMOLGlobals * G, int force)
     I->BusyLast = now;
     if(PIsGlutThread()) {
 
-#ifdef _MACPYMOL_XCODE
-      /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
-      float busyValue = 0.0F;
-      if(I->BusyStatus[1]) {
-        busyValue = (I->BusyStatus[0] * 1.0F / I->BusyStatus[1]);
-      }
-      if(I->BusyStatus[3]) {
-        busyValue = (I->BusyStatus[2] * 1.0F / I->BusyStatus[3]);
-      }
-      MacPyMOL_SetProgress(busyValue);
-      /* END PROPRIETARY CODE SEGMENT */
-#else
       if(G->HaveGUI && G->ValidContext
           // only draw into GL_FRONT if default draw buffer is GL_BACK
           // (not the case for QOpenGLWidget)
@@ -717,7 +723,6 @@ void OrthoBusyDraw(PyMOLGlobals * G, int force)
         OrthoPopMatrix(G);
         OrthoDirty(G);
       }
-#endif
 
     }
   }
@@ -758,6 +763,7 @@ void OrthoRestorePrompt(PyMOLGlobals * G)
 
 
 /*========================================================================*/
+static
 void OrthoKeyControl(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -773,6 +779,7 @@ void OrthoKeyControl(PyMOLGlobals * G, unsigned char k)
 }
 
 /*========================================================================*/
+static
 void OrthoKeyCmmd(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -788,6 +795,7 @@ void OrthoKeyCmmd(PyMOLGlobals * G, unsigned char k)
 }
 
 /*========================================================================*/
+static
 void OrthoKeyCtSh(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -804,6 +812,7 @@ void OrthoKeyCtSh(PyMOLGlobals * G, unsigned char k)
 
 
 /*========================================================================*/
+static
 void OrthoKeyAlt(PyMOLGlobals * G, unsigned char k)
 {
   char buffer[OrthoLineLength];
@@ -1225,8 +1234,7 @@ void OrthoUngrab(PyMOLGlobals * G)
 /*========================================================================*/
 void OrthoAttach(PyMOLGlobals * G, Block * block, int type)
 {
-  COrtho *I = G->Ortho;
-  ListInsert(I->Blocks, block, NULL, next, Block);
+  G->Ortho->Blocks.push_back(block);
 }
 
 
@@ -1236,7 +1244,10 @@ void OrthoDetach(PyMOLGlobals * G, Block * block)
   COrtho *I = G->Ortho;
   if(I->GrabbedBy == block)
     I->GrabbedBy = NULL;
-  ListDetach(I->Blocks, block, next, Block);
+  auto iter = std::find(I->Blocks.begin(), I->Blocks.end(), block);
+  if(iter != I->Blocks.end()){
+    I->Blocks.erase(iter);
+  }
 }
 
 float *OrthoGetOverlayColor(PyMOLGlobals * G)
@@ -1335,7 +1346,8 @@ void bg_grad(PyMOLGlobals * G) {
 
   {
     if (!I->bgCGO) {
-      CGO *cgo = CGONew(G), *cgo2 = NULL;
+      CGO cgo_value(G);
+      CGO* cgo = &cgo_value;
       ok &= CGOBegin(cgo, GL_TRIANGLE_STRIP);
       if (ok)
 	ok &= CGOVertex(cgo, -1.f, -1.f, 0.98f);
@@ -1347,21 +1359,15 @@ void bg_grad(PyMOLGlobals * G) {
 	ok &= CGOVertex(cgo, 1.f, 1.f, 0.98f);
       if (ok)
 	ok &= CGOEnd(cgo);
+      assert(cgo->has_begin_end);
       if (ok)
-	ok &= CGOStop(cgo);
-      if (ok)
-	cgo2 = CGOCombineBeginEnd(cgo, 0);
-      CHECKOK(ok, cgo2);
-      CGOFree(cgo);
-      if (ok)
-	I->bgCGO = CGOOptimizeToVBONotIndexed(cgo2, 0);
+	I->bgCGO = CGOOptimizeToVBONotIndexed(cgo, 0);
       if (ok){
 	CGOChangeShadersTo(I->bgCGO, GL_DEFAULT_SHADER_WITH_SETTINGS, GL_BACKGROUND_SHADER);
 	I->bgCGO->use_shader = true;
       } else {
 	CGOFree(I->bgCGO);
       }
-      CGOFree(cgo2);
     }
     if (ok && !bg_is_solid && (I->bgData && (!I->bg_texture_id || I->bg_texture_needs_update))){
       short is_new = !I->bg_texture_id;
@@ -1389,8 +1395,10 @@ void bg_grad(PyMOLGlobals * G) {
       // checking to see if bg_image_filename can be loaded into texture
       auto bgImage = MyPNGRead(bg_image_filename);
       if(bgImage) {
+        I->bgWidth = bgImage->getWidth();
+        I->bgHeight = bgImage->getHeight();
+
 	short is_new = !I->bg_texture_id;
-        int buff_total = bgImage->getWidth() * bgImage->getHeight();
 	if (is_new){
 	  glGenTextures(1, &I->bg_texture_id);
 	}
@@ -1473,7 +1481,7 @@ void bg_grad(PyMOLGlobals * G) {
   glEnable(GL_DEPTH_TEST);
 }
 
-void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
+void OrthoDoDraw(PyMOLGlobals * G, OrthoRenderMode render_mode)
 {
   COrtho *I = G->Ortho;
   CGO *orthoCGO = NULL;
@@ -1490,7 +1498,12 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
   const float *bg_color;
   int skip_prompt = 0;
   int render = false;
-  int internal_gui_mode = SettingGetGlobal_i(G, cSetting_internal_gui_mode);
+  auto internal_gui_mode = SettingGet<InternalGUIMode>(cSetting_internal_gui_mode, G->Setting);
+#ifdef _PYMOL_OPENVR
+  bool offscreen_vr = false;
+  int openvr_text = 0;
+#endif
+
   int generate_shader_cgo = 0;
 
   I->RenderMode = render_mode;
@@ -1532,8 +1545,8 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
       PyMOLCheckOpenGLErr("OrthoDoDraw checkpoint 0");
 
     if(SettingGetGlobal_b(G, cSetting_internal_gui)) {
-      switch (SettingGetGlobal_i(G, cSetting_internal_gui_mode)) {
-      case 0:
+      switch (internal_gui_mode) {
+      case InternalGUIMode::Default:
         rightSceneMargin = DIP2PIXEL(SettingGetGlobal_i(G, cSetting_internal_gui_width));
         break;
       default:
@@ -1568,11 +1581,20 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
     if(text)
       overlay = 0;
 
-    if(overlay || (!text))
+    if(overlay || (!text) || render_mode == OrthoRenderMode::VR)
       if(!SceneRenderCached(G))
         render = true;
 
-    if(render_mode < 2) {
+    if(render_mode == OrthoRenderMode::VR) {
+#ifdef _PYMOL_OPENVR
+      times = 2;
+      double_pump = false;
+      offscreen_vr = true;
+      OrthoDrawBuffer(G, GL_BACK);
+      SceneGLClear(G, GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+      openvr_text = SettingGetGlobal_i(G, cSetting_openvr_gui_text);
+#endif
+    } else if(render_mode != OrthoRenderMode::GeoWallRight) {
       if(SceneMustDrawBoth(G)) {
         OrthoDrawBuffer(G, GL_BACK_LEFT);
         SceneGLClear(G, GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
@@ -1596,7 +1618,7 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
     I->DrawTime += I->LastDraw;
     ButModeSetRate(G, (float) I->DrawTime);
 
-    if(render && (render_mode < 2))
+    if(render && (render_mode != OrthoRenderMode::GeoWallRight))
       SceneRender(G, NULL, 0, 0, NULL, 0, 0, 0,
                   SettingGetGlobal_b(G, cSetting_image_copy_always));
     else if (text){
@@ -1606,13 +1628,25 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 
     origtimes = times;
     while(times--) {
+      bool draw_text = text;
 
       switch (times) {
       case 1:
-        OrthoDrawBuffer(G, GL_BACK_LEFT);
-
+#ifdef _PYMOL_OPENVR
+        if(offscreen_vr) {
+          draw_text = text || (openvr_text == 1);
+          OrthoDrawBuffer(G, GL_NONE);
+          OpenVRMenuBufferStart(G, I->Width, I->Height);
+        } else
+#endif
+          OrthoDrawBuffer(G, GL_BACK_LEFT);
         break;
       case 0:
+#ifdef _PYMOL_OPENVR
+        if(offscreen_vr) {
+          draw_text = text && (openvr_text != 2);
+        }
+#endif
         if(double_pump) {
           OrthoDrawBuffer(G, GL_BACK_RIGHT);
         } else
@@ -1626,8 +1660,8 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 	if(SettingGetGlobal_b(G, cSetting_internal_gui) && 
 	   SettingGetGlobal_b(G, cSetting_use_shaders)){
 	  CGO *orthoFastCGO = CGONew(G);
-	    CGOFree(I->orthoFastCGO);
-	  if (I->Blocks->recursiveFastDraw(orthoFastCGO)){
+          CGOFree(I->orthoFastCGO);
+	  if (G->Ortho->fastDraw(orthoFastCGO)){
 	    int ok = true;
 	    CGO *expandedCGO;
 	    CGOStop(orthoFastCGO);
@@ -1647,6 +1681,11 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 	  } else {
 	    OrthoRenderCGO(G);
 	    OrthoPopMatrix(G);
+#ifdef _PYMOL_OPENVR
+	    if (offscreen_vr && times) {
+	      OpenVRMenuBufferFinish(G);
+	    }
+#endif
 	    continue;
 	  }
 	}
@@ -1658,7 +1697,7 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
         Block *block = SceneGetBlock(G);
         height = block->rect.bottom;
         switch (internal_gui_mode) {
-        case 0:
+        case InternalGUIMode::Default:
 	  if (generate_shader_cgo){
 	    CGOColor(orthoCGO, 0.f, 0.f, 0.f);
 	    CGOBegin(orthoCGO, GL_TRIANGLE_STRIP);
@@ -1677,7 +1716,7 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 	    glEnd();
 	  }
           /* deliberate fall-through */
-        case 1:
+        case InternalGUIMode::BG:
 	  if (generate_shader_cgo){
 	    CGOColor(orthoCGO, 0.3f, 0.3f, 0.3f);
 	    CGOBegin(orthoCGO, GL_TRIANGLE_STRIP);
@@ -1702,7 +1741,7 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 
       if(SettingGetGlobal_b(G, cSetting_internal_gui)) {
         int internal_gui_width = DIP2PIXEL(SettingGetGlobal_i(G, cSetting_internal_gui_width));
-        if(internal_gui_mode != 2) {
+        if(internal_gui_mode != InternalGUIMode::Transparent) {
 	  if (generate_shader_cgo){
 	    CGOColor(orthoCGO, 0.3f, 0.3f, 0.3f);
 	    CGOBegin(orthoCGO, GL_TRIANGLE_STRIP);
@@ -1731,12 +1770,7 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
         x = cOrthoLeftMargin;
         y = cOrthoBottomMargin + MovieGetPanelHeight(G);
 
-#ifdef _PYMOL_SHARP3D
-        if(SceneGetStereo(G) && SettingGetGlobal_b(G, cSetting_overlay)) {
-          y += (7 * cOrthoLineHeight) / 10;
-        }
-#endif
-        if(SettingGetGlobal_b(G, cSetting_text) || I->SplashFlag)
+        if(draw_text || I->SplashFlag)
           showLines = I->ShowLines;
         else {
           showLines = internal_feedback + overlay;
@@ -1758,7 +1792,7 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
           if(lcount == adjust_at)
             y += 4;
           str = I->Line[l & OrthoSaveLines];
-          if(internal_gui_mode) {
+          if(internal_gui_mode != InternalGUIMode::Default) {
             TextSetColor(G, I->OverlayColor);
           } else if(strncmp(str, I->Prompt, 6) == 0) {
             if(lcount < adjust_at)
@@ -1790,16 +1824,16 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 
       OrthoDrawWizardPrompt(G ORTHOCGOARGVAR);
 
-      if(SettingGetGlobal_b(G, cSetting_text) || I->SplashFlag) {
+      if(draw_text || I->SplashFlag) {
         Block *block;
         int active_tmp;
         block = SeqGetBlock(G);
         active_tmp = block->active;
         block->active = false;
-        I->Blocks->recursiveDraw(orthoCGO);
+        G->Ortho->draw(orthoCGO);
         block->active = active_tmp;
       } else {
-        I->Blocks->recursiveDraw(orthoCGO);
+        G->Ortho->draw(orthoCGO);
       }
 
       PRINTFD(G, FB_Ortho)
@@ -1871,6 +1905,12 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 
       OrthoPopMatrix(G);
 
+#ifdef _PYMOL_OPENVR
+      if (offscreen_vr && times) {
+        OpenVRMenuBufferFinish(G);
+      }
+#endif
+
       if(Feedback(G, FB_OpenGL, FB_Debugging))
         PyMOLCheckOpenGLErr("OrthoDoDraw final checkpoint");
 
@@ -1920,7 +1960,13 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
       while(origtimes--){
 	switch (origtimes){
 	case 1:
-	  OrthoDrawBuffer(G, GL_BACK_LEFT);
+#ifdef _PYMOL_OPENVR
+	  if(offscreen_vr) {
+	    OrthoDrawBuffer(G, GL_NONE);
+	    OpenVRMenuBufferStart(G, I->Width, I->Height);
+	  } else
+#endif
+	    OrthoDrawBuffer(G, GL_BACK_LEFT);
 	  break;
 	case 0:
 	  if(double_pump) {
@@ -1932,6 +1978,11 @@ void OrthoDoDraw(PyMOLGlobals * G, int render_mode)
 	OrthoPushMatrix(G);
 	OrthoRenderCGO(G);
 	OrthoPopMatrix(G);
+#ifdef _PYMOL_OPENVR
+        if (offscreen_vr && origtimes) {
+          OpenVRMenuBufferFinish(G);
+        }
+#endif
       }
     }
   }
@@ -1952,8 +2003,7 @@ void OrthoRenderCGO(PyMOLGlobals * G){
       CGORenderGL(I->orthoCGO, NULL, NULL, NULL, NULL, NULL);
     if (I->orthoFastCGO)
       CGORenderGL(I->orthoFastCGO, NULL, NULL, NULL, NULL, NULL);
-    if (G->ShaderMgr->Get_Current_Shader())
-      G->ShaderMgr->Get_Current_Shader()->Disable();
+    G->ShaderMgr->Disable_Current_Shader();
     glEnable(GL_DEPTH_TEST);
   }
 }
@@ -1972,14 +2022,14 @@ void OrthoDrawWizardPrompt(PyMOLGlobals * G ORTHOCGOARG)
   int maxLen;
   BlockRect rect;
   int prompt_mode = SettingGetGlobal_i(G, cSetting_wizard_prompt_mode);
-  int gui_mode = SettingGetGlobal_b(G, cSetting_internal_gui_mode);
+  auto gui_mode = SettingGet<InternalGUIMode>(cSetting_internal_gui_mode, G->Setting);
   float *text_color = I->WizardTextColor;
   float black[3] = { 0.0F, 0.0F, 0.0F };
 
   if(I->WizardPromptVLA && prompt_mode) {
     vla = I->WizardPromptVLA;
 
-    if(gui_mode)
+    if(gui_mode != InternalGUIMode::Default)
       text_color = black;
     nLine = UtilCountStringVLA(vla);
     if(nLine) {
@@ -2032,7 +2082,7 @@ void OrthoDrawWizardPrompt(PyMOLGlobals * G ORTHOCGOARG)
 
       if(prompt_mode == 1) {
 	if (orthoCGO){
-	  if(SettingGetGlobal_b(G, cSetting_internal_gui_mode)) {
+	  if(gui_mode != InternalGUIMode::Default) {
 	    CGOColor(orthoCGO, 1.0, 1.0F, 1.0F);
 	  } else {
 	    CGOColorv(orthoCGO, I->WizardBackColor);
@@ -2044,7 +2094,7 @@ void OrthoDrawWizardPrompt(PyMOLGlobals * G ORTHOCGOARG)
 	  CGOVertex(orthoCGO, rect.left, rect.bottom, 0.f);
 	  CGOEnd(orthoCGO);
 	} else {
-	  if(SettingGetGlobal_b(G, cSetting_internal_gui_mode)) {
+	  if(gui_mode != InternalGUIMode::Default) {
 	    glColor3f(1.0, 1.0F, 1.0F);
 	  } else {
 	    glColor3fv(I->WizardBackColor);
@@ -2122,8 +2172,10 @@ static void OrthoLayoutPanel(PyMOLGlobals * G,
     /* The Wizard Block is shown when a wizard is loaded, it is the area between the
        Executive Block and the ButMode Block, and is used for Wizard-related info/buttons */
     block = WizardGetBlock(G);
-    block->setMargin(height - executiveBottom + 1, m_left, wizardBottom, m_right);
-    block->active = false;
+    if (block) {
+      block->setMargin(height - executiveBottom + 1, m_left, wizardBottom, m_right);
+      block->active = false;
+    }
 
     /* The ButMode block shows info about which Mouse Mode, Selecting Mode, State info,
        and other info like frame rate. It is located under the Wizard Block, and above
@@ -2147,8 +2199,10 @@ static void OrthoLayoutPanel(PyMOLGlobals * G,
     /* The Wizard Block is shown when a wizard is loaded, it is the area between the
        Executive Block and the ButMode Block, and is used for Wizard-related info/buttons */
     block = WizardGetBlock(G);
-    block->setMargin(m_right, m_bottom, m_right, m_bottom);
-    block->active = false;
+    if (block) {
+      block->setMargin(m_right, m_bottom, m_right, m_bottom);
+      block->active = false;
+    }
 
     /* The ButMode block shows info about which Mouse Mode, Selecting Mode, State info,
        and other info like frame rate. It is located under the Wizard Block, and above
@@ -2223,8 +2277,9 @@ void OrthoReshape(PyMOLGlobals * G, int width, int height, int force)
       internal_gui_width = 0;
       sceneRight = 0;
     } else {
-      switch (SettingGetGlobal_i(G, cSetting_internal_gui_mode)) {
-      case 2:
+      auto gui_mode = SettingGet<InternalGUIMode>(cSetting_internal_gui_mode, G->Setting);
+      switch (gui_mode) {
+      case InternalGUIMode::Transparent:
         sceneRight = 0;
         sceneBottom = 0;
         break;
@@ -2274,8 +2329,8 @@ void OrthoReshape(PyMOLGlobals * G, int width, int height, int force)
     block->setMargin(sceneTop, 0, sceneBottom, sceneRight);
 
     block = NULL;
-    while(ListIterate(I->Blocks, block, next)){
-        block->reshape(width, height);
+    for(auto block : I->Blocks){
+      block->reshape(width, height);
     }
 
     WizardRefresh(G);           /* safe to call even if no wizard exists */
@@ -2293,7 +2348,7 @@ void OrthoReshapeWizard(PyMOLGlobals * G, ov_size wizHeight)
   COrtho *I = G->Ortho;
   I->WizardHeight = wizHeight;
 
-  if(SettingGetGlobal_b(G, cSetting_internal_gui) > 0.0) {
+  if(SettingGetGlobal_b(G, cSetting_internal_gui)) {
     Block *block;
     int internal_gui_width = DIP2PIXEL(SettingGetGlobal_i(G, cSetting_internal_gui_width));
 
@@ -2302,20 +2357,12 @@ void OrthoReshapeWizard(PyMOLGlobals * G, ov_size wizHeight)
     block = ExecutiveGetBlock(G);
     block->reshape(I->Width, I->Height);
     block = WizardGetBlock(G);
-    block->reshape(I->Width, I->Height);
-    block->active = wizHeight ? true : false;
+    if (block) {
+      block->reshape(I->Width, I->Height);
+      block->active = wizHeight ? true : false;
+    }
   }
 }
-
-
-/*========================================================================*/
-Block *OrthoFindBlock(PyMOLGlobals * G, int x, int y)
-{
-  COrtho *I = G->Ortho;
-
-  return (I->Blocks->recursiveFind(x, y));
-}
-
 
 /*========================================================================*/
 int OrthoGetWrapClickSide(PyMOLGlobals * G)
@@ -2366,12 +2413,9 @@ int OrthoButton(PyMOLGlobals * G, int button, int state, int x, int y, int mod)
   if(state == P_GLUT_DOWN) {
     I->ActiveButton = button;
     if(I->GrabbedBy) {
-      if(I->GrabbedBy->inside)
-        block = I->GrabbedBy->inside->recursiveFind(x, y);
-      else
-        block = I->GrabbedBy;
+      block = I->GrabbedBy;
     } else if(!block)
-      block = OrthoFindBlock(G, x, y);
+      block = G->Ortho->findBlock(x, y);
     if(block) {
       I->ClickedIn = block;
       handled = block->click(button, x, y, mod);
@@ -2399,6 +2443,35 @@ int OrthoButton(PyMOLGlobals * G, int button, int state, int x, int y, int mod)
   return (handled);
 }
 
+struct COrthoButtonDeferred : public CDeferred {
+  int button;
+  int state;
+  int x;
+  int y;
+  int mod;
+  COrthoButtonDeferred(PyMOLGlobals *G) : CDeferred(G) {}
+};
+
+static
+void OrthoButtonDeferred(COrthoButtonDeferred * d)
+{
+  OrthoButton(d->m_G, d->button, d->state, d->x, d->y, d->mod);
+}
+
+int OrthoButtonDefer(PyMOLGlobals * G, int button, int state, int x, int y, int mod)
+{
+  auto d = pymol::make_unique<COrthoButtonDeferred>(G);
+  if(d) {
+    d->fn = (DeferredFn *)OrthoButtonDeferred;
+    d->button = button;
+    d->state = state;
+    d->x = x;
+    d->y = y;
+    d->mod = mod;
+  }
+  OrthoDefer(G, std::move(d));
+  return 1;
+}
 
 /*========================================================================*/
 int OrthoDrag(PyMOLGlobals * G, int x, int y, int mod)
@@ -2505,19 +2578,12 @@ int OrthoInit(PyMOLGlobals * G, int showSplash)
 {
   COrtho *I = NULL;
 
-  if((I = (G->Ortho = Calloc(COrtho, 1)))) {
-
-    new (&I->deferred)(decltype(I->deferred));
-    new (&I->feedback)(decltype(I->feedback));
-    new (&I->cmdQueue)(decltype(I->cmdQueue));
-
-    ListInit(I->Blocks);
+  if((I = (G->Ortho = new COrtho()))) {
 
     I->ActiveButton = -1;
     I->Pushed = 0;
     I->cmdActiveQueue = &(*I->cmdQueue.begin());
     I->cmdNestLevel = 0;
-    I->RenderMode = 0;
     I->WrapXFlag = false;
 
     I->WizardBackColor[0] = 0.2F;
@@ -2601,20 +2667,15 @@ void OrthoFree(PyMOLGlobals * G)
   VLAFreeP(I->WizardPromptVLA);
   PopFree(G);
   {
-    int a;
     I->cmdActiveQueue = NULL;
   }
-
-  pymol::destroy_at(&I->deferred);
-  pymol::destroy_at(&I->feedback);
-  pymol::destroy_at(&I->cmdQueue);
 
   I->bgData = nullptr;
 
     CGOFree(I->bgCGO);
   CGOFree(I->orthoCGO);
   CGOFree(I->orthoFastCGO);
-  FreeP(G->Ortho);
+  delete G->Ortho;
 }
 
 
@@ -2629,11 +2690,10 @@ void OrthoPushMatrix(PyMOLGlobals * G)
       glGetIntegerv(GL_VIEWPORT, I->ViewPort);
     }
     switch (I->RenderMode) {
-    case 2:
+    case OrthoRenderMode::GeoWallRight:
       glViewport(I->ViewPort[0] + I->ViewPort[2], I->ViewPort[1],
                  I->ViewPort[2], I->ViewPort[3]);
       break;
-    case 1:
     default:
       glViewport(I->ViewPort[0], I->ViewPort[1], I->ViewPort[2], I->ViewPort[3]);
     }
@@ -2765,9 +2825,9 @@ void OrthoPasteIn(PyMOLGlobals * G, const char *buffer)
     I->InputFlag = true;
 }
 
-#if 0
 /* TODO: Removed. Check in Mobile PyMOL to see if needed - PYMOL-3148*/
 void OrthoSetBackgroundImage(PyMOLGlobals * G, const char *image_data, int width, int height){
+#if 0
   COrtho *I = G->Ortho;
   int buff_total = width * height;  
   short should_update = 0;
@@ -2779,7 +2839,7 @@ void OrthoSetBackgroundImage(PyMOLGlobals * G, const char *image_data, int width
     should_update = 1;
   }
   if (buff_total){
-    I->bgData = Alloc(unsigned char, buff_total*4);
+    I->bgData = pymol::malloc<unsigned char>(buff_total*4);
     I->bgWidth = width;
     I->bgHeight = height;
     memcpy(I->bgData, image_data, buff_total * 4);
@@ -2796,8 +2856,8 @@ void OrthoSetBackgroundImage(PyMOLGlobals * G, const char *image_data, int width
     G->ShaderMgr->Reload_All_Shaders();
     I->bg_texture_needs_update = 1;
   }
-}
 #endif
+}
 
 void OrthoInvalidateDoDraw(PyMOLGlobals * G)
 {
@@ -2806,4 +2866,32 @@ void OrthoInvalidateDoDraw(PyMOLGlobals * G)
     CGOFree(I->orthoCGO);
     PyMOL_NeedRedisplay(G->PyMOL);
   }
+}
+
+void COrtho::draw(CGO* orthoCGO)
+{
+  for (auto block : Blocks) {
+    block->recursiveDraw(orthoCGO);
+  }
+}
+
+bool COrtho::fastDraw(CGO* orthoCGO)
+{
+  bool ret{false};
+  for (auto block : Blocks) {
+    ret |= block->recursiveFastDraw(orthoCGO);
+  }
+  return ret;
+}
+
+Block* COrtho::findBlock(int x, int y)
+{
+  for (auto blockIter = Blocks.rbegin(); blockIter != Blocks.rend();
+       ++blockIter) {
+    auto blockFound = (*blockIter)->recursiveFind(x, y);
+    if (blockFound != nullptr) {
+      return blockFound;
+    }
+  }
+  return nullptr;
 }

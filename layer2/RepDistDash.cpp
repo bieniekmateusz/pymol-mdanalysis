@@ -35,41 +35,40 @@ Z* -------------------------------------------------------------------
 #include "WebPyMOLLibrary.h"
 #endif
 
-typedef struct RepDistDash {
-  Rep R;
-  float *V;
-  int N;
-  CObject *Obj;
+struct RepDistDash : Rep {
+  using Rep::Rep;
+
+  ~RepDistDash() override;
+
+  cRep_t type() const override { return cRepDash; }
+  void render(RenderInfo* info) override;
+
+  float* V = nullptr;
+  int N = 0;
   DistSet *ds;
   float linewidth, radius;
-  CGO *shaderCGO;
-  bool shaderCGO_has_cylinders, shaderCGO_has_trilines;
-} RepDistDash;
+  CGO* shaderCGO = nullptr;
+  bool shaderCGO_has_cylinders = false;
+  bool shaderCGO_has_trilines = false;
+};
 
 #include"ObjectDist.h"
 
-void RepDistDashFree(RepDistDash * I);
-
-void RepDistDashFree(RepDistDash * I)
+RepDistDash::~RepDistDash()
 {
-  if (I->shaderCGO){
-    CGOFree(I->shaderCGO);
-    I->shaderCGO = 0;
-  }
-  VLAFreeP(I->V);
-  RepPurge(&I->R);
-  OOFreeP(I);
+  CGOFree(shaderCGO);
+  VLAFreeP(V);
 }
 
 /* Has no prototype */
 static void RepDistDashCGOGenerate(RepDistDash * I)
 {
   int ok = true;
-  PyMOLGlobals *G = I->R.G;
+  PyMOLGlobals *G = I->G;
   float *v = I->V;
   int c = I->N;
   int color =
-    SettingGet_color(G, NULL, I->ds->Obj->Obj.Setting, cSetting_dash_color);
+    SettingGet_color(G, NULL, I->ds->Obj->Setting.get(), cSetting_dash_color);
   short dash_as_cylinders = 0;
 
   dash_as_cylinders = SettingGetGlobal_b(G, cSetting_render_as_cylinders) && SettingGetGlobal_b(G, cSetting_dash_as_cylinders);
@@ -79,10 +78,11 @@ static void RepDistDashCGOGenerate(RepDistDash * I)
   if (ok)
     ok &= CGOResetNormal(I->shaderCGO, true);
   if (ok){
+    if (color < 0) {
+      color = I->getObj()->Color;
+    }
     if(color >= 0){
       ok &= CGOColorv(I->shaderCGO, ColorGet(G, color));
-    } else if (I->Obj && I->Obj->Color >= 0){
-      ok &= CGOColorv(I->shaderCGO, ColorGet(G, I->Obj->Color));
     }
   }
   v = I->V;
@@ -114,38 +114,38 @@ static void RepDistDashCGOGenerate(RepDistDash * I)
   }
 }
 
-static void RepDistDashRender(RepDistDash * I, RenderInfo * info)
+void RepDistDash::render(RenderInfo* info)
 {
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  PyMOLGlobals *G = I->R.G;
   float *v = I->V;
   int c = I->N;
   const float *vc;
   int round_ends;
   int ok = true;
   int color =
-    SettingGet_color(G, NULL, I->ds->Obj->Obj.Setting, cSetting_dash_color);
+    SettingGet_color(G, NULL, I->ds->Obj->Setting.get(), cSetting_dash_color);
   float line_width =
-    SettingGet_f(G, NULL, I->ds->Obj->Obj.Setting, cSetting_dash_width);
+    SettingGet_f(G, NULL, I->ds->Obj->Setting.get(), cSetting_dash_width);
   float dash_transparency =
-    SettingGet_f(G, NULL, I->ds->Obj->Obj.Setting, cSetting_dash_transparency);
+    SettingGet_f(G, NULL, I->ds->Obj->Setting.get(), cSetting_dash_transparency);
   bool t_mode_3 =
-    SettingGet_i(G, NULL, I->ds->Obj->Obj.Setting, cSetting_transparency_mode) == 3;
+    SettingGet_i(G, NULL, I->ds->Obj->Setting.get(), cSetting_transparency_mode) == 3;
   short dash_transparency_enabled;
   dash_transparency = (dash_transparency < 0.f ? 0.f : (dash_transparency > 1.f ? 1.f : dash_transparency));
   dash_transparency_enabled = (dash_transparency > 0.f);
 
-  if (!(ray || pick) && (!info->pass || (info->pass > 0) == dash_transparency_enabled))
+  if (!(ray || pick) && (info->pass == RenderPass::Antialias || (info->pass == RenderPass::Opaque) == dash_transparency_enabled))
     return;
 
   if(color < 0)
-    color = I->Obj->Color;
+    color = getObj()->Color;
 
   I->radius =
-    SettingGet_f(G, NULL, I->ds->Obj->Obj.Setting, cSetting_dash_radius);
+    SettingGet_f(G, NULL, I->ds->Obj->Setting.get(), cSetting_dash_radius);
   round_ends =
-    SettingGet_b(G, NULL, I->ds->Obj->Obj.Setting, cSetting_dash_round_ends);
+    SettingGet_b(G, NULL, I->ds->Obj->Setting.get(), cSetting_dash_round_ends);
   line_width = SceneGetDynamicLineWidth(info, line_width);
 
   if(ray) {
@@ -208,7 +208,7 @@ static void RepDistDashRender(RepDistDash * I, RenderInfo * info)
 	  }
 	  RepDistDashCGOGenerate(I);
 	} else if (ok) {
-	  CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, &I->R);
+	  CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, I);
 	  return;
 	}
       }
@@ -230,11 +230,6 @@ static void RepDistDashRender(RepDistDash * I, RenderInfo * info)
 	  } else {
 	    glColor3fv(ColorGet(G, color));
 	  }
-	} else if (dash_transparency_enabled){
-	  float col[4];
-	  copy3f(ColorGet(I->Obj->G, I->Obj->Color), col);
-	  col[3] = 1.f-dash_transparency;
-	  glColor4fv(col);
 	}
 	v = I->V;
 	c = I->N;
@@ -295,7 +290,7 @@ static void RepDistDashRender(RepDistDash * I, RenderInfo * info)
                   if (ok) ok &= CGOSpecial(tmpCGO, LINEWIDTH_DYNAMIC_WITH_SCALE_DASH);
                   convertcgo = CGOConvertLinesToTrilines(I->shaderCGO, false);
 		} else {
-		  convertcgo = CGOOptimizeToVBONotIndexedNoShader(I->shaderCGO, 0);
+                  convertcgo = CGOOptimizeToVBONotIndexedNoShader(I->shaderCGO);
 		}
                 I->shaderCGO_has_trilines = trilines;
 		if (ok) ok &= CGOEnable(tmpCGO, GL_DASH_TRANSPARENCY_DEPTH_TEST);
@@ -318,7 +313,7 @@ static void RepDistDashRender(RepDistDash * I, RenderInfo * info)
 	}
 	
 	if (ok) {
-	  CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, &I->R);
+	  CGORenderGL(I->shaderCGO, NULL, NULL, NULL, info, I);
 	}
       }
     }
@@ -326,13 +321,13 @@ static void RepDistDashRender(RepDistDash * I, RenderInfo * info)
   if (!ok){
     CGOFree(I->shaderCGO);
     I->ds->Rep[cRepDash] = NULL;
-    RepDistDashFree(I);
+    delete I;
   }
 }
 
 Rep *RepDistDashNew(DistSet * ds, int state)
 {
-  PyMOLGlobals *G = ds->State.G;
+  PyMOLGlobals *G = ds->G;
   int a;
   int n;
   float *v, *v1, *v2, d[3];
@@ -340,34 +335,18 @@ Rep *RepDistDashNew(DistSet * ds, int state)
   float dash_len, dash_gap, dash_sum;
   int ok = true;
 
-  OOAlloc(G, RepDistDash);
-  CHECKOK(ok, I);
-
   if(!ok || !ds->NIndex) {
-    OOFreeP(I);
     return (NULL);
   }
 
-  RepInit(G, &I->R);
+  auto I = new RepDistDash(ds->Obj, state);
 
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepDistDashRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepDistDashFree;
-  I->R.fRecolor = NULL;
-  I->R.obj = &ds->Obj->Obj;
-  I->R.context.state = state;
-  dash_len = SettingGet_f(G, NULL, ds->Obj->Obj.Setting, cSetting_dash_length);
-  dash_gap = SettingGet_f(G, NULL, ds->Obj->Obj.Setting, cSetting_dash_gap);
+  dash_len = SettingGet_f(G, NULL, ds->Obj->Setting.get(), cSetting_dash_length);
+  dash_gap = SettingGet_f(G, NULL, ds->Obj->Setting.get(), cSetting_dash_gap);
   dash_sum = dash_len + dash_gap;
   if(dash_sum < R_SMALL4)
     dash_sum = 0.5;
 
-  I->shaderCGO = 0;
-  I->shaderCGO_has_cylinders = false;
-  I->shaderCGO_has_trilines = false;
-  I->N = 0;
-  I->V = NULL;
-  I->R.P = NULL;
-  I->Obj = (CObject *) ds->Obj;
   I->ds = ds;
 
   n = 0;
@@ -440,7 +419,7 @@ Rep *RepDistDashNew(DistSet * ds, int state)
       I->N = n;
   }
   if (!ok){
-    RepDistDashFree(I);
+    delete I;
     I = NULL;
   }
   return (Rep *) I;

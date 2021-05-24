@@ -3,8 +3,6 @@ Contains main class for PyMOL QT GUI
 """
 
 
-from __future__ import absolute_import
-from __future__ import print_function
 from collections import defaultdict
 import os
 import re
@@ -12,10 +10,11 @@ import sys
 
 import pymol
 import pymol._gui
-from pymol import colorprinting
+from pymol import colorprinting, save_shortcut
 
 from pymol.Qt import QtGui, QtCore, QtWidgets
 from pymol.Qt.utils import (getSaveFileNameWithExt, UpdateLock, WidgetMenu,
+        MainThreadCaller,
         PopupOnException,
         connectFontContextMenu, getMonospaceFont)
 
@@ -103,8 +102,9 @@ class PyMOLQtGUI(QtWidgets.QMainWindow, pymol._gui.PyMOLDesktopGUI):
         # reusable dialogs
         self.dialog_png = None
         self.advanced_settings_dialog = None
-        self.props_dialog = None
+        self.props_panel = None
         self.builder = None
+        self.shortcut_menu_filter_dialog = None
 
         # setting index -> callable
         self.setting_callbacks = defaultdict(list)
@@ -170,6 +170,11 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
         class ExtGuiFrame(QtWidgets.QFrame):
             def mouseDoubleClickEvent(_, event):
                 self.toggle_ext_window_dockable(True)
+
+            _size_hint = QtCore.QSize(options.win_x, options.ext_y)
+
+            def sizeHint(self):
+                return self._size_hint
 
         dockWidgetContents = ExtGuiFrame(self)
         dockWidgetContents.setLayout(extguilayout)
@@ -264,6 +269,19 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
             quickbuttonslayout.addLayout(hbox)
 
+        # progress bar
+        hbox = QtWidgets.QHBoxLayout()
+        self.progressbar = QtWidgets.QProgressBar()
+        self.progressbar.setSizePolicy(
+                QtWidgets.QSizePolicy.Minimum,
+                QtWidgets.QSizePolicy.Minimum)
+        hbox.addWidget(self.progressbar)
+        self.abortbutton = QtWidgets.QPushButton('Abort')
+        self.abortbutton.setStyleSheet("background: #FF0000; color: #FFFFFF")
+        self.abortbutton.released.connect(cmd.interrupt)
+        hbox.addWidget(self.abortbutton)
+        quickbuttonslayout.addLayout(hbox)
+
         quickbuttonslayout.addStretch()
         quickbuttons_stretch_index = quickbuttonslayout.count() - 1
 
@@ -339,7 +357,7 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
         # hack for macOS to hide "Edit > Start Dictation"
         # https://bugreports.qt.io/browse/QTBUG-43217
-        if sys.platform == 'darwin':
+        if pymol.IS_MACOS:
             self.menudict['Edit'].setTitle('Edit_')
             QtCore.QTimer.singleShot(10, lambda:
                     self.menudict['Edit'].setTitle('Edit'))
@@ -394,6 +412,9 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
         if style:
             self.setStyleSheet(style)
+
+        # Load saved shortcuts on launch
+        self.saved_shortcuts = pymol.save_shortcut.load_and_set(self.cmd)
 
     def lineeditKeyPressEventFilter(self, watched, event):
         key = event.key()
@@ -460,7 +481,8 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
         if toggle:
             self.menubar.hide()
-            self.ext_window.hide()
+            if not self.ext_window.isFloating():
+                self.ext_window.hide()
             self.showFullScreen()
             self.pymolwidget.setFocus()
         else:
@@ -519,13 +541,6 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
         form._dialog = dialog
         return form
-
-    def open_props_dialog(self):  #noqa
-        if not self.props_dialog:
-            self.props_dialog = properties_dialog.props_dialog(self)
-
-        self.props_dialog.show()
-        self.props_dialog.raise_()
 
     def edit_colors_dialog(self):
         form = self.load_form('colors')
@@ -604,6 +619,15 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
         self.builder.show()
         self.builder.raise_()
+
+    def open_props_dialog(self):
+        from .properties_dialog import PropsDialog
+
+        if not self.props_panel:
+            self.props_panel = PropsDialog(self)
+
+        self.props_panel.get_dialog().show()
+        self.props_panel.get_dialog().raise_()
 
     def edit_pymolrc(self):
         from . import TextEditor
@@ -707,7 +731,7 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
             if ray:
                 self.cmd.set('opaque_background',
                         not form.input_transparent.isChecked())
-                self.cmd.do('ray %d, %d' % (width, height))
+                self.cmd.do('ray %d, %d, async=1' % (width, height))
             else:
                 self.cmd.do('draw %d, %d' % (width, height))
             form.stack.setCurrentIndex(1)
@@ -758,6 +782,7 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
         if widget is None:
             form._dialog.show()
 
+    @PopupOnException.decorator
     def _file_save(self, filter, format):
         fname = getSaveFileNameWithExt(
             self,
@@ -781,6 +806,12 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
     def file_save_mov(self):
         self.file_save_mpeg('mov')
+
+    def file_save_stl(self):
+        self._file_save('STL File (*.stl)', 'stl')
+
+    def file_save_gltf(self):
+        self._file_save('GLTF File (*.gltf)', 'gltf')
 
     LOG_FORMATS = [
         'PyMOL Script (*.pml)',
@@ -844,11 +875,17 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
                                                                   self.cmd)
         self.advanced_settings_dialog.show()
 
+    def shortcut_menu_edit_dialog(self):
+        from .shortcut_menu_gui import PyMOLShortcutMenu
+        if self.shortcut_menu_filter_dialog is None:
+            self.shortcut_menu_filter_dialog = PyMOLShortcutMenu(self, self.saved_shortcuts, self.cmd)
+        self.shortcut_menu_filter_dialog.show()
+
     def show_about(self):
         msg = [
             'The PyMOL Molecular Graphics System\n',
             'Version %s' % (self.cmd.get_version()[0]),
-            'Copyright (C) Schrodinger LLC.',
+            u'Copyright (C) Schr\xF6dinger, LLC.',
             'All rights reserved.\n',
             'License information:',
         ]
@@ -867,12 +904,8 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
     # GUI callbacks
     #################
 
-    if sys.version_info[0] < 3:
-        def command_get(self):
-            return self.lineedit.text().encode('utf-8')
-    else:
-        def command_get(self):
-            return self.lineedit.text()
+    def command_get(self):
+        return self.lineedit.text()
 
     def command_set(self, v):
         return self.lineedit.setText(v)
@@ -880,7 +913,19 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
     def command_set_cursor(self, i):
         return self.lineedit.setCursorPosition(i)
 
+    def update_progress(self):
+        progress = self.cmd.get_progress()
+        if progress >= 0:
+            self.progressbar.setValue(progress * 100)
+            self.progressbar.show()
+            self.abortbutton.show()
+        else:
+            self.progressbar.hide()
+            self.abortbutton.hide()
+
     def update_feedback(self):
+        self.update_progress()
+
         feedback = self.cmd._get_feedback()
         if feedback:
             html = colorprinting.text2html('\n'.join(feedback))
@@ -1081,6 +1126,15 @@ class PyMOLApplication(QtWidgets.QApplication):
         if ev.type() != QtCore.QEvent.FileOpen:
             return False
 
+        # When double clicking a file in Finder, open it in a new instance
+        if not pymol.invocation.options.reuse_helper and pymol.cmd.get_names():
+            window.new_window([ev.file()])
+            return True
+
+        # pymol -I -U
+        if pymol.invocation.options.auto_reinitialize:
+            pymol.cmd.reinitialize()
+
         # PyMOL Show
         if ev.file().endswith('.psw'):
             pymol.cmd.set('presentation')
@@ -1126,10 +1180,15 @@ def execapp():
     Run PyMOL as a Qt application
     '''
     global window
+    global pymol
 
     # don't let exceptions stop PyMOL
     import traceback
     sys.excepthook = traceback.print_exception
+
+    # use QT_OPENGL=desktop (auto-detection may fail on Windows)
+    if hasattr(Qt, 'AA_UseDesktopOpenGL') and pymol.IS_WINDOWS:
+        QtCore.QCoreApplication.setAttribute(Qt.AA_UseDesktopOpenGL)
 
     # enable 4K scaling on Windows and Linux
     if hasattr(Qt, 'AA_EnableHighDpiScaling') and not any(
@@ -1138,7 +1197,7 @@ def execapp():
         QtCore.QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
 
     # fix Windows taskbar icon
-    if sys.platform.startswith('win'):
+    if pymol.IS_WINDOWS:
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
                 u'com.schrodinger.pymol')
@@ -1163,6 +1222,16 @@ def execapp():
     pymol.gui.createlegacypmgapp = window.createlegacypmgapp
 
     pymol.cmd._copy_image = _copy_image
+    pymol.cmd._call_in_gui_thread = MainThreadCaller()
+
+    # Assume GUI thread, make OpenGL context current before calling func().
+    def _call_with_opengl_context_gui_thread(func):
+        with window.pymolwidget:
+            return func()
+
+    # Dispatch to GUI thread and make OpenGL context current before calling func().
+    pymol.cmd._call_with_opengl_context = lambda func: pymol.cmd._call_in_gui_thread(
+        lambda: _call_with_opengl_context_gui_thread(func))
 
     window.show()
     window.raise_()

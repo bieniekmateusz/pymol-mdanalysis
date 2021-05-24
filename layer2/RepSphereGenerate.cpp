@@ -20,13 +20,11 @@ Z* -------------------------------------------------------------------
 #include "ShaderMgr.h"
 #include "Err.h"
 
-extern CShaderPrg *sphereARBShaderPrg;
-
 void RepSphere_Generate_Triangles(PyMOLGlobals *G, RepSphere *I,
                                   RenderInfo *info) {
   short use_shader;
   int ok = true;
-  int sphere_quality = SettingGet_i(G, I->R.cs->Setting, I->R.obj->Setting,
+  int sphere_quality = SettingGet_i(G, I->cs->Setting.get(), I->obj->Setting.get(),
                                     cSetting_sphere_quality);
 
   use_shader = SettingGetGlobal_b(G, cSetting_sphere_use_shader) &&
@@ -35,16 +33,11 @@ void RepSphere_Generate_Triangles(PyMOLGlobals *G, RepSphere *I,
   // generate the CGO
   if (use_shader) {
     CGO *convertcgo = CGOSimplify(I->primitiveCGO, 0, sphere_quality);
-    CGO *convertcgo2 = nullptr;
     CHECKOK(ok, convertcgo);
-    if (ok)
-      convertcgo2 = CGOCombineBeginEnd(convertcgo, 0);
-    CHECKOK(ok, convertcgo2);
     if (ok){
-      I->renderCGO = CGOOptimizeToVBONotIndexed(convertcgo2, 0);
-      I->renderCGO->use_shader = use_shader;
+      I->renderCGO = CGOOptimizeToVBONotIndexed(convertcgo, 0);
+      assert(I->renderCGO->use_shader);
     }
-    CGOFree(convertcgo2);
     CGOFree(convertcgo);
   } else {
     I->renderCGO = I->primitiveCGO;
@@ -53,8 +46,8 @@ void RepSphere_Generate_Triangles(PyMOLGlobals *G, RepSphere *I,
 
   if (!ok) {
     CGOFree(I->renderCGO);
-    I->R.fInvalidate(&I->R, I->R.cs, cRepInvPurge);
-    I->R.cs->Active[cRepSphere] = false;
+    I->invalidate(cRepInvPurge);
+    I->cs->Active[cRepSphere] = false;
   } else {
     I->renderCGO->sphere_quality = sphere_quality;
   }
@@ -72,21 +65,6 @@ void RepSphere_Generate_Impostor_Spheres(PyMOLGlobals *G, RepSphere *I,
   }
 }
 
-#ifdef _PYMOL_ARB_SHADERS
-void RepSphere_Generate_ARB_Spheres(PyMOLGlobals *G, RepSphere *I,
-                                    RenderInfo *info) {
-  float fog_info[3];
-  RenderSphereComputeFog(G, info, fog_info);
-
-  if (Feedback(G, FB_OpenGL, FB_Debugging))
-    PyMOLCheckOpenGLErr("before shader");
-  G->ShaderMgr->Enable_SphereShaderARB();
-  CGORenderSpheresARB(info, I->primitiveCGO, fog_info);
-  sphereARBShaderPrg->DisableARB();
-  if (Feedback(G, FB_OpenGL, FB_Debugging)) PyMOLCheckOpenGLErr("after shader");
-}
-#endif
-
 /* simple, default point width points -- modes 1 or 6 */
 void RepSphere_Generate_Point_Sprites(PyMOLGlobals *G, RepSphere *I,
                                       RenderInfo *info, int sphere_mode) {
@@ -97,9 +75,7 @@ void RepSphere_Generate_Point_Sprites(PyMOLGlobals *G, RepSphere *I,
   CGO *pointCGO = CGOConvertSpheresToPoints(I->primitiveCGO);
   // generate the CGO
   if (use_shader) {
-    CGO *convertcgo = CGOCombineBeginEnd(pointCGO, 0);
-    I->renderCGO = CGOOptimizeToVBONotIndexed(convertcgo, 0);
-    CGOFree(convertcgo);
+    I->renderCGO = CGOOptimizeToVBONotIndexed(pointCGO, 0);
 
     CGO *newcgo = CGONew(G);
 

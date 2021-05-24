@@ -10,18 +10,23 @@
 #include "HydrogenAdder.h"
 #include "Err.h"
 
-/*
+#include <cassert>
+
+/**
  * Add coordinates for atom `atm`.
  *
- * Pre-conditions:
- * - `atm` doesn't have coordinates yet in given coord set
+ * @param atm Atom index (in ObjectMolecule::AtomInfo)
+ * @param v Atom coordinates (`float[3]`)
+ *
+ * @pre `atm` doesn't have coordinates yet in given coord set
  */
 static
 void AppendAtomVertex(CoordSet* cs, unsigned atm, const float* v)
 {
-  int idx = cs->NIndex++;
-  VLACheck(cs->Coord, float, idx * 3 + 2);
-  VLACheck(cs->IdxToAtm, int, idx);
+  assert(cs->atmToIdx(atm) == -1);
+
+  int const idx = cs->NIndex;
+  cs->setNIndex(idx + 1);
 
   cs->IdxToAtm[idx] = atm;
 
@@ -35,12 +40,15 @@ void AppendAtomVertex(CoordSet* cs, unsigned atm, const float* v)
   copy3f(v, cs->coordPtr(idx));
 }
 
-/*
+/**
  * If `atm` has a planar (sp2) configuration, then write the plane's normal
  * vector to the `normal` out pointer and return true.
  *
- * Pre-conditions:
- * - Neighbors up-to-date
+ * @param atm Atom index (in ObjectMolecule::AtomInfo)
+ * @param[out] normal Normal vector (`float[3]` with length 1)
+ * @param h_fix If true, then ignore hydrogen neighbors
+ *
+ * @pre Neighbors up-to-date
  */
 static
 bool get_planer_normal_cs(
@@ -60,13 +68,12 @@ bool get_planer_normal_cs(
 
   const float* center_coord = cs->coordPtr(idx);
 
-  int neighbor_atm, tmp;
-  ITERNEIGHBORATOMS(I->Neighbor, atm, neighbor_atm, tmp) {
-    if (h_fix && I->AtomInfo[neighbor_atm].isHydrogen())
+  for (auto const& neighbor : AtomNeighbors(I, atm)) {
+    if (h_fix && I->AtomInfo[neighbor.atm].isHydrogen())
       continue;
 
     // get neighbor coordinate
-    int neighbor_idx = cs->atmToIdx(neighbor_atm);
+    int neighbor_idx = cs->atmToIdx(neighbor.atm);
     if (neighbor_idx == -1)
       continue;
 
@@ -104,24 +111,23 @@ bool get_planer_normal_cs(
   return true;
 }
 
-/*
+/**
  * Calculate plausible coordinates for those neighbors of `atm` which don't
  * have coordinates yet.
  *
- * h_fix: also reposition hydrogens with existing coordinates.
+ * @param h_fix also reposition hydrogens with existing coordinates.
  *
- * Returns the number of added/updated coordinates.
+ * @return Number of added/updated coordinates.
  *
- * Pre-conditions:
- * - Neighbors up-to-date
+ * @pre Neighbors up-to-date
  *
- * Note: Similar to ObjectMoleculeFindOpenValenceVector ("Evolutionary
+ * @note Similar to ::ObjectMoleculeFindOpenValenceVector ("Evolutionary
  * descendant", code duplication event)
  */
 int ObjectMoleculeSetMissingNeighborCoords(
     ObjectMolecule* I, CoordSet* cs, unsigned atm, bool h_fix)
 {
-  auto G = I->Obj.G;
+  auto G = I->G;
   int n_present = 0;
   float cbuf[4 * 3];
   int present_atm = -1;
@@ -136,16 +142,15 @@ int ObjectMoleculeSetMissingNeighborCoords(
 
   const float* center_coord = cs->coordPtr(idx);
 
-  int neighbor_atm, tmp;
-  ITERNEIGHBORATOMS(I->Neighbor, atm, neighbor_atm, tmp) {
+  for (auto const& neighbor : AtomNeighbors(I, atm)) {
     if (n_present == 4)
       break;
 
     // get neighbor coordinate
-    int neighbor_idx = cs->atmToIdx(neighbor_atm);
+    int neighbor_idx = cs->atmToIdx(neighbor.atm);
     if (neighbor_idx == -1 ||
-        (h_fix && I->AtomInfo[neighbor_atm].isHydrogen())) {
-      missing_atm[n_missing++] = neighbor_atm;
+        (h_fix && I->AtomInfo[neighbor.atm].isHydrogen())) {
+      missing_atm[n_missing++] = neighbor.atm;
       continue;
     }
 
@@ -156,7 +161,7 @@ int ObjectMoleculeSetMissingNeighborCoords(
     subtract3f(neighbor_coord, center_coord, vvec);
     normalize3f(vvec);
 
-    present_atm = neighbor_atm;
+    present_atm = neighbor.atm;
     ++n_present;
   }
 
@@ -260,12 +265,18 @@ int ObjectMoleculeSetMissingNeighborCoords(
   return n_missing;
 }
 
-/*
+/**
  * Add hydrogens to selection
+ *
+ * @param sele Valid atom selection
+ * @param state Object state (can be all (-1) or current (-2))
+ *
+ * @return False if `I` has no atoms in the selection or if the chemistry (atom
+ * geometry and valence) can't be determined.
  */
 int ObjectMoleculeAddSeleHydrogensRefactored(ObjectMolecule* I, int sele, int state)
 {
-  auto G = I->Obj.G;
+  auto G = I->G;
   auto const n_atom_old = I->NAtom;
 
   bool seleFlag = false;
@@ -286,8 +297,6 @@ int ObjectMoleculeAddSeleHydrogensRefactored(ObjectMolecule* I, int sele, int st
     return false;
   }
 
-  ObjectMoleculeUpdateNeighbors(I);
-
   // add hydrogens (without coordinates)
   for (unsigned atm = 0; atm < n_atom_old; ++atm) {
     const auto ai = I->AtomInfo + atm;
@@ -298,14 +307,14 @@ int ObjectMoleculeAddSeleHydrogensRefactored(ObjectMolecule* I, int sele, int st
     if (!SelectorIsMember(G, ai->selEntry, sele))
       continue;
 
-    int nneighbors = I->Neighbor[I->Neighbor[atm]];
+    int nneighbors = AtomNeighbors(I, atm).size();
     int nimplicit = ai->valence - nneighbors;
 
     if (nimplicit <= 0)
       continue;
 
-    VLACheck(I->AtomInfo, AtomInfoType, I->NAtom + nimplicit - 1);
-    VLACheck(I->Bond,     BondType,     I->NBond + nimplicit - 1);
+    I->AtomInfo.reserve(I->NAtom + nimplicit);
+    I->Bond.reserve(I->NBond + nimplicit);
 
     for (int i = 0; i < nimplicit; ++i) {
       // bond
@@ -322,15 +331,9 @@ int ObjectMoleculeAddSeleHydrogensRefactored(ObjectMolecule* I, int sele, int st
   }
 
   // grow index arrays
-  for (StateIterator iter(G, nullptr, cSelectorUpdateTableAllStates, I->NCSet);
-      iter.next();) {
-    CoordSet* cs = I->CSet[iter.state];
-    if (cs)
-      cs->extendIndices(I->NAtom);
-  }
+  ObjectMoleculeExtendIndices(I, cSelectorUpdateTableAllStates);
 
-  ObjectMoleculeInvalidate(I, cRepAll, cRepInvBonds, state);
-  ObjectMoleculeUpdateNeighbors(I);
+  I->invalidate(cRepAll, cRepInvBonds, state);
 
   AtomInfoUniquefyNames(G,
       I->AtomInfo, n_atom_old,
@@ -338,7 +341,7 @@ int ObjectMoleculeAddSeleHydrogensRefactored(ObjectMolecule* I, int sele, int st
       I->NAtom - n_atom_old);
 
   // fill coordinates
-  for (StateIterator iter(G, I->Obj.Setting, state, I->NCSet); iter.next();) {
+  for (StateIterator iter(I, state); iter.next();) {
     CoordSet* cs = I->CSet[iter.state];
     if (!cs)
       continue;
@@ -356,7 +359,7 @@ int ObjectMoleculeAddSeleHydrogensRefactored(ObjectMolecule* I, int sele, int st
     }
   }
 
-  ObjectMoleculeInvalidate(I, cRepAll, cRepInvAtoms, state);
+  I->invalidate(cRepAll, cRepInvAtoms, state);
   ObjectMoleculeSort(I);
   ObjectMoleculeUpdateIDNumbers(I);
 

@@ -23,6 +23,7 @@ Z* -------------------------------------------------------------------
 #include "Rep.h"
 #include "GenericBuffer.h"
 #include "SceneDef.h"
+#include "PostProcess.h"
 #include <map>
 #include <set>
 #include <string>
@@ -41,10 +42,6 @@ Z* -------------------------------------------------------------------
 #define LOCK_GUARD_MUTEX(name, var) std::lock_guard<std::mutex> name(var)
 #else
 #define LOCK_GUARD_MUTEX(name, var)
-#endif
-
-#ifndef GL_FRAGMENT_PROGRAM_ARB
-#define GL_FRAGMENT_PROGRAM_ARB                         0x8804
 #endif
 
 /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
@@ -99,11 +96,6 @@ public:
     copy->derivative = variable;
     return copy;
   }
-
-#ifdef _PYMOL_ARB_SHADERS
-  static CShaderPrg *NewARB(PyMOLGlobals * G, const char * name, const std::string& vert, const std::string& frag);
-  int DisableARB();
-#endif
 
 /* Enable */
   int Enable();
@@ -214,7 +206,7 @@ public:
   int RemoveShaderPrg(const std::string& name);
 
 /* GetShaderPrg -- gets a ptr to the installed shader */
-  CShaderPrg * GetShaderPrg(std::string name, short set_current_shader = 1, short pass = 0);
+  CShaderPrg * GetShaderPrg(std::string name, short set_current_shader = 1, RenderPass pass = RenderPass::Antialias);
 
   int ShaderPrgExists(const char * name);
 
@@ -226,39 +218,38 @@ public:
   void AddVBOToFree(GLuint vboid);
   void FreeAllVBOs();
 
-  CShaderPrg *Enable_DefaultShader(int pass);
-  CShaderPrg *Enable_LineShader(int pass);
-  CShaderPrg *Enable_SurfaceShader(int pass);
-  CShaderPrg *Enable_DefaultShaderWithSettings(const CSetting * set1, const CSetting * set2, int pass);
-  CShaderPrg *Enable_CylinderShader(const char *, int pass);
-  CShaderPrg *Enable_CylinderShader(int pass);
-  CShaderPrg *Enable_DefaultSphereShader(int pass);
-#ifdef _PYMOL_ARB_SHADERS
-  CShaderPrg *Enable_SphereShaderARB();
-#endif
+  CShaderPrg *Enable_DefaultShader(RenderPass pass);
+  CShaderPrg *Enable_LineShader(RenderPass pass);
+  CShaderPrg *Enable_SurfaceShader(RenderPass pass);
+  CShaderPrg *Enable_DefaultShaderWithSettings(const CSetting * set1, const CSetting * set2, RenderPass pass);
+  CShaderPrg *Enable_CylinderShader(const char *, RenderPass pass);
+  CShaderPrg *Enable_CylinderShader(RenderPass pass);
+  CShaderPrg *Enable_DefaultSphereShader(RenderPass pass);
   CShaderPrg *Enable_RampShader();
-  CShaderPrg *Enable_ConnectorShader(int pass);
+  CShaderPrg *Enable_ConnectorShader(RenderPass pass);
   CShaderPrg *Enable_TriLinesShader();
   CShaderPrg *Enable_ScreenShader();
-  CShaderPrg *Enable_LabelShader(int pass);
+  CShaderPrg *Enable_LabelShader(RenderPass pass);
   CShaderPrg *Enable_OITShader();
   CShaderPrg *Enable_OITCopyShader();
   CShaderPrg *Enable_IndicatorShader();
   CShaderPrg *Enable_BackgroundShader();
 
+  void Disable_Current_Shader();
+
   CShaderPrg *Get_ScreenShader();
-  CShaderPrg *Get_ConnectorShader(int pass);
-  CShaderPrg *Get_DefaultShader(int pass);
-  CShaderPrg *Get_LineShader(int pass);
-  CShaderPrg *Get_SurfaceShader(int pass);
-  CShaderPrg *Get_CylinderShader(int pass, short set_current_shader=1);
-  CShaderPrg *Get_CylinderNewShader(int pass, short set_current_shader=1);
-  CShaderPrg *Get_DefaultSphereShader(int pass);
+  CShaderPrg *Get_ConnectorShader(RenderPass pass);
+  CShaderPrg *Get_DefaultShader(RenderPass pass);
+  CShaderPrg *Get_LineShader(RenderPass pass);
+  CShaderPrg *Get_SurfaceShader(RenderPass pass);
+  CShaderPrg *Get_CylinderShader(RenderPass pass, short set_current_shader=1);
+  CShaderPrg *Get_CylinderNewShader(RenderPass pass, short set_current_shader=1);
+  CShaderPrg *Get_DefaultSphereShader(RenderPass pass);
   CShaderPrg *Get_RampShader();
   CShaderPrg *Get_Current_Shader();
   CShaderPrg *Get_IndicatorShader();
   CShaderPrg *Get_BackgroundShader();
-  CShaderPrg *Get_LabelShader(int pass);
+  CShaderPrg *Get_LabelShader(RenderPass pass);
 
   void Reload_CallComputeColorForLight();
   void Reload_All_Shaders();
@@ -341,21 +332,23 @@ public:
   std::map<std::string, std::vector<std::string> > shader_deps;
 
   // Post process render targets
-  size_t offscreen_rt[3];
-  ivec2 offscreen_size;
-
-  size_t oit_rt[2];
-  ivec2 oit_size;
-
-  size_t areatex { 0 };
-  size_t searchtex { 0 };
+  std::size_t offscreen_rt { 0 }; //Texture before postprocessing;
+#ifndef _PYMOL_NO_AA_SHADERS
+  std::unique_ptr<PostProcess> smaa_pp;
+#endif
+  std::unique_ptr<PostProcess> oit_pp;
 
   void bindOffscreen(int width, int height, GridInfo * grid);
   void bindOffscreenOIT(int width, int height, int drawbuf = 0);
-  void bindOffscreenFBO(int index);
-  void bindOffscreenOITFBO(int index);
-  void bindOffscreenTexture(int index);
-  void bindOffscreenOITTexture(int index);
+
+  /**
+   * Activates/Binds offscreen render target.
+   * @param textureIdx offset of texture unit to assign (0 for GL_TEXTURE0, 1
+   * for GL_TEXTURE1, etc...)
+   * @note: indices should preferably be passed in as enum or named variable for
+   * clarity
+   */
+  void activateOffscreenTexture(GLuint textureIdx);
 };
 
 bool ShaderMgrInit(PyMOLGlobals * G);

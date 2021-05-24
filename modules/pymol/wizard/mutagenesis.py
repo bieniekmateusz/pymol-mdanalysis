@@ -1,6 +1,3 @@
-
-from __future__ import print_function
-
 from pymol.wizard import Wizard
 from pymol import cmd,editor
 from chempy import io
@@ -19,6 +16,7 @@ mut_sele = "_tmp_mut_sele"
 tmp_obj2 = "_tmp_obj2"
 tmp_sele1 = "_tmp_sele1"
 tmp_sele2 = "_tmp_sele2"
+tmp_hbonds = "_tmp_hbonds"
 
 default_mode = "current"
 default_rep = "lines"
@@ -41,16 +39,16 @@ class Mutagenesis(Wizard):
 
     count = 0
     cutoff = 3.5
-    
+
     def __init__(self,_self=cmd):
         Wizard.__init__(self,_self)
         cmd=self.cmd
 
         if self.cmd.get_movie_length() > 0:
             raise pymol.wizarding.WizardError('Mutagenesis Wizard cannot be used with Movie')
-        
+
         cmd.unpick()
-        
+
         self.stored = pymol.Scratch_Storage()
         self.space = {'stored': self.stored}
 
@@ -90,7 +88,7 @@ class Mutagenesis(Wizard):
         self.mode_label['current']="No Mutant"
 
         self.selection_mode = cmd.get_setting_int("mouse_selection_mode")
-        cmd.set("mouse_selection_mode",1) 
+        cmd.set("mouse_selection_mode",1)
 
         smm = []
         smm.append([ 2, 'Mutant', '' ])
@@ -132,8 +130,8 @@ class Mutagenesis(Wizard):
                         lst[start:stop] = [ [1, self.mode_label[a] + "... " , slice2 ] ]
                     else:
                         slice2 = [ slice[3] ] + [ [0,'',''] ] + slice[0:3]
-                        lst[start:stop] = [ [1, self.mode_label['HIS']+ "... ", slice2 ] ]                        
-                
+                        lst[start:stop] = [ [1, self.mode_label['HIS']+ "... ", slice2 ] ]
+
         self.menu['mode']=smm
 
 
@@ -178,25 +176,25 @@ class Mutagenesis(Wizard):
            'nmet' : 'N-methyl',
             }
         self.c_caps = [ 'none', 'nega', 'amin', 'nmet' ]
-                        
+
         smm = []
         smm.append([ 2, 'N-Cap', '' ])
         for a in self.n_caps:
             smm.append([ 1, self.n_cap_name[a], 'cmd.get_wizard().set_n_cap("'+a+'")'])
         self.menu['n_cap']=smm
-        
+
         smm = []
         smm.append([ 2, 'C-Cap', '' ])
         for a in self.c_caps:
             smm.append([ 1, self.c_cap_name[a], 'cmd.get_wizard().set_c_cap("'+a+'")'])
         self.menu['c_cap']=smm
-        
+
         smm = []
         smm.append([ 2, 'Hydrogens', '' ])
         for a in self.hyds:
             smm.append([ 1, self.hyd_name[a], 'cmd.get_wizard().set_hyd("'+a+'")'])
         self.menu['hyd']=smm
-        
+
         smm = []
         smm.append([ 2, 'Representation', '' ])
         for a in self.reps:
@@ -224,7 +222,7 @@ class Mutagenesis(Wizard):
             if not hasattr(self,'dep_library'):
                 self.dep_library = io.pkl.fromFile(os.environ['PYMOL_DATA']+
                                            "/chempy/sidechains/sc_bb_dep.pkl")
-            
+
     def set_mode(self,mode):
         cmd=self.cmd
         if mode in self.modes:
@@ -232,13 +230,13 @@ class Mutagenesis(Wizard):
         if self.status==1:
             self.do_library()
         cmd.refresh_wizard()
-        
+
     def set_rep(self,rep):
         cmd=self.cmd
         if rep in self.reps:
             self.rep=rep
         cmd.hide("("+obj_name+")")
-        cmd.show('lines',obj_name) # always show lines      
+        cmd.show('lines',obj_name) # always show lines
         cmd.show(self.rep,obj_name)
         cmd.refresh_wizard()
 
@@ -274,7 +272,7 @@ class Mutagenesis(Wizard):
             if src_sele in cmd.get_names("all"):
                 self.do_library()
             cmd.refresh_wizard()
-        
+
     def get_panel(self):
         cmd=self.cmd
         if int(cmd.get("mouse_selection_mode")!=1):
@@ -291,7 +289,7 @@ class Mutagenesis(Wizard):
             [ 3, self.hyd_name[self.hyd],'hyd'],
             [ 3, self.rep_name[self.rep],'rep'],
             [ 3, self.dep_name[self.dep],'dep'],
-            [ 2, 'Apply' , 'cmd.get_wizard().apply()'],         
+            [ 2, 'Apply' , 'cmd.get_wizard().apply()'],
             [ 2, 'Clear' , 'cmd.get_wizard().clear()'],
             [ 2, 'Done','cmd.set_wizard()'],
             ]
@@ -311,11 +309,12 @@ class Mutagenesis(Wizard):
         default_c_cap = self.c_cap
         cmd.set("mouse_selection_mode",self.selection_mode) # restore selection mode
         self.clear()
-        
+
     def clear(self):
         cmd=self.cmd
         self.status=0
         self.bump_scores = []
+        cmd.delete(tmp_hbonds)
         cmd.delete(tmp_obj2)
         cmd.delete(mut_sele)
         cmd.delete(src_sele)
@@ -323,7 +322,7 @@ class Mutagenesis(Wizard):
         cmd.delete(bump_name)
         cmd.delete("_seeker_hilight")
         cmd.refresh_wizard()
-        
+
     def apply(self):
         cmd=self.cmd
         if self.status==1:
@@ -364,7 +363,7 @@ class Mutagenesis(Wizard):
 
                     # fix N-H hydrogen position (if any exists)
                     cmd.h_fix('?%s & name N' % (tmp_sele2))
-                    
+
                     # delete temporary objects/selections
                     cmd.delete(tmp_sele1)
                     cmd.delete(tmp_sele2)
@@ -372,7 +371,7 @@ class Mutagenesis(Wizard):
                     self.clear()
                     # and return to frame 1
                     cmd.frame(1)
-                    cmd.refresh_wizard()               
+                    cmd.refresh_wizard()
                 else:
                     # create copy with conformation in correct state
                     cmd.create(tmp_obj2,obj_name,src_frame,1)
@@ -381,7 +380,7 @@ class Mutagenesis(Wizard):
                     cmd.remove("byres (name N and (%s in (neighbor %s)) and resn NME+NHH)"%
                                 (new_name,src_sele))
                     cmd.remove("(%s) and name OXT"%src_sele)
-                    
+
                     # remove existing n-cap in copy (if any)
                     cmd.remove("byres (name C and (%s in (neighbor %s)) and resn ACE)"%
                                 (new_name,src_sele))
@@ -396,9 +395,9 @@ class Mutagenesis(Wizard):
                     self.clear()
                     # and return to frame 1
                     cmd.frame(1)
-                    cmd.refresh_wizard()                              
+                    cmd.refresh_wizard()
                 cmd.set('auto_zoom',auto_zoom,quiet=1)
-                    
+
     def get_prompt(self):
         self.prompt = None
         if self.status==0:
@@ -407,7 +406,7 @@ class Mutagenesis(Wizard):
             self.prompt = [ 'Select a rotamer for %s or pick a new residue...'%self.res_text ]
         return self.prompt
 
-    
+
     def do_library(self):
         cmd=self.cmd
         pymol=cmd._pymol
@@ -427,7 +426,7 @@ class Mutagenesis(Wizard):
         cmd.iterate("first (%s)"%src_sele,'stored.name=model+"/"+segi+"/"+chain+"/"+resn+"`"+resi')
         self.res_text = pymol.stored.name
         cmd.select("_seeker_hilight",src_sele)
-        
+
         auto_zoom = cmd.get_setting_text('auto_zoom')
         cmd.set('auto_zoom',"0",quiet=1)
         cmd.frame(0)
@@ -446,7 +445,7 @@ class Mutagenesis(Wizard):
                 cmd.create(frag_name,src_sele,1,1)
                 if self.c_cap=='open':
                     cmd.remove("%s and name OXT"%frag_name)
-                    
+
         if self.lib_mode!='current':
             rot_type = self.lib_mode
             frag_type = self.lib_mode
@@ -511,7 +510,7 @@ class Mutagenesis(Wizard):
                                  "(%s & name OXT)"%frag_name,180.0+angle)
                 cmd.deprotect(frag_name)
 
-                
+
             # fix the hydrogen position (if any)
             if cmd.count_atoms("(hydro and bound_to (name N & (%s)))"%frag_name)==1:
                 if cmd.count_atoms("(hydro and bound_to (name N & (%s)))"%src_sele)==1:
@@ -537,9 +536,9 @@ class Mutagenesis(Wizard):
                                        (src_sele,src_sele)):
                     if cmd.count_atoms("name C & (%s)"%(frag_name))==1:
                         if self.c_cap == 'amin':
-                            editor.attach_amino_acid("name C & (%s)"%(frag_name), 'nhh')
+                            editor.attach_amino_acid("name C & (%s)"%(frag_name), 'nhh', _self=cmd)
                         elif self.c_cap == 'nmet':
-                            editor.attach_amino_acid("name C & (%s)"%(frag_name), 'nme')
+                            editor.attach_amino_acid("name C & (%s)"%(frag_name), 'nme', _self=cmd)
                         if cmd.count_atoms("hydro & bound_to (name N & bound_to (name C & (%s)))"%frag_name):
                             cmd.h_fix("name N & bound_to (name C & (%s))"%frag_name)
                         # trim hydrogens
@@ -548,14 +547,14 @@ class Mutagenesis(Wizard):
                         elif (self.hyd == 'auto'):
                             if cmd.count_atoms("("+src_sele+") and hydro")==0:
                                 cmd.remove("("+frag_name+" and hydro)")
-                         
+
             # add n-cap (if appropriate)
             if self.n_cap in [ 'acet' ]:
                 if not cmd.count_atoms("elem C & !(%s) & (bto. (name N & (%s))) & !resn ACE "%
                                        (src_sele,src_sele)):
                     if cmd.count_atoms("name N & (%s)"%(frag_name))==1:
                         if self.n_cap == 'acet':
-                            editor.attach_amino_acid("name N & (%s)"%(frag_name), 'ace')
+                            editor.attach_amino_acid("name N & (%s)"%(frag_name), 'ace', _self=cmd)
                         if cmd.count_atoms("hydro & bound_to (name N & bound_to (name C & (%s)))"%frag_name):
                             cmd.h_fix("name N & (%s)"%frag_name)
                         # trim hydrogens
@@ -564,13 +563,13 @@ class Mutagenesis(Wizard):
                         elif (self.hyd == 'auto'):
                             if cmd.count_atoms("("+src_sele+") and hydro")==0:
                                 cmd.remove("("+frag_name+" and hydro)")
- 
 
-                    
+
+
 
         cartoon = (cmd.count_atoms("(%s & name CA & rep cartoon)"%src_sele)>0)
         sticks = (cmd.count_atoms("(%s & name CA & rep sticks)"%src_sele)>0)
-            
+
         cmd.delete(obj_name)
         key = rot_type
         lib = None
@@ -583,24 +582,24 @@ class Mutagenesis(Wizard):
                     key = (rot_type,phi,psi)
                     if key not in self.dep_library:
                         (phi,psi) = (int(20*round(phi/20)),int(20*(round(psi/20))))
-                        key = (rot_type,phi,psi)                    
+                        key = (rot_type,phi,psi)
                         if key not in self.dep_library:
                             (phi,psi) = (int(60*round(phi/60)),int(60*(round(psi/60))))
                             key = (rot_type,phi,psi)
                     lib = self.dep_library.get(key,None)
             except:
                 pass
-        if lib == None:
+        if lib is None:
             key = rot_type
             lib = self.ind_library.get(key,None)
-            if (lib!= None) and self.dep == 'dep':
+            if (lib is not None) and self.dep == 'dep':
                 print(' Mutagenesis: no phi/psi, using backbone-independent rotamers.')
-        if lib != None:
+        if lib is not None:
             state = 1
             for a in lib:
                 cmd.create(obj_name,frag_name,1,state)
                 if state == 1:
-                    cmd.select(mut_sele,"(byres (%s like %s))"%(obj_name,src_sele)) 
+                    cmd.select(mut_sele,"(byres (%s like %s))"%(obj_name,src_sele))
                 if rot_type=='PRO':
                     cmd.unbond("(%s & name N)"%mut_sele,"(%s & name CD)"%mut_sele)
                 for b in a.keys():
@@ -613,7 +612,7 @@ class Mutagenesis(Wizard):
                     else:
                         cmd.set_title(obj_name,state,"%1.1f%%"%(a[b]*100))
                 if rot_type=='PRO':
-                    cmd.bond("(%s & name N)"%mut_sele,"(%s & name CD)"%mut_sele)                
+                    cmd.bond("(%s & name N)"%mut_sele,"(%s & name CD)"%mut_sele)
                 state = state + 1
             cmd.delete(frag_name)
             print(" Mutagenesis: %d rotamers loaded."%len(lib))
@@ -637,7 +636,7 @@ class Mutagenesis(Wizard):
                     cmd.bond(tmp_sele1,tmp_sele2)
                 cmd.delete(tmp_sele1)
                 cmd.delete(tmp_sele2)
-                
+
                 cmd.protect("%s and not (%s in (%s and not name N+C+CA+O+H+HA))"%
                             (bump_name,bump_name,mut_sele))
                 cmd.sculpt_activate(bump_name)
@@ -658,7 +657,7 @@ class Mutagenesis(Wizard):
             cmd.create(obj_name,frag_name,1,1)
             print(" Mutagenesis: no rotamers found in library.")
         cmd.set("seq_view",0,obj_name,quiet=1)
-        pymol.util.cbaw(obj_name)
+        pymol.util.cbaw(obj_name, _self=cmd)
         cmd.hide("("+obj_name+")")
         cmd.show(self.rep,obj_name)
         cmd.show('lines',obj_name) #neighbor  always show lines
@@ -669,6 +668,10 @@ class Mutagenesis(Wizard):
         cmd.set('auto_zoom',auto_zoom,quiet=1)
         cmd.delete(frag_name)
         cmd.frame(state_best)
+
+        # this might be redundant if frame(state_best) changed the state
+        self.do_state(state_best)
+
         cmd.unpick()
         cmd.feedback("pop")
 
@@ -679,10 +682,16 @@ class Mutagenesis(Wizard):
             if (bump_name in names) and (obj_name in names):
                 cmd.update(bump_name,obj_name)
         if self.bump_scores:
-            state = cmd.get_state()
             print(' Rotamer %d/%d, strain=%.2f' % (state,
                     cmd.count_states(obj_name), self.bump_scores[state - 1]))
-                
+
+        # update hbonds (polar contacts)
+        cmd.delete(tmp_hbonds)
+        cmd.distance(tmp_hbonds,
+                "?{}".format(obj_name),
+                "(byobj ?{}) and not ?{}".format(src_sele, src_sele),
+                mode=2, state1=state, state2=1)
+
     def do_select(self,selection):
         print("Selected!")
         cmd=self.cmd
@@ -702,7 +711,7 @@ class Mutagenesis(Wizard):
         cmd.refresh_wizard()
         cmd.deselect()
         return 1
-    
+
     def do_pick(self,bondFlag):
         print("Picked!")
         cmd=self.cmd
@@ -719,6 +728,3 @@ class Mutagenesis(Wizard):
             self.error = None
             self.do_library()
         cmd.refresh_wizard()
-
-
-

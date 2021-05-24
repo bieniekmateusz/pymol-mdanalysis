@@ -19,58 +19,66 @@ Z* -------------------------------------------------------------------
 
 #include"os_gl.h"
 #include"ObjectMap.h"
+#include"Result.h"
+#include"CGO.h"
+#include"PyMOLEnums.h"
 
-typedef struct {
-  CObjectState State;
+struct ObjectSurfaceState : public CObjectState
+{
   ObjectNameType MapName;
   int MapState;
   CCrystal Crystal;
-  int Active;
-  int *N, nT, base_n_V;
-  float *V;
-  float *VC;
-  int *RC;
+  int Active = false;
+  pymol::vla<int> N;
+  int nT = 0;
+  int base_n_V;
+  pymol::vla<float> V;
+  std::vector<float> VC;
+  std::vector<int> RC;
   int OneColor;
-  int VCsize;
+  int VCsize() { return VC.size() / 3; }
   int Range[6];
   float ExtentMin[3], ExtentMax[3];
-  int ExtentFlag;
+  int ExtentFlag = false;
   float Level, Radius;
   int RefreshFlag;
-  int ResurfaceFlag;
-  int RecolorFlag;
-  int quiet;
-  float *AtomVertex;
-  int CarveFlag;
+  int ResurfaceFlag = true;
+  int RecolorFlag = false;
+  int quiet = true;
+  pymol::vla<float> AtomVertex;
+  int CarveFlag = false;
   float CarveBuffer;
-  int Mode;                     /* 0 dots, 1 lines, 2 triangles */
+  cIsosurfaceMode Mode;
   int DotFlag;
-  CGO *UnitCellCGO;
-  int Side;
-  CGO *shaderCGO;
+  pymol::cache_ptr<CGO> UnitCellCGO;
+  cIsosurfaceSide Side = cIsosurfaceSide::front;
+  pymol::cache_ptr<CGO> shaderCGO;
+  ObjectSurfaceState(PyMOLGlobals* G);
+};
 
-  /* for immediate mode, holds vertices and colors, used temporarily to generate CGOs */
-  float **t_buf; // vertices
-  float **c_buf; // colors
-} ObjectSurfaceState;
+struct ObjectSurface : public pymol::CObject {
+  std::vector<ObjectSurfaceState> State;
+  ObjectSurface(PyMOLGlobals* G);
 
-typedef struct ObjectSurface {
-  CObject Obj;
-  ObjectSurfaceState *State;
-  int NState;
-} ObjectSurface;
+  // virtual methods
+  void update() override;
+  void render(RenderInfo* info) override;
+  void invalidate(cRep_t rep, cRepInv_t level, int state) override;
+  int getNFrame() const override;
+  pymol::CObject* clone() const override;
+};
 
 ObjectSurface *ObjectSurfaceFromBox(PyMOLGlobals * G, ObjectSurface * obj,
                                     ObjectMap * map, int map_state, int state, float *mn,
-                                    float *mx, float level, int mode, float carve,
-                                    float *vert_vla, int side, int quiet);
-void ObjectSurfaceDump(ObjectSurface * I, const char *fname, int state);
+                                    float *mx, float level, cIsosurfaceMode, float carve,
+                                    pymol::vla<float>&& vert_vla, cIsosurfaceSide, int quiet);
+void ObjectSurfaceDump(ObjectSurface * I, const char *fname, int state, int quiet);
 
 int ObjectSurfaceNewFromPyList(PyMOLGlobals * G, PyObject * list,
-                               ObjectSurface ** result);
+				   ObjectSurface ** result);
 PyObject *ObjectSurfaceAsPyList(ObjectSurface * I);
 int ObjectSurfaceSetLevel(ObjectSurface * I, float level, int state, int quiet);
-int ObjectSurfaceGetLevel(ObjectSurface * I, int state, float *result);
+pymol::Result<float> ObjectSurfaceGetLevel(ObjectSurface * I, int state);
 int ObjectSurfaceInvalidateMapName(ObjectSurface * I, const char *name, const char * new_name);
 
 #endif

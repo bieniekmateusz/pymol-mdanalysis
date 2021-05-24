@@ -15,6 +15,7 @@ Z* -------------------------------------------------------------------
 */
 #include"os_predef.h"
 #include"MemoryDebug.h"
+#include"pymol/memory.h"
 
 
 /* backwards compatibility */
@@ -84,7 +85,7 @@ static unsigned char *base64_decode(const char *data,
   if (input_length < 1)
     input_length = strlen(data);
 
-  ok_assert(1, decoded_data = (unsigned char*) mmalloc(input_length / 4 * 3));
+  ok_assert(1, decoded_data = pymol::malloc<unsigned char>(input_length / 4 * 3));
 
   while (i < input_length) {
     triple = 0;
@@ -114,12 +115,12 @@ typedef struct {
   unsigned char *h; // for freeing
 } uchar2p;
 
-/*
+#ifdef _PYMOL_LIBPNG
+/**
  * Use with png_set_read_fn, for reading a PNG file from memory.
  * This simply copies from the memory pointer to outBytes while
  * incrementing the memory pointer.
  */
-#ifdef _PYMOL_LIBPNG
 void read_data_from_buffer(png_structp png_ptr,
                            png_bytep outBytes,
                            png_size_t byteCountToRead) {
@@ -133,19 +134,17 @@ void read_data_from_buffer(png_structp png_ptr,
   }
 }
 
-/*
+/**
  * Use with png_set_write_fn, for writing a PNG file to memory.
  */
 static void write_data_to_buffer(png_structp png_ptr,
                                  png_bytep data,
                                  png_size_t length) {
-#if 0
-  auto io_ptr = (std::vector<unsigned char>*) png_get_io_ptr(png_ptr);
+  auto io_ptr = reinterpret_cast<png_outbuf_t*>(png_get_io_ptr(png_ptr));
   io_ptr->insert(io_ptr->end(), data, data + length);
-#endif
 }
 
-/*
+/**
  * Use with png_set_read_fn instead of png_init_io, allows mixing of
  * Visual Studio versions
  */
@@ -157,7 +156,7 @@ static void read_data_from_file(
   fread(buffer, 1, count, fp);
 }
 
-/*
+/**
  * Use with png_set_write_fn instead of png_init_io, allows mixing of
  * Visual Studio versions
  */
@@ -172,7 +171,7 @@ static void write_data_to_file(
 
 int MyPNGWrite(const char* file_name, const pymol::Image& img, const float dpi,
     const int format, const int quiet, const float screen_gamma,
-    const float file_gamma, void* io_ptr)
+    const float file_gamma, png_outbuf_t* io_ptr)
 {
   const unsigned char* data_ptr = img.bits();
   int width = img.getWidth();
@@ -192,7 +191,7 @@ int MyPNGWrite(const char* file_name, const pymol::Image& img, const float dpi,
       png_bytep *row_pointers;
       int fd = 0;
 
-      row_pointers = Alloc(png_bytep, height);
+      row_pointers = pymol::malloc<png_bytep>(height);
 
       /* open the file, allowing use of an encoded file descriptor, with
          approach adapted from TJO: chr(1) followed by ascii-format integer */
@@ -327,7 +326,7 @@ int MyPNGWrite(const char* file_name, const pymol::Image& img, const float dpi,
   case cMyPNG_FormatPPM:
     {
       FILE *fil = pymol_fopen(file_name, "wb");
-      unsigned char *buffer = Alloc(unsigned char, 3 * width * height);
+      unsigned char *buffer = pymol::malloc<unsigned char>(3 * width * height);
 
       if(fil && buffer) {
         fprintf(fil, "P6\n");

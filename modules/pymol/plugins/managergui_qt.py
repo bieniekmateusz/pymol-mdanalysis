@@ -198,12 +198,12 @@ class PluginManager(QtCore.QObject):
             self.form.l_repositories.addItem(repo)
 
     def remove_repository(self):
-        items = self.form.l_repositories.selecteditems()
+        items = self.form.l_repositories.selectedItems()
         if len(items) == 0:
             return
         row = self.form.l_repositories.row(items[0])
         self.form.l_repositories.takeItem(row)
-        items = self.form.l_repositories.selecteditems()
+        items = self.form.l_repositories.selectedItems()
         if len(items) > 0:
             self.repo_changed(items[0])
 
@@ -222,7 +222,7 @@ class PluginManager(QtCore.QObject):
 
         self.clear_plugins()
 
-        for info in sorted(plugins.values(), key=lambda i: i.name.lower()):
+        def add_plugin_item(info):
             item = window.load_form('pluginitem', QtWidgets.QFrame())
             item._widget = item._dialog
             item._widget.setFrameStyle(QtWidgets.QFrame.Sunken)
@@ -252,6 +252,12 @@ class PluginManager(QtCore.QObject):
             self.plugin_info[item] = info
 
             self.form.f_installed_layout.addWidget(item._widget)
+
+        for info in sorted(plugins.values(), key=lambda i: i.name.lower()):
+            try:
+                add_plugin_item(info)
+            except Exception as e:
+                print(e)
 
         self.filter_plugins()
         self.form.f_installed_layout.addStretch()
@@ -295,6 +301,7 @@ class PluginManager(QtCore.QObject):
     def installplugin(self):
         from .legacysupport import installPlugin
         installPlugin(self)
+        self.reload_plugins()
 
     def fetchplugin(self):
         if not confirm_network_access():

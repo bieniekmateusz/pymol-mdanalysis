@@ -10,7 +10,7 @@
 #include "SideChainHelper.h"
 #include "Lex.h"
 
-/*
+/**
  * Mark side_chain_helper atoms that are bonded to atoms without a visible
  * cartoon or ribbon
  */
@@ -20,28 +20,17 @@ void SideChainHelperMarkNonCartoonBonded(bool * marked,
     bool cartoon_side_chain_helper,
     bool ribbon_side_chain_helper)
 {
-  auto G = obj->Obj.G;
-  int a1, a2;
+  auto G = obj->G;
 
-  auto b = obj->Bond;
+  auto b = obj->Bond.data();
   auto b_end = b + obj->NBond;
 
   for(; b < b_end; ++b) {
     auto b1 = b->index[0];
     auto b2 = b->index[1];
 
-    if (obj->DiscreteFlag) {
-      if((cs == obj->DiscreteCSet[b1]) && (cs == obj->DiscreteCSet[b2])) {
-        a1 = obj->DiscreteAtmToIdx[b1];
-        a2 = obj->DiscreteAtmToIdx[b2];
-      } else {
-        a1 = -1;
-        a2 = -1;
-      }
-    } else {
-      a1 = cs->AtmToIdx[b1];
-      a2 = cs->AtmToIdx[b2];
-    }
+    auto a1 = cs->atmToIdx(b1);
+    auto a2 = cs->atmToIdx(b2);
 
     if (a1 < 0 || a2 < 0)
       continue;
@@ -84,7 +73,7 @@ inline bool is_C45prime(const char * p) {
     (p[2] == '*' || p[2] == '\'') && !p[3];
 }
 
-/*
+/**
  * Return true if bond is hidden with side_chain_helper.
  * c1/c2 are in-out variables for color transfer.
  */

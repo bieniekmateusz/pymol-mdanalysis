@@ -1,14 +1,14 @@
 #A* -------------------------------------------------------------------
 #B* This file contains source code for the PyMOL computer program
-#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific. 
+#C* copyright 1998-2000 by Warren Lyford Delano of DeLano Scientific.
 #D* -------------------------------------------------------------------
 #E* It is unlawful to modify or remove this copyright notice.
 #F* -------------------------------------------------------------------
-#G* Please see the accompanying LICENSE file for further information. 
+#G* Please see the accompanying LICENSE file for further information.
 #H* -------------------------------------------------------------------
 #I* Additional authors of this source file include:
 #-* Scott Dixon, Metaphorics, LLC
-#-* 
+#-*
 #-*
 #Z* -------------------------------------------------------------------
 
@@ -17,10 +17,7 @@ from __future__ import print_function
 import os
 import shutil
 import glob
-import re
-import string
 import sys
-import time
 
 from chempy import feedback
 
@@ -41,13 +38,13 @@ def do(command,in_prefix,run_prefix,out_prefix,tokens,capture=None):
     for a in glob.glob(out_prefix+".*"):
         os.unlink(a)
     for src in glob.glob(in_prefix+".*"):
-        dst = string.split(src,'.')
+        dst = src.split('.')
         dst = run_prefix+'.'+dst[len(dst)-1]
         shutil.copyfile(src,dst)
     if capture==1:
-        pipe = os.popen(bin_path+command+"> "+run_prefix+".out","w")      
+        pipe = os.popen(bin_path+command+"> "+run_prefix+".out","w")
     elif capture==2:
-        pipe = os.popen(bin_path+command+" | tee "+run_prefix+".out","w")      
+        pipe = os.popen(bin_path+command+" | tee "+run_prefix+".out","w")
     else:
         pipe = os.popen(bin_path+command,"w")
     if not pipe:
@@ -63,7 +60,7 @@ def do(command,in_prefix,run_prefix,out_prefix,tokens,capture=None):
     f.close()
 #
     for src in glob.glob(run_prefix+".*_2"):
-        dst = string.replace(src,'_2','')
+        dst = src.replace('_2','')
         if os.path.exists(dst):
             os.unlink(dst)
 #      os.rename(src,dst)    rename can fail over NFS (remote action)
@@ -71,11 +68,11 @@ def do(command,in_prefix,run_prefix,out_prefix,tokens,capture=None):
 # sloppy workaround for buggy NFS on linux
         os.unlink(src)
     for src in glob.glob(run_prefix+".*"):
-        dst = string.split(src,'.')
+        dst = src.split('.')
         dst = out_prefix+'.'+dst[len(dst)-1]
         if os.path.exists(dst):
             os.unlink(dst)
-#      os.rename(src,dst)    rename can fail over NFS (remote action)  
+#      os.rename(src,dst)    rename can fail over NFS (remote action)
         shutil.copy(src,dst)
         os.unlink(src)
     for a in glob.glob(in_prefix+".*"):
@@ -103,11 +100,11 @@ def run(command,in_prefix,out_prefix,tokens,capture=None):
     for a in glob.glob(out_prefix+".*"):
         os.unlink(a)
     for src in glob.glob(in_prefix+".*"):
-        dst = string.split(src,'.')
+        dst = src.split('.')
         dst = prefix+'.'+dst[len(dst)-1]
         shutil.copyfile(src,dst)
     if capture:
-        pipe = os.popen(bin_path+command+"> "+out_prefix+".out","w")      
+        pipe = os.popen(bin_path+command+"> "+out_prefix+".out","w")
     else:
         pipe = os.popen(bin_path+command,"w")
     if not pipe:
@@ -117,18 +114,18 @@ def run(command,in_prefix,out_prefix,tokens,capture=None):
         pipe.write(a+"\n")
     pipe.close()
     for src in glob.glob(prefix+".*_2"):
-        dst = string.replace(src,'_2','')
+        dst = src.replace('_2','')
         if os.path.exists(dst):
             os.unlink(dst)
-#      os.rename(src,dst)    rename can fail over NFS (remote action)  
+#      os.rename(src,dst)    rename can fail over NFS (remote action)
         shutil.copy(src,dst)
         os.unlink(src)
     for src in glob.glob(prefix+".*"):
-        dst = string.split(src,'.')
+        dst = src.split('.')
         dst = out_prefix+'.'+dst[len(dst)-1]
         if os.path.exists(dst):
             os.unlink(dst)
-#      os.rename(src,dst)    rename can fail over NFS (remote action)  
+#      os.rename(src,dst)    rename can fail over NFS (remote action)
         shutil.copy(src,dst)
     if feedback['tinker']:
         print(" "+str(__name__)+': %s job complete. ' % command)
@@ -152,4 +149,3 @@ if 'PYMOL_PATH' in os.environ:
     test_path = pymol_path + '/data/chempy/tinker/'
     if os.path.exists(test_path):
         params_path = test_path
-

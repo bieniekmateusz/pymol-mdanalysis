@@ -17,8 +17,10 @@ Z* -------------------------------------------------------------------
 #ifndef _H_ScrollBar
 #define _H_ScrollBar
 
+#include "Block.h"
+#include "Ortho.h"
 #include "PyMOLGlobals.h"
-#include "LangUtil.h"
+#include "pymol/algorithm.h"
 
 class ScrollBar : public Block {
 private:

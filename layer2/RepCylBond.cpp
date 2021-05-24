@@ -21,7 +21,7 @@
 #include"os_gl.h"
 
 #include"Base.h"
-#include"OOMac.h"
+#include"Err.h"
 #include"Vector.h"
 #include"ObjectMolecule.h"
 #include"RepCylBond.h"
@@ -40,11 +40,17 @@
 extern "C" void fireMemoryWarning();
 #endif
 
-typedef struct RepCylBond {
-  Rep R;
-  CGO *primitiveCGO;
-  CGO *renderCGO;
-} RepCylBond;
+struct RepCylBond : Rep {
+  using Rep::Rep;
+
+  ~RepCylBond() override;
+
+  cRep_t type() const override { return cRepCyl; }
+  void render(RenderInfo* info) override;
+
+  CGO* primitiveCGO = nullptr;
+  CGO* renderCGO = nullptr;
+};
 
 /* RepCylinder -- This function is a helper function that generates a cylinder for RepCylBond.
  *   Depending on the s1 and s2 arguments, it will either draw a bond or a half bond.  Half bonds
@@ -65,9 +71,10 @@ typedef struct RepCylBond {
  * RETURN VALUE: returns ok (whether adding operation(s) were successful
  *
  */
-static
-int RepCylinder(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, float *v2,
-                bool frontCap, bool endCap, float tube_size, float *v2color=NULL, Pickable *v2pickcolor=NULL )
+static int RepCylinder(CGO* cgo, bool s1, bool s2, bool isRamped,
+    float const* v1, float const* v2, bool frontCap, bool endCap,
+    float tube_size, float const* v2color = nullptr,
+    Pickable* v2pickcolor = nullptr)
 {
   float axis[3];
   int ok = true;
@@ -103,95 +110,76 @@ int RepCylinder(CGO *cgo, bool s1, bool s2, bool isRamped, float *v1, float *v2,
   return ok;
 }
 
-static
-void RepCylBondFree(RepCylBond * I)
+RepCylBond::~RepCylBond()
 {
+  auto I = this;
   CGOFree(I->primitiveCGO);
   CGOFree(I->renderCGO);
-  RepPurge(&I->R);
-  OOFreeP(I);
 }
 
 static int RepCylBondCGOGenerate(RepCylBond * I, RenderInfo * info)
 {
-  PyMOLGlobals *G = I->R.G;
-  int ok = true;
+  PyMOLGlobals *G = I->G;
 
-  if (ok && I->primitiveCGO){
-    ok &= CGOAppendNoStop(I->renderCGO, I->primitiveCGO);
-  }
-  if (ok){
-    CGO *convertcgo = NULL;
-    bool use_shader, shader_mode;
-    ok &= CGOStop(I->renderCGO);
-    use_shader = SettingGetGlobal_b(G, cSetting_stick_use_shader)
-                 && SettingGetGlobal_b(G, cSetting_use_shaders);
-    shader_mode = use_shader && SettingGetGlobal_b(G, cSetting_stick_as_cylinders) 
-      && SettingGetGlobal_b(G, cSetting_render_as_cylinders);
-    if (ok && shader_mode && G->ShaderMgr->ShaderPrgExists("cylinder")) { //GLSL
-      CGO *newCGO = NULL;
-      if (ok){
-        CGO *convertcgo2 = CGOOptimizeSpheresToVBONonIndexed(I->renderCGO, 0, true);
-        if (ok){
-          newCGO = CGONew(G);
-          CHECKOK(ok, newCGO);
-          ok &= CGOEnable(newCGO, GL_CYLINDER_SHADER);
-          convertcgo = CGOConvertShaderCylindersToCylinderShader(I->renderCGO,  newCGO);
-          ok &= CGOAppendNoStop(newCGO, convertcgo);
-          if (ok) ok &= CGODisable(newCGO, GL_CYLINDER_SHADER);
-          if (convertcgo2){
-            ok &= CGOAppendNoStop(newCGO, convertcgo2);
-          }
-          ok &= CGOStop(newCGO);
-        }
-        CGOFreeWithoutVBOs(convertcgo2);
-      }
-      CGOFreeWithoutVBOs(convertcgo);
-      convertcgo = newCGO;
+  const CGO* input = I->primitiveCGO;
+  assert(input);
+
+  bool const use_shader = info->use_shaders && //
+                          SettingGet<bool>(*I->cs, cSetting_stick_use_shader);
+  bool const as_cylinders =
+      use_shader && //
+      SettingGet<bool>(*I->cs, cSetting_stick_as_cylinders) &&
+      SettingGet<bool>(*I->cs, cSetting_render_as_cylinders) &&
+      G->ShaderMgr->ShaderPrgExists("cylinder");
+
+  std::unique_ptr<CGO> convertcgo;
+
+  if (as_cylinders) {
+    convertcgo.reset(CGONew(G));
+
+    CGOEnable(convertcgo.get(), GL_CYLINDER_SHADER);
+    std::unique_ptr<CGO> cylindercgo(
+        CGOConvertShaderCylindersToCylinderShader(input, convertcgo.get()));
+    convertcgo->move_append(std::move(*cylindercgo));
+    CGODisable(convertcgo.get(), GL_CYLINDER_SHADER);
+
+    std::unique_ptr<CGO> spherescgo(
+        CGOOptimizeSpheresToVBONonIndexed(input, 0, true));
+    if (spherescgo) {
+      convertcgo->move_append(std::move(*spherescgo));
+    }
+  } else {
+    std::unique_ptr<CGO> simplified(CGOSimplify(input, 0, //
+        SettingGet<int>(G, cSetting_cgo_sphere_quality),
+        SettingGet<int>(G, cSetting_stick_round_nub)));
+    p_return_val_if_fail(simplified, false);
+    if (use_shader) {
+      convertcgo.reset(CGOOptimizeToVBONotIndexed(simplified.get()));
     } else {
-      CGO *convertcgo2 = CGOSimplify(I->renderCGO, 0, SettingGet_i(G, NULL, NULL, cSetting_cgo_sphere_quality), SettingGetGlobal_i(G, cSetting_stick_round_nub));
-      CHECKOK(ok, convertcgo2);
-      if (ok){
-        convertcgo = CGOCombineBeginEnd(convertcgo2, 0);
-        CHECKOK(ok, convertcgo);
-      }
-      CGOFree(convertcgo2);
-      if (ok && use_shader){
-        convertcgo2 = convertcgo;
-        if (ok){
-          convertcgo = CGOOptimizeToVBONotIndexed(convertcgo2, 0);
-          CHECKOK(ok, convertcgo);
-        }
-        CGOFree(convertcgo2);
-      }
-    }
-    if (convertcgo!=NULL){
-      CGOFree(I->renderCGO);
-      I->renderCGO = convertcgo;
-      convertcgo = NULL;
-      CGOSetUseShader(I->renderCGO, use_shader);
+      convertcgo.reset(CGOCombineBeginEnd(simplified.get()));
     }
   }
-  return ok;
+
+  p_return_val_if_fail(convertcgo, false);
+
+  assert(!I->renderCGO);
+  I->renderCGO = convertcgo.release();
+  CGOSetUseShader(I->renderCGO, use_shader);
+
+  return true;
 }
 
-static void RepCylBondRender(RepCylBond * I, RenderInfo * info)
+void RepCylBond::render(RenderInfo * info)
 {
+  auto I = this;
   CRay *ray = info->ray;
   auto pick = info->pick;
-  float alpha;
-  PyMOLGlobals *G = I->R.G;
-  int width, height;
+  PyMOLGlobals *G = I->G;
   int ok = true;
 
-  SceneGetWidthHeight(G, &width, &height); 
-
-  alpha = 1.f - SettingGet_f(G, I->R.cs->Setting, I->R.obj->Setting, cSetting_stick_transparency);
-  if(fabs(alpha - 1.f) < R_SMALL4)
-    alpha = 1.f;
   if(ray) {
 #ifndef _PYMOL_NO_RAY
-    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->R.cs->Setting, I->R.obj->Setting);
+    CGORenderRay(I->primitiveCGO, ray, info, NULL, NULL, I->cs->Setting.get(), I->obj->Setting.get());
     ray->transparentf(0.0);
 #endif
   } else if(G->HaveGUI && G->ValidContext) {
@@ -208,27 +196,24 @@ static void RepCylBondRender(RepCylBond * I, RenderInfo * info)
         " RepCylBondRender: rendering pickable...\n" ENDFD;
 
       if (I->renderCGO){
-        CGORenderGLPicking(I->renderCGO, info, &I->R.context, I->R.cs->Setting, I->R.obj->Setting);
+        CGORenderGLPicking(I->renderCGO, info, &I->context, I->cs->Setting.get(), I->obj->Setting.get());
       }
     } else { /* else not pick, i.e., when rendering */
       if (!I->renderCGO){
-        I->renderCGO = CGONew(G);
-        CHECKOK(ok, I->renderCGO);
-        if (ok){
-          CGOSetUseShader(I->renderCGO, use_shader);
-        }
         ok &= RepCylBondCGOGenerate(I, info);
+        assert(I->renderCGO);
       }
-      const float *color = ColorGet(G, I->R.obj->Color);
+      const float *color = ColorGet(G, I->obj->Color);
       I->renderCGO->debug = SettingGetGlobal_i(G, cSetting_stick_debug);
-      CGORenderGL(I->renderCGO, color, NULL, NULL, info, &I->R);
+      CGORenderGL(I->renderCGO, color, NULL, NULL, info, I);
     }
   }
 }
 
-static int RepZeroOrderBond(RepCylBond *I, CGO *cgo, bool s1, bool s2, float *vv1, float *vv2,
-                            float zradius, float *rgb1, float *rgb2,
-                            unsigned int b1, unsigned int b2, int a, bool b1masked, bool b2masked)
+static int RepZeroOrderBond(RepCylBond* I, CGO* cgo, bool s1, bool s2,
+    const float* vv1, const float* vv2, float zradius, const float* rgb1,
+    const float* rgb2, unsigned int b1, unsigned int b2, int a, bool b1masked,
+    bool b2masked)
 {
   float axis[3], naxis[3];
   subtract3f(vv2, vv1, axis);
@@ -311,14 +296,15 @@ static int RepZeroOrderBond(RepCylBond *I, CGO *cgo, bool s1, bool s2, float *vv
 }
 
 static int RepValence(RepCylBond *I, CGO *cgo, bool s1, bool s2, bool isRamped,
-		      float *v1, float *v2, int *other,
-		      int a1, int a2, float *coord,
-		      float *color1, float *color2, int ord,
+		      const float *v1, const float *v2, const int *other,
+		      int a1, int a2, const float *coord,
+		      const float *color1, const float *color2, int ord,
 		      float tube_size,
 		      bool fixed_r, float scale_r,
 		      Pickable pickdata[] = NULL)
 {
-  float d[3], t[3], p0[3], p1[3], p2[3], *vv;
+  float d[3], t[3], p0[3], p1[3], p2[3];
+  const float* vv;
   float v1t[3], v2t[3];
   int a3;
   int double_sided;
@@ -537,13 +523,13 @@ static int RepValence(RepCylBond *I, CGO *cgo, bool s1, bool s2, bool isRamped,
 
 Rep *RepCylBondNew(CoordSet * cs, int state)
 {
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   ObjectMolecule *obj;
   int a1, a2; // can be -1 for missing atoms
   int a;
   int c1, c2, s1, s2;
   unsigned int b1, b2;
-  BondType *b;
+  const BondType *b;
   float radius;
   float valence;
   int half_bonds, *other = NULL;
@@ -551,7 +537,7 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
   int ord;
   int stick_ball, stick_ball_color = -1;
   float stick_ball_ratio = 1.0F;
-  AtomInfoType *ai1;
+  const AtomInfoType *ai1;
   bool fixed_radius = false;
   int valence_flag = false;
   int hide_long = false;
@@ -562,19 +548,13 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
   bool *marked = NULL;
   float *capdrawn = NULL;
   float scale_r = 1.0F;
-  int variable_alpha = false;
   float transp, h_scale;
+  float prev_transp = -1;
   int valence_found = false;
   const float _0p9 = 0.9F;
-  float alpha;
   short shader_mode = 0;
   int ok = true;
 
-  OOAlloc(G, RepCylBond);
-  CHECKOK(ok, I);
-  if (!ok){
-    return NULL;
-  }
   PRINTFD(G, FB_RepCylBond)
     " RepCylBondNew-Debug: entered.\n" ENDFD;
   obj = cs->Obj;
@@ -592,35 +572,27 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
       b++;
     }
   if(!visFlag) {
-    OOFreeP(I);
     return (NULL);              /* skip if no sticks are visible */
   }
 
-  capdrawn = Calloc(float, obj->NAtom); // max radius of caps
-  marked = Calloc(bool, obj->NAtom);
+  capdrawn = pymol::calloc<float>(obj->NAtom); // max radius of caps
+  marked = pymol::calloc<bool>(obj->NAtom);
   CHECKOK(ok, marked);
   if (!ok){
-    RepCylBondFree(I);
     return NULL;
   }
 
-  valence = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_valence);
+  valence = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence);
   valence_flag = (valence != 0.0F);
 
-  alpha =
-    SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_transparency);
-  alpha = 1.0F - alpha;
-  if(fabs(alpha - 1.0) < R_SMALL4)
-    alpha = 1.0F;
-
-  stick_color = SettingGet_color(G, cs->Setting, obj->Obj.Setting, cSetting_stick_color);
-  cartoon_side_chain_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+  stick_color = SettingGet_color(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_color);
+  cartoon_side_chain_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
                                            cSetting_cartoon_side_chain_helper);
-  ribbon_side_chain_helper = SettingGet_b(G, cs->Setting, obj->Obj.Setting,
+  ribbon_side_chain_helper = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(),
                                           cSetting_ribbon_side_chain_helper);
 
-  transp = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_transparency);
-  hide_long = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_hide_long_bonds);
+  transp = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_transparency);
+  hide_long = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_hide_long_bonds);
 
   std::set<int> all_zero_order_bond_atoms;
   b = obj->Bond;
@@ -638,9 +610,6 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
       s2 = GET_BIT(ati2->visRep, cRepCyl);
 
       if (s1 && s2){
-        if((!variable_alpha) && AtomInfoCheckBondSetting(G, b, cSetting_stick_transparency))
-          variable_alpha = true;
-
         if (!valence_found)
           valence_found = BondSettingGetWD(G, b, cSetting_valence, valence_flag);
         
@@ -653,34 +622,23 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
     b++;
     ok &= !G->Interrupt;
   }
-  radius = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_radius);
-  half_bonds = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_half_bonds);
+  radius = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_radius);
+  half_bonds = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_half_bonds);
   na_mode =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_cartoon_nucleic_acid_mode);
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_cartoon_nucleic_acid_mode);
   int na_mode_ribbon =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_ribbon_nucleic_acid_mode);
-  h_scale = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_h_scale);
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_ribbon_nucleic_acid_mode);
+  h_scale = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_h_scale);
   auto valence_zero_scale =
-    SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_valence_zero_scale);
+    SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence_zero_scale);
   auto valence_zero_mode =
-    SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_valence_zero_mode);
+    SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_valence_zero_mode);
 
-  RepInit(G, &I->R);
-  I->R.fRender = (void (*)(struct Rep *, RenderInfo *)) RepCylBondRender;
-  I->R.fFree = (void (*)(struct Rep *)) RepCylBondFree;
-  I->R.obj = (CObject *) obj;
-  I->R.cs = cs;
-  I->R.context.object = (void *) obj;
-  I->R.context.state = state;
-
-  I->renderCGO = 0;
+  auto I = new RepCylBond(cs, state);
 
   I->primitiveCGO = CGONew(G);
-  if (!variable_alpha){
-    CGOAlpha(I->primitiveCGO, alpha);
-  }
   if(ok && obj->NBond) {
-    stick_ball = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_stick_ball);
+    stick_ball = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_ball);
 
     shader_mode = SettingGetGlobal_b(G, cSetting_use_shaders) && SettingGetGlobal_b(G, cSetting_stick_as_cylinders) 
       && SettingGetGlobal_b(G, cSetting_render_as_cylinders) && SettingGetGlobal_b(G, cSetting_stick_use_shader);
@@ -695,14 +653,14 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
       other = ObjectMoleculeGetPrioritizedOtherIndexList(obj, cs);
       CHECKOK(ok, other);
       if (ok){
-        fixed_radius = SettingGet_b(G, cs->Setting, obj->Obj.Setting, cSetting_stick_fixed_radius);
-        scale_r = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_valence_scale);
+        fixed_radius = SettingGet_b(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_fixed_radius);
+        scale_r = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_valence_scale);
       }
     }
 
     /* spheres for stick & balls */
-    stick_ball_ratio = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_ball_ratio);
-    stick_ball_color = SettingGet_color(G, cs->Setting, obj->Obj.Setting, cSetting_stick_ball_color);
+    stick_ball_ratio = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_ball_ratio);
+    stick_ball_color = SettingGet_color(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_ball_color);
 
     b = obj->Bond;
     for(a = 0; ok && a < obj->NBond; ++a, ++b) {
@@ -720,16 +678,9 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
         AtomInfoType *ati1 = obj->AtomInfo + b1;
         AtomInfoType *ati2 = obj->AtomInfo + b2;
         float bd_radius_full;
-	float bd_alpha;
 
         auto bd_stick_color = BondSettingGetWD(G, b, cSetting_stick_color, stick_color);
         auto bd_radius = BondSettingGetWD(G, b, cSetting_stick_radius, radius);
-
-        if(variable_alpha){
-          auto bd_transp = BondSettingGetWD(G, b, cSetting_stick_transparency, transp);
-	  bd_alpha = (1.0F - bd_transp);
-          CGOAlpha(I->primitiveCGO, bd_alpha);
-	}
 
         // version <=1.8.2 used negative stick_radius to turn on
         // stick_h_scale, which had a default of 0.4 (now: 1.0)
@@ -750,7 +701,7 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
 
         if(bd_stick_color < 0) {
           if(bd_stick_color == cColorObject) {
-            c1 = (c2 = obj->Obj.Color);
+            c1 = (c2 = obj->Color);
           } else if(ColorCheckRamped(G, bd_stick_color)) {
             c1 = (c2 = bd_stick_color);
           } else {
@@ -760,21 +711,45 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
         } else {
           c1 = (c2 = bd_stick_color);
         }
-        float *vv1 = cs->coordPtr(a1);
-        float *vv2 = cs->coordPtr(a2);
 
         s1 = GET_BIT(ati1->visRep, cRepCyl);
         s2 = GET_BIT(ati2->visRep, cRepCyl);
 
-        if(!(s1 && s2))
-          if(!half_bonds) {
-            s1 = 0;
-            s2 = 0;
-          }
+        if (!(s1 || s2)) {
+          continue;
+        }
+
+        if (!(s1 && s2) && !half_bonds) {
+          continue;
+        }
+
+        auto const s1_before_symop = s1;
+        auto const s2_before_symop = s2;
+        int symop_pass = 0;
+
+        pymol::SymOp symop[2] = {pymol::SymOp(), b->symop_2};
+        assert(!symop[0]);
+        float vv_buf[2][3];
+        float const *vv1, *vv2;
+
+      inv_sym_bond:
+
+        vv1 = cs->coordPtrSym(a1, symop[0], vv_buf[0], symop_pass);
+        vv2 = cs->coordPtrSym(a2, symop[1], vv_buf[1], symop_pass);
+
+        if (!vv1 || !vv2) {
+          PRINTFB(G, FB_RepCylBond, FB_Warnings)
+          " %s-Warning: Failed to get symmetry coordiantes\n",
+              __func__ ENDFB(G);
+          continue;
+        }
+
+        // show half-bond for atom which connects to a symmetry mate
+        s1 = s1_before_symop && !symop[0];
+        s2 = s2_before_symop && !symop[1];
 
         if(hide_long && (s1 || s2)) {
           float cutoff = (ati1->vdw + ati2->vdw) * _0p9;
-          ai1 = obj->AtomInfo + b1;
           if(!within3f(vv1, vv2, cutoff))       /* atoms separated by more than 90% of the sum of their vdw radii */
             s1 = s2 = 0;
         }
@@ -806,7 +781,7 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
 
           /* This means that if stick_ball gets changed, the RepCylBond needs to be completely invalidated */
 
-        auto stick_ball_impl = [&](AtomInfoType * ati1, int b1, int c1, float * vv1) {
+        auto stick_ball_impl = [&](AtomInfoType * ati1, int b1, int c1, float const* vv1) {
           int stick_ball_1 = AtomSettingGetWD(G, ati1, cSetting_stick_ball, stick_ball);
           if(stick_ball_1) {
             float vdw = stick_ball_ratio * ((ati1->protons == cAN_H) ? bd_radius : bd_radius_full);
@@ -828,28 +803,22 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
           }
         };
 
-        if (s1) stick_ball_impl(ati1, b1, c1, vv1);
-        if (s2) stick_ball_impl(ati2, b2, c2, vv2);
-
-	{
-	  float alp;
-	  if((alpha == 1.0) && (!variable_alpha)) {
-	    alp = 1.0F;
-	  } else if(variable_alpha) {
-	    alp = bd_alpha;
-	  } else {
-	    alp = alpha;
-	  }
-          ok &= CGOAlpha(I->primitiveCGO, alp);
-	}
-
-        if(hide_long && (s1 || s2)) {
-          float cutoff = (ati1->vdw + ati2->vdw) * _0p9;
-          ai1 = obj->AtomInfo + b1;
-          if(!within3f(vv1, vv2, cutoff))       /* atoms separated by more than 90% of the sum of their vdw radii */
-            s1 = s2 = 0;
-        }
         if(s1 || s2) {
+          auto const bd_transp =
+              BondSettingGetWD(G, b, cSetting_stick_transparency, transp);
+
+          if (prev_transp != bd_transp) {
+            prev_transp = bd_transp;
+            CGOAlpha(I->primitiveCGO, 1.0F - bd_transp);
+
+            if (bd_transp > 0) {
+              I->setHasTransparency();
+            }
+          }
+
+          if (s1) stick_ball_impl(ati1, b1, c1, vv1);
+          if (s2) stick_ball_impl(ati2, b2, c2, vv2);
+
           float rgb1[3], rgb2[3];
           bool isRamped = false;
           isRamped = ColorGetCheckRamped(G, c1, vv1, rgb1, state);
@@ -885,8 +854,8 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
               if (ok){
                 Pickable pickdata = { b2, ati2->masked ? cPickableNoPick : a };
 
-                bool drawcap1 = bd_radius > capdrawn[b1];
-                bool drawcap2 = bd_radius > capdrawn[b2];
+                bool drawcap1 = bd_radius > capdrawn[b1] && s1;
+                bool drawcap2 = bd_radius > capdrawn[b2] && s2;
 
                 ok &= RepCylinder(I->primitiveCGO, s1, s2, isRamped, vv1, vv2,
                     drawcap1, drawcap2, bd_radius, rgb2, &pickdata);
@@ -899,6 +868,14 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
               }
             }
           }
+        }
+
+        // If this was a half-bond to a symmetry mate, do another pass and
+        // render the other half.
+        if (symop_pass == 0 && ati1 != ati2 && symop[1]) {
+          symop_pass = 1;
+          std::swap(symop[0], symop[1]);
+          goto inv_sym_bond;
         }
       }
     }
@@ -929,7 +906,7 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
 
   CGOStop(I->primitiveCGO);
   if (!ok){
-    RepCylBondFree(I);
+    delete I;
     I = NULL;
   }
 
@@ -937,7 +914,7 @@ Rep *RepCylBondNew(CoordSet * cs, int state)
 }
 
 #ifndef PURE_OPENGL_ES_2
-static void RepCylinderImmediate(float *v1arg, float *v2arg, int nEdge,
+static void RepCylinderImmediate(const float *v1arg, const float *v2arg, int nEdge,
                                  int frontCapArg, int endCapArg,
                                  float overlap, float nub, float radius, float **dir)
 {
@@ -974,7 +951,7 @@ static void RepCylinderImmediate(float *v1arg, float *v2arg, int nEdge,
 
   if (dir){
     if (!*dir){
-      *dir = Alloc(float, 3);
+      *dir = pymol::malloc<float>(3);
       (*dir)[0] = d[0]; (*dir)[1] = d[1]; (*dir)[2] = d[2];
     } else {
       if (get_angle3f(d, *dir)>=(cPI/2.)){
@@ -1109,34 +1086,34 @@ void RepCylBondRenderImmediate(CoordSet * cs, RenderInfo * info)
 
    */
 
-  PyMOLGlobals *G = cs->State.G;
+  PyMOLGlobals *G = cs->G;
   if(info->ray || info->pick || (!(G->HaveGUI && G->ValidContext)))
     return;
   else {
     int active = false;
     ObjectMolecule *obj = cs->Obj;
-    int nEdge = SettingGet_i(G, cs->Setting, obj->Obj.Setting, cSetting_stick_quality);
+    int nEdge = SettingGet_i(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_quality);
     float radius =
-      fabs(SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_radius));
+      fabs(SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_radius));
     float overlap =
-      SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_overlap);
-    float nub = SettingGet_f(G, cs->Setting, obj->Obj.Setting, cSetting_stick_nub);
+      SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_overlap);
+    float nub = SettingGet_f(G, cs->Setting.get(), obj->Setting.get(), cSetting_stick_nub);
     float overlap_r = radius * overlap;
     float nub_r = radius * nub;
 
     {
       int a;
       int nBond = obj->NBond;
-      BondType *bd = obj->Bond;
-      AtomInfoType *ai = obj->AtomInfo;
+      const BondType *bd = obj->Bond.data();
+      const AtomInfoType *ai = obj->AtomInfo.data();
       int last_color = -9;
-      float *coord = cs->Coord;
+      const float *coord = cs->Coord.data();
       const float _pt5 = 0.5F;
 
       for(a = 0; a < nBond; a++) {
         int b1 = bd->index[0];
         int b2 = bd->index[1];
-        AtomInfoType *ai1, *ai2;
+        const AtomInfoType *ai1, *ai2;
         bd++;
 
         if( ((ai1 = ai + b1)->visRep & cRepCylBit) &&
@@ -1150,8 +1127,8 @@ void RepCylBondRenderImmediate(CoordSet * cs, RenderInfo * info)
             int c1 = ai1->color;
             int c2 = ai2->color;
 
-            float *v1 = coord + 3 * a1;
-            float *v2 = coord + 3 * a2;
+            const float *v1 = coord + 3 * a1;
+            const float *v2 = coord + 3 * a2;
 
             if(c1 == c2) {      /* same colors -> one cylinder */
               if(c1 != last_color) {

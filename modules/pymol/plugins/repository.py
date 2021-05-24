@@ -8,17 +8,11 @@ License: BSD-2-Clause
 
 '''
 
-from __future__ import print_function
-
 import sys
-if sys.version_info[0] > 2:
+if True:
     import urllib.request as urllib2
     from urllib.parse import urlparse
     from urllib.error import URLError, HTTPError
-else:
-    import urllib2
-    from urlparse import urlparse
-    from urllib2 import URLError
 
 from .installation import supported_extensions
 
@@ -39,13 +33,17 @@ def urlopen(url):
 def urlreadstr(url, encoding='iso-8859-1'):
     '''
     Download helper to obtain 'str' content with Python 3.
+
+    If `encoding` is None, then return `bytes`.
     '''
     handle = urlopen(url)
     content = handle.read()
 
-    if sys.version_info[0] > 2:
+    if encoding:
         charset = handle.headers.get_content_charset() or encoding
         content = content.decode(charset, errors='ignore')
+
+    handle.close()
 
     return content
 
@@ -224,7 +222,7 @@ class LocalRepository(Repository):
 
     def retrieve(self, name, binary=True):
         url = self.get_full_url(name)
-        handle = open(url, "rb" if binary else "rU")
+        handle = open(url, "rb" if binary else "r")
         content = handle.read()
         handle.close()
         return content
@@ -322,7 +320,7 @@ ARGUMENTS
 
         # get page content
         try:
-            content = urlreadstr(url)
+            content = urlreadstr(url, None if rawscript else 'utf-8')
         except IOError as e:
             raise CmdException(e, "Plugin-Error")
 
@@ -355,9 +353,11 @@ ARGUMENTS
 
             content = chunks[0]
 
-        handle = open(filename, 'w')
-        handle.write(content)
-        handle.close()
+            with open(filename, 'w') as handle:
+                handle.write(content)
+        else:
+            with open(filename, 'wb') as handle:
+                handle.write(content)
 
     if int(run):
         cmd.do("run " + filename, echo=not quiet)

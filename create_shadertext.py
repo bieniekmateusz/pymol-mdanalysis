@@ -1,9 +1,4 @@
-from __future__ import print_function
-
-try:
-    import cStringIO
-except ImportError:
-    import io as cStringIO
+import io as cStringIO
 
 import sys, os
 import time
@@ -42,7 +37,8 @@ class openw(object):
         if self.out.closed:
             return
         if self.filename:
-            oldcontents = open(self.filename).read()
+            with open(self.filename) as handle:
+                oldcontents = handle.read()
             newcontents = self.out.getvalue()
             if oldcontents != newcontents:
                 self.out = open(self.filename, "w")
@@ -76,12 +72,12 @@ def create_shadertext(shaderdir, shaderdir2, outputheader, outputfile):
     outputheader.write('extern const char * %s[];\n' % varname)
     outputfile.write('const char * %s[] = {\n' % varname)
 
-    for filename in shaderfiles:
+    for filename in sorted(shaderfiles):
         shaderfile = os.path.join(shaderdir, filename)
         if not os.path.exists(shaderfile):
             shaderfile = os.path.join(shaderdir2, filename)
 
-        with open(shaderfile, 'rU') as handle:
+        with open(shaderfile, 'r') as handle:
             contents = handle.read()
 
         if True:
@@ -128,20 +124,11 @@ def create_buildinfo(outputdir, pymoldir='.'):
     except OSError:
         sha = ''
 
-    rev = 0
-    try:
-        for line in Popen(['svn', 'info'], cwd=pymoldir, stdout=PIPE).stdout:
-            if line.startswith(b'Last Changed Rev'):
-                rev = int(line.split()[3])
-    except OSError:
-        pass
-
     with openw(os.path.join(outputdir, 'PyMOLBuildInfo.h')) as out:
         print('''
 #define _PyMOL_BUILD_DATE %d
 #define _PYMOL_BUILD_GIT_SHA "%s"
-#define _PyMOL_BUILD_SVN_REV %d
-        ''' % (time.time(), sha, rev), file=out)
+        ''' % (time.time(), sha), file=out)
 
 if __name__ == "__main__":
     create_shadertext(*sys.argv[1:6])

@@ -52,7 +52,6 @@ struct _CWordMatcher {
 #define cMatchAlphaRange  cWordMatchOptionAlphaRanges
 #define cMatchWildcard 3
 
-#ifndef _PYMOL_INLINE
 int WordCompare(PyMOLGlobals * G, const char *p, const char *q, int ignCase)
 
 
@@ -93,7 +92,6 @@ int WordCompare(PyMOLGlobals * G, const char *p, const char *q, int ignCase)
     return 1;
   return 0;
 }
-#endif
 
 void WordMatchOptionsConfigInteger(CWordMatchOptions * I)
 {
@@ -591,8 +589,8 @@ CWordList *WordListNew(PyMOLGlobals * G, const char *st)
     }
     /* allocate the storage we'll need to hold the words */
     {
-      I->word = Alloc(char, len);
-      I->start = Alloc(char *, n_word);
+      I->word = pymol::malloc<char>(len);
+      I->start = pymol::malloc<char *>(n_word);
 
       /* and copy the words */
 
@@ -623,7 +621,7 @@ void WordListFreeP(CWordList * I)
   if(I) {
     FreeP(I->word);
     FreeP(I->start);
-    FreeP(I);
+    OOFreeP(I);
   }
 }
 
@@ -670,7 +668,7 @@ int WordInit(PyMOLGlobals * G)
 {
   CWord *I = NULL;
 
-  I = (G->Word = Calloc(CWord, 1));
+  I = (G->Word = pymol::calloc<CWord>(1));
   if(I) {
     return 1;
   } else

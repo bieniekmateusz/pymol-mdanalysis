@@ -46,11 +46,7 @@ const static int tex_lut[tex::max_params] = {
   GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST_MIPMAP_LINEAR,
   GL_LINEAR_MIPMAP_NEAREST,  GL_LINEAR_MIPMAP_LINEAR,
   GL_REPEAT,
-#ifdef PURE_OPENGL_ES_2
-  GL_CLAMP_TO_EDGE,
-#else
   GL_CLAMP,
-#endif
   GL_REPEAT, // GL_MIRROR_REPEAT,
 #ifdef PURE_OPENGL_ES_2
   GL_CLAMP_TO_EDGE,          GL_CLAMP_TO_EDGE,
@@ -441,7 +437,7 @@ void renderTarget_t::layout(std::vector<rt_layout_t> &&desc,
   glCheckOkay();
 }
 
-void renderTarget_t::resize(ivec2 size) {
+void renderTarget_t::resize(shape_type size) {
   _size = size;
   if (!_shared_rbo) {
     delete _rbo;

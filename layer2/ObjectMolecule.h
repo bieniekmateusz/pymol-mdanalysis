@@ -1,4 +1,6 @@
-
+/**
+ * @file
+ */
 /* 
 A* -------------------------------------------------------------------
 B* This file contains source code for the PyMOL computer program
@@ -26,9 +28,11 @@ Z* -------------------------------------------------------------------
 #include"Symmetry.h"
 #include"DistSet.h"
 #include "Executive_pre.h"
-#include "CifFile.h"
 #include "vla.h"
+#include "Result.h"
+#include "AtomNeighbors.h"
 
+#include "Sculpt.h"
 #include <memory>
 
 #ifdef _WEBGL
@@ -42,67 +46,92 @@ Z* -------------------------------------------------------------------
 
 #define cUndoMask 0xF
 
-/*
+/**
  * ObjectMolecule's Bond Path (BP) Record
  */
-typedef struct ObjectMoleculeBPRec {
+struct ObjectMoleculeBPRec {
   int *dist;
   int *list;
   int n_atom;
-} ObjectMoleculeBPRec;
+};
 
-typedef struct ObjectMolecule {
-	/* base Object class */
-  CObject Obj;
+struct ObjectMolecule : public pymol::CObject {
 	/* array of pointers to coordinate sets; one set per state */
-  struct CoordSet **CSet;
+  pymol::vla<CoordSet*> CSet;
 	/* number of coordinate sets */
-  int NCSet;
-  struct CoordSet *CSTmpl;      /* template for trajectories, etc. */
+  int NCSet = 0;
+  struct CoordSet *CSTmpl = nullptr;      /* template for trajectories, etc. */
 	/* array of bonds */
-  BondType *Bond;
+  pymol::vla<BondType> Bond;
 	/* array of atoms (infos) */
   pymol::vla<AtomInfoType> AtomInfo;
 	/* number of atoms and bonds */
-  int NAtom, prevNAtom;
-  int NBond, prevNBond;
+  int NAtom = 0, prevNAtom = 0;
+  int NBond = 0, prevNBond = 0;
 	/* is this object loaded as a discrete object? if so, number of states */
-  int DiscreteFlag;
-  int *DiscreteAtmToIdx;
-  struct CoordSet **DiscreteCSet;
+  int DiscreteFlag = 0;
+  pymol::vla<int> DiscreteAtmToIdx;
+  pymol::vla<CoordSet*> DiscreteCSet;
   /* proposed, for storing uniform trajectory data more efficiently:
      int *UniformAtmToIdx, *UniformIdxToAtm;  */
-  int CurCSet;                  /* Current state number */
-  int SeleBase;                 /* for internal usage by  selector & only valid during selection process */
-  CSymmetry *Symmetry;
-  int *Neighbor;
-  float *UndoCoord[cUndoMask + 1];
-  int UndoState[cUndoMask + 1];
-  int UndoNIndex[cUndoMask + 1];
-  int UndoIter;
-  CGO *UnitCellCGO;
-  int BondCounter;
-  int AtomCounter;
+  int SeleBase = 0;                 /* for internal usage by  selector & only valid during selection process */
+  pymol::copyable_ptr<CSymmetry> Symmetry;
+#if 1
+  // legacy undo
+  float *UndoCoord[cUndoMask + 1] {};
+  int UndoState[cUndoMask + 1] {};
+  int UndoNIndex[cUndoMask + 1] {};
+  int UndoIter = 0;
+#endif
+
+private:
+  pymol::cache_ptr<int[]> Neighbor;
+
+public:
+  int const* getNeighborArray() const;
+
+  int AtomCounter = -1;
   /* not stored */
-  struct CSculpt *Sculpt;
-  int RepVisCacheValid;
-  int RepVisCache;     /* for transient storage during updates */
+  struct CSculpt *Sculpt =  nullptr;
+  int RepVisCacheValid = 0;
+  int RepVisCache = 0;     /* for transient storage during updates */
 
   // for reporting available assembly ids after mmCIF loading - SUBJECT TO CHANGE
-  std::shared_ptr<cif_file> m_ciffile;
-  const cif_data * m_cifdata;
+  std::shared_ptr<pymol::cif_file> m_ciffile;
+  const pymol::cif_data * m_cifdata = nullptr;
 
   // hetatm and ignore-flag by non-polymer classification
-  bool need_hetatm_classification;
+  bool need_hetatm_classification = false;
 
   // methods
-  int getState() const;
+  ObjectMolecule(PyMOLGlobals* G, int discreteFlag);
+  ~ObjectMolecule();
   bool setNDiscrete(int natom);
   bool updateAtmToIdx();
-} ObjectMolecule;
+  bool atomHasAnyCoordinates(size_t atm) const;
+
+  /// Typed version of getObjectState
+  CoordSet* getCoordSet(int state);
+  const CoordSet* getCoordSet(int state) const;
+
+  // virtual methods
+  void update() override;
+  void render(RenderInfo* info) override;
+  void invalidate(cRep_t rep, cRepInv_t level, int state) override;
+  int getNFrame() const override;
+  std::string describeElement(int index) const override;
+  char* getCaption(char* ch, int len) const override;
+  pymol::copyable_ptr<CSetting>* getSettingHandle(int state) override;
+  pymol::CObject* clone() const override;
+  CSymmetry const* getSymmetry(int state = 0) const override;
+  bool setSymmetry(CSymmetry const& symmetry, int state = 0) override;
+
+protected:
+  CObjectState* _getObjectState(int state) override;
+};
 
 /* this is a record that holds information for specific types of Operatations on Molecules, eg. translation/rotation/etc */
-typedef struct ObjectMoleculeOpRec {
+struct ObjectMoleculeOpRec {
   unsigned int code;
   Vector3f v1, v2;
   int cs1, cs2;
@@ -120,21 +149,21 @@ typedef struct ObjectMoleculeOpRec {
   float ttt[16], *mat1;
   int nvv1, nvv2;
   int include_static_singletons;
-} ObjectMoleculeOpRec;
+};
 
-typedef struct {
+struct HBondCriteria{
   float maxAngle;
   float maxDistAtMaxAngle;
   float maxDistAtZero;
   float power_a, power_b;
   float factor_a, factor_b;     /* 0.5/(maxAngle^power_a), 0.5/(maxAngle^power_b)) */
   float cone_dangle;
-} HBondCriteria;
+};
 
-typedef struct {
+struct PDBScale{
   int flag[3];
   float matrix[16];
-} PDBScale;
+};
 
 enum {
   PDB_VARIANT_DEFAULT = 0,
@@ -143,7 +172,7 @@ enum {
   PDB_VARIANT_VDB,      /* VIPERdb */
 };
 
-typedef struct {
+struct PDBInfoRec{
   int variant;
   int pqr_workarounds;
   PDBScale scale;
@@ -154,32 +183,31 @@ typedef struct {
   inline bool is_pqr_file() const {
     return variant == PDB_VARIANT_PQR;
   }
-} PDBInfoRec;
+};
 
 
 /* these four letter code are left over from an 
    earlier multicharacter constant implementation
    and should be replaced with something more verbose */
 
-#define OMOP_PDB1 1
 #define OMOP_AVRT 2
 #define OMOP_SFIT 3
 #define OMOP_COLR 4
 #define OMOP_VISI 5
 #define OMOP_TTTF 6
 #define OMOP_ALTR 7
-#define OMOP_CSOC 8
 #define OMOP_SUMC 9
 #define OMOP_VERT 10
 #define OMOP_SVRT 11
 #define OMOP_MOME 12
 #define OMOP_INVA 13
-#define OMOP_MDST 14
 #define OMOP_MNMX 15
 #define OMOP_AlterState 16
 #define OMOP_Flag 17
 #define OMOP_LABL 18
+#if 0
 #define OMOP_Identify    19
+#endif
 #define OMOP_Remove 20
 #define OMOP_Protect 21
 #define OMOP_Mask 22
@@ -217,7 +245,6 @@ typedef struct {
 #define OMOP_CheckVis 52
 #define OMOP_OnOff 53
 #define OMOP_Pop 54
-#define OMOP_TransformR44f 55
 #define OMOP_FixHydrogens 56
 #define OMOP_Sort 57
 #define OMOP_SetAtomicSetting 58
@@ -230,7 +257,6 @@ typedef struct {
 #define OMOP_ReferenceSwap 65
 #define OMOP_RenameAtoms 66
 
-#include"CoordSet.h"
 
 typedef struct {
   ObjectMolecule *trg_obj, *mbl_obj;    /* target and mobile objects */
@@ -241,67 +267,6 @@ typedef struct {
 void ObjMolPairwiseInit(ObjMolPairwise * pairwise);
 void ObjMolPairwisePurge(ObjMolPairwise * pairwise);
 
-
-/* Metaphorics Annotated PDB stuff */
-
-typedef struct M4XBondType {    /* now used for non-bonds as well as h-bonds */
-  int atom1;
-  int atom2;
-  float strength;
-} M4XBondType;
-
-typedef struct {
-  WordType name;
-  int *site, n_site;
-  int *ligand, n_ligand;
-  int *water, n_water;
-  M4XBondType *hbond, *nbond;
-  int n_hbond, n_nbond;
-} M4XContextType;
-
-typedef struct {
-  ObjectNameType target;
-  int n_point;
-  int *id_at_point;
-  float *fitness;
-} M4XAlignType;
-
-typedef struct {
-  int annotated_flag;
-  int invisible;
-  int n_context;
-  M4XContextType *context;
-  int xname_flag;
-  ObjectNameType xname;
-  M4XAlignType *align;
-} M4XAnnoType;
-
-typedef struct {
-  ObjectNameType name;
-} ObjMolMultiplexType;
-
-/* loop iterators for the ObjectMolecule::Neighbor array
- *
- * Arguments: (Neighbor array, const int atom-index, int neighbor-atom-or-bond-index, int used-internally)
- *
- * Example:
- * // iterate over neighbors of obj->AtomInfo[at]
- * int neighbor_at, tmp;
- * ITERNEIGHBORATOMS(obj->Neighbor, at, neighbor_at, tmp) {
- *   // do something with obj->AtomInfo[neighbor_at]
- * }
- */
-#define ITERNEIGHBORATOMS(N, a, n, i) for(i = N[a] + 1; (n = N[i]) > -1; i += 2)
-#define ITERNEIGHBORBONDS(N, a, b, i) for(i = N[a] + 1; (b = N[i + 1]), N[i] > -1; i += 2)
-
-void M4XAnnoInit(M4XAnnoType * m4x);
-void M4XAnnoPurge(M4XAnnoType * m4x);
-
-void M4XAlignInit(M4XAlignType * align);
-void M4XAlignPurge(M4XAlignType * align);
-
-int ObjectMoleculeGetMatrix(ObjectMolecule * I, int state, double **history);
-int ObjectMoleculeSetMatrix(ObjectMolecule * I, int state, double *matrix);
 int ObjectMoleculeGetTopNeighbor(PyMOLGlobals * G,
                                  ObjectMolecule * I, int start, int excluded);
 
@@ -312,10 +277,7 @@ int ObjectMoleculeGetNearestBlendedColor(ObjectMolecule * I, const float *point,
                                          int sub_vdw);
 
 int *ObjectMoleculeGetPrioritizedOtherIndexList(ObjectMolecule * I, struct CoordSet *cs);
-int ObjectMoleculeGetPrioritizedOther(int *other, int a1, int a2, int *double_sided);
-
-void ObjectMoleculeM4XAnnotate(ObjectMolecule * I, M4XAnnoType * m4x, const char *script_file,
-                               int match_colors, int nbr_sele);
+int ObjectMoleculeGetPrioritizedOther(const int *other, int a1, int a2, int *double_sided);
 
 
 /* */
@@ -326,11 +288,9 @@ void ObjectMoleculeOpRecInit(ObjectMoleculeOpRec * op);
 int ObjectMoleculeNewFromPyList(PyMOLGlobals * G, PyObject * list,
                                 ObjectMolecule ** result);
 PyObject *ObjectMoleculeAsPyList(ObjectMolecule * I);
-int ObjectMoleculeGetSerial(ObjectMolecule * I);
-int ObjectMoleculeSetStateTitle(ObjectMolecule * I, int state, const char *text);
-const char *ObjectMoleculeGetStateTitle(ObjectMolecule * I, int state);
+pymol::Result<> ObjectMoleculeSetStateTitle(ObjectMolecule * I, int state, const char *text);
+const char *ObjectMoleculeGetStateTitle(const ObjectMolecule*, int state);
 int ObjectMoleculeCheckFullStateSelection(ObjectMolecule * I, int sele, int state);
-void ObjectMoleculeFree(ObjectMolecule * I);    /* only for friends of ObjectMolecule */
 
 int ObjectMoleculeSetStateOrder(ObjectMolecule * I, int * order, int len);
 
@@ -338,11 +298,11 @@ int ObjectMoleculeAddPseudoatom(ObjectMolecule * I, int sele_index, const char *
                                 const char *resn, const char *resi, const char *chain,
                                 const char *segi, const char *elem, float vdw,
                                 int hetatm, float b, float q, const char *label,
-                                float *pos, int color, int state, int more, int quiet);
+                                const float *pos, int color, int state, int more, int quiet);
 
-ObjectMolecule *ObjectMoleculeNew(PyMOLGlobals * G, int discreteFlag);
 int ObjectMoleculeSort(ObjectMolecule * I);
 ObjectMolecule *ObjectMoleculeCopy(const ObjectMolecule * obj);
+void ObjectMoleculeCopyNoAlloc(const ObjectMolecule * src, ObjectMolecule * dst);
 void ObjectMoleculeFixChemistry(ObjectMolecule * I, int sele1, int sele2, int invalidate);
 
 ObjectMolecule *ObjectMoleculeLoadTOPFile(PyMOLGlobals * G, ObjectMolecule * obj,
@@ -353,7 +313,7 @@ ObjectMolecule *ObjectMoleculeLoadChemPyModel(PyMOLGlobals * G, ObjectMolecule *
 ObjectMolecule *ObjectMoleculeLoadTRJFile(PyMOLGlobals * G, ObjectMolecule * obj,
                                           const char *fname, int frame, int interval,
                                           int average, int start, int stop, int max,
-                                          const char *sele, int image, float *shift, int quiet);
+                                          const char *sele, int image, const float *shift, int quiet);
 
 ObjectMolecule *ObjectMoleculeLoadRSTFile(PyMOLGlobals * G, ObjectMolecule * obj,
                                           const char *fname, int frame, int quiet, char mode);
@@ -374,36 +334,33 @@ ObjectMolecule *ObjectMoleculeReadStr(PyMOLGlobals * G, ObjectMolecule * I,
 
 ObjectMolecule *ObjectMoleculeReadPDBStr(PyMOLGlobals * G, ObjectMolecule * obj,
                                          const char *molstr, int frame, int discrete,
-                                         M4XAnnoType * m4x, char *pdb_name,
+                                         char *pdb_name,
                                          const char **next_pdb, PDBInfoRec * pdb_info,
                                          int quiet, int *model_number);
 
 int ObjectMoleculeExtendIndices(ObjectMolecule * I, int state);
 
-void ObjectMoleculeInvalidate(ObjectMolecule * I, int rep, int level, int state);
 void ObjectMoleculeInvalidateAtomType(ObjectMolecule *I, int state);
 
 void ObjectMoleculeRenderSele(ObjectMolecule * I, int curState, int sele, int vis_only SELINDICATORARG);
 
-void ObjectMoleculeSeleOp(ObjectMolecule * I, int sele, ObjectMoleculeOpRec * op);
+bool ObjectMoleculeSeleOp(ObjectMolecule * I, int sele, ObjectMoleculeOpRec * op);
 
-struct CoordSet *ObjectMoleculeGetCoordSet(ObjectMolecule * I, int setIndex);
-void ObjectMoleculeBlindSymMovie(ObjectMolecule * I);
 int ObjectMoleculeMerge(ObjectMolecule * I, pymol::vla<AtomInfoType>&& ai,
 			struct CoordSet *cs, int bondSearchFlag,
 			int aic_mask, int invalidate);
 void ObjectMoleculeUpdateNonbonded(ObjectMolecule * I);
-int ObjectMoleculeUpdateNeighbors(ObjectMolecule * I);
-int ObjectMoleculeMoveAtom(ObjectMolecule * I, int state, int index, float *v, int mode,
+int ObjectMoleculeMoveAtom(ObjectMolecule * I, int state, int index, const float *v, int mode,
                            int log);
 int ObjectMoleculeMoveAtomLabel(ObjectMolecule * I, int state, int index, float *v, int log, float *diff);
-int ObjectMoleculeGetAtomVertex(ObjectMolecule * I, int state, int index, float *v);
-int ObjectMoleculeGetAtomTxfVertex(ObjectMolecule * I, int state, int index, float *v);
-int ObjectMoleculeGetAtomIndex(ObjectMolecule * I, int sele);
+int ObjectMoleculeGetAtomVertex(const ObjectMolecule *, int state, int index, float *v);
+int ObjectMoleculeGetAtomTxfVertex(const ObjectMolecule*, int state, int index, float *v);
+int ObjectMoleculeGetAtomIndex(const ObjectMolecule*, SelectorID_t sele);
 int ObjectMoleculeTransformSelection(ObjectMolecule * I, int state,
-                                     int sele, float *TTT, int log,
+                                     int sele, const float *TTT, int log,
                                      const char *sname, int homogenous, int global);
-int ObjectMoleculeDoesAtomNeighborSele(ObjectMolecule * I, int index, int sele);
+bool ObjectMoleculeIsAtomBondedToSele(
+    const ObjectMolecule* I, int atm, SelectorID_t sele);
 void ObjectMoleculeInferChemFromNeighGeom(ObjectMolecule * I, int state);
 void ObjectMoleculeInferChemForProtein(ObjectMolecule * I, int state);
 void ObjectMoleculeInferChemFromBonds(ObjectMolecule * I, int state);
@@ -414,7 +371,10 @@ int ObjectMoleculeXferValences(ObjectMolecule * Ia, int sele1, int sele2,
                                int source_state, int quiet);
 void ObjectMoleculeGuessValences(ObjectMolecule * I, int state, int *flag1, int *flag2,
                                  int reset);
-int ObjectMoleculeAddBond(ObjectMolecule * I, int sele0, int sele1, int order);
+int ObjectMoleculeAddBond(ObjectMolecule * I, int sele0, int sele1, int order,
+    pymol::zstring_view symop = "");
+pymol::Result<> ObjectMoleculeAddBondByIndices(
+    ObjectMolecule* I, unsigned atm1, unsigned atm2, int order);
 int ObjectMoleculeRemoveBonds(ObjectMolecule * I, int sele1, int sele2);
 
 int ObjectMoleculeAutoDisableAtomNameWildcard(ObjectMolecule * I);
@@ -427,28 +387,34 @@ int ObjectMoleculePreposReplAtom(ObjectMolecule * I, int index, AtomInfoType * a
 void ObjectMoleculeCreateSpheroid(ObjectMolecule * I, int average);
 int ObjectMoleculeSetAtomVertex(ObjectMolecule * I, int state, int index, float *v);
 int ObjectMoleculeVerifyChemistry(ObjectMolecule * I, int state);
-int ObjectMoleculeFindOpenValenceVector(ObjectMolecule * I, int state,
-                                        int index, float *v, float *seek,
-                                        int ignore_index);
 int ObjectMoleculeFillOpenValences(ObjectMolecule * I, int index);
-int ObjectMoleculeGetTotalAtomValence(ObjectMolecule * I, int atom);
 int ObjectMoleculeAdjustBonds(ObjectMolecule * I, int sele0, int sele1, int mode,
-                              int order);
+                              int order, pymol::zstring_view symop = "");
 int ObjectMoleculeAttach(ObjectMolecule * I, int index,
     pymol::vla<AtomInfoType>&& nai);
-int ObjectMoleculeFuse(ObjectMolecule * I, int index0, ObjectMolecule * src, int index1,
-                        int mode, int move_flag);
+pymol::Result<> ObjectMoleculeFuse(ObjectMolecule* I, int index0,
+    const ObjectMolecule* src, int index1, bool create_bond, bool move_flag);
 int ObjectMoleculeRenameAtoms(ObjectMolecule * I, int *flag, int force);
 int ObjectMoleculeAreAtomsBonded(ObjectMolecule * I, int i0, int i1);
-void ObjectGotoState(ObjectMolecule * I, int state);
+void ObjectGotoState(pymol::CObject* I, int state);
 float ObjectMoleculeGetAvgHBondVector(ObjectMolecule * I, int atom, int state, float *v,
                                       float *incoming);
 int ObjectMoleculeCheckBondSep(ObjectMolecule * I, int a0, int a1, int dist);
 int ObjectMoleculeGetPhiPsi(ObjectMolecule * I, int ca, float *phi, float *psi,
                             int state);
-void ObjectMoleculeGetAtomSele(ObjectMolecule * I, int index, char *buffer);
-void ObjectMoleculeGetAtomSeleFast(ObjectMolecule * I, int index, char *buffer);
-void ObjectMoleculeGetAtomSeleLog(ObjectMolecule * I, int index, char *buffer, int quote);
+void ObjectMoleculeGetAtomSele(const ObjectMolecule * I, int index, char *buffer);
+std::string ObjectMoleculeGetAtomSele(const ObjectMolecule * I, int index);
+
+/**
+ * Retrives selection string of an Object Molecule's atom
+ * @param I ObjectMolecule whose info is retrieved
+ * @param index atom index of I whose info is retrieved
+ * @return selection string unique to the atom
+ */
+std::string ObjectMoleculeGetAtomSeleFast(const ObjectMolecule * I, int index);
+
+std::string ObjectMoleculeGetAtomSeleLog(const ObjectMolecule* I, int index, int quote);
+void ObjectMoleculeGetAtomSeleLog(const ObjectMolecule * I, int index, char *buffer, int quote);
 
 void ObjectMoleculeUpdateIDNumbers(ObjectMolecule * I);
 
@@ -463,13 +429,14 @@ int ObjectMoleculeGetBondPaths(ObjectMolecule * I, int atom, int max,
                                ObjectMoleculeBPRec * bp);
 int ObjectMoleculeInitBondPath(ObjectMolecule * I, ObjectMoleculeBPRec * bp);
 int ObjectMoleculePurgeBondPath(ObjectMolecule * I, ObjectMoleculeBPRec * bp);
-int ObjectMoleculeGetBondPath(ObjectMolecule * I, int atom, int max,
-                              ObjectMoleculeBPRec * bp);
 int ***ObjectMoleculeGetBondPrint(ObjectMolecule * I, int max_bond, int max_type,
                                   int *dim);
 
-int ObjectMoleculeConnect(ObjectMolecule * I, int *nbond, BondType ** bond, AtomInfoType * ai,
-                          struct CoordSet *cs, int searchFlag, int connectModeOverride);
+bool ObjectMoleculeConnect(ObjectMolecule* I, CoordSet* cs,
+    bool searchFlag = true, int connectModeOverride = -1, bool pbc = false);
+bool ObjectMoleculeConnect(ObjectMolecule* I, int& nbond, pymol::vla<BondType>& bond,
+                          struct CoordSet *cs, int searchFlag, int connectModeOverride,
+                          bool pbc = false);
 int ObjectMoleculeSetDiscrete(PyMOLGlobals * G, ObjectMolecule * I, int discrete);
 
 float ObjectMoleculeGetMaxVDW(ObjectMolecule * I);
@@ -489,7 +456,7 @@ int ObjectMoleculeConvertIDsToIndices(ObjectMolecule * I, int *id, int n_id);
 ObjectMolecule *ObjectMoleculeDummyNew(PyMOLGlobals * G, int mode);
 void ObjectMoleculeDummyUpdate(ObjectMolecule * I, int mode);
 
-void ObjectMoleculeTransformState44f(ObjectMolecule * I, int state, float *matrix,
+void ObjectMoleculeTransformState44f(ObjectMolecule * I, int state, const float *matrix,
                                      int log_trans, int homogenous, int transformed);
 
 
@@ -500,7 +467,6 @@ struct CoordSet *ObjectMoleculePDBStr2CoordSet(PyMOLGlobals * G,
                                                AtomInfoType ** atInfoPtr,
                                                const char **restart_model,
                                                char *segi_override,
-                                               M4XAnnoType * m4x,
                                                char *pdb_name,
                                                const char **next_pdb,
                                                PDBInfoRec * pdb_info,
@@ -514,26 +480,23 @@ int ObjectMoleculeUpdateAtomTypeInfoForState(PyMOLGlobals * G, ObjectMolecule * 
 int ObjectMoleculeUpdateMMStereoInfoForState(PyMOLGlobals * G, ObjectMolecule * obj, int state, int initialize=1);
 #endif
 
-#ifndef _PYMOL_NO_UNDO
-void ObjectMoleculeSetAtomBondInfoTypeOldId(PyMOLGlobals * G, ObjectMolecule * obj);
-void ObjectMoleculeSetAtomBondInfoTypeOldIdToNegOne(PyMOLGlobals * G, ObjectMolecule * obj);
+#ifdef _PYMOL_IP_PROPERTIES
 #endif
-
-void ObjectMoleculeAdjustDiscreteAtmIdx(ObjectMolecule *I, int *lookup, int nAtom);
 
 void AtomInfoSettingGenerateSideEffects(PyMOLGlobals * G, ObjectMolecule *obj, int index, int id);
 
-int *AtomInfoGetSortedIndex(PyMOLGlobals * G, ObjectMolecule * obj, AtomInfoType * rec, int n,
+int *AtomInfoGetSortedIndex(PyMOLGlobals * G,
+    const ObjectMolecule* obj,
+    const AtomInfoType* rec, int n,
                             int **outdex);
 
 ObjectMolecule *ObjectMoleculeReadMmtfStr(PyMOLGlobals * G, ObjectMolecule * I,
     const char *st, int st_len, int frame, int discrete, int quiet, int multiplex, int zoom);
-ObjectMolecule *ObjectMoleculeReadCifStr(PyMOLGlobals * G, ObjectMolecule * I,
+pymol::Result<ObjectMolecule*> ObjectMoleculeReadCifStr(PyMOLGlobals * G, ObjectMolecule * I,
     const char *st, int frame, int discrete, int quiet, int multiplex, int zoom);
 
-// object and object-state level setting
-template <typename V> void SettingSet(int index, V value, ObjectMolecule * I, int state=-1) {
-  SettingSet(index, value, (CObject*)I, state);
-}
+std::unique_ptr<int[]> LoadTrajSeleHelper(
+    const ObjectMolecule* obj, CoordSet* cs, const char* selection);
 
+int ObjectMoleculeSetGeometry(PyMOLGlobals* G, ObjectMolecule* I, int sele, int geom, int valence);
 #endif

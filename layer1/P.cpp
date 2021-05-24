@@ -62,6 +62,22 @@ the initialization functions for these libraries on startup.
 #include "Lex.h"
 #include "Seeker.h"
 
+#ifdef _PYMOL_IP_PROPERTIES
+#include"Property.h"
+#endif
+
+#include <memory>
+
+/**
+ * Use with functions which return a PyObject - if they return NULL, then an
+ * unexpected exception has occured.
+ */
+#define ASSERT_PYOBJECT_NOT_NULL(obj, return_value)                            \
+  if (!obj) {                                                                  \
+    PyErr_Print();                                                             \
+    return return_value;                                                       \
+  }
+
 static int label_copy_text(char *dst, const char *src, int len, int max)
 {
   dst += len;
@@ -332,7 +348,6 @@ static PyObject *P_povray = NULL;
 static PyObject *P_traceback = NULL;
 static PyObject *P_parser = NULL;
 
-static PyObject *P_main = NULL;
 static PyObject *P_vfont = NULL;
 
 /* module import helper */
@@ -364,6 +379,9 @@ PyObject *P_xray = NULL;        /* okay as global */
 PyObject *P_chempy = NULL;      /* okay as global */
 PyObject *P_models = NULL;      /* okay as global */
 PyObject *P_setting = NULL;     /* okay as global -- just used for names */
+PyObject *P_CmdException = nullptr;
+PyObject *P_QuietException = nullptr;
+PyObject *P_IncentiveOnlyException = nullptr;
 
 static PyMappingMethods wrapperMappingMethods, settingMappingMethods;
 static PyTypeObject Wrapper_Type = {
@@ -377,7 +395,10 @@ static PyTypeObject settingWrapper_Type = {
   0,                            /* tp_basicsize */
 };
 
-/*
+#ifdef _PYMOL_IP_PROPERTIES
+#endif
+
+/**
  * If `wob` is not in a valid state (outside iterate-family context), raise
  * an error and return false.
  */
@@ -391,7 +412,7 @@ static bool check_wrapper_scope(WrapperObject * wobj) {
   return false;
 }
 
-/*
+/**
  * key: Python int (setting index) or str (setting name)
  *
  * Return the setting index or -1 for unknown `key`
@@ -417,7 +438,7 @@ static int get_and_check_setting_index(PyMOLGlobals * G, PyObject * key) {
   return setting_id;
 }
 
-/*
+/**
  * Access a setting with iterate et. al.
  *
  * s[key]
@@ -454,14 +475,14 @@ PyObject *SettingWrapperObjectSubScript(PyObject *obj, PyObject *key){
     if (!ret) {
       // object-state, object, or global
       ret = SettingGetPyObject(G,
-          wobj->cs ? wobj->cs->Setting : NULL,
-          wobj->obj->Obj.Setting, setting_id);
+          wobj->cs ? wobj->cs->Setting.get() : NULL,
+          wobj->obj->Setting.get(), setting_id);
     }
   }
   return PConvAutoNone(ret);
 }
 
-/*
+/**
  * Set an atom or atom-state level setting with alter or alter_state.
  *
  * s[key] = val
@@ -515,7 +536,10 @@ int SettingWrapperObjectAssignSubScript(PyObject *obj, PyObject *key, PyObject *
   return 0; // success
 }
 
-/*
+#ifdef _PYMOL_IP_PROPERTIES
+#endif
+
+/**
  * Python iterator over atom or atom-state setting indices
  */
 static PyObject* SettingWrapperObjectIter(PyObject *self)
@@ -541,7 +565,10 @@ static PyObject* SettingWrapperObjectIter(PyObject *self)
   return iter;
 }
 
-/*
+#ifdef _PYMOL_IP_PROPERTIES
+#endif
+
+/**
  * Allows attribute-like syntax for item lookups
  *
  * o.key -> o[key] if `key` is not an attribute of `o`
@@ -554,7 +581,7 @@ static PyObject* PyObject_GenericGetAttrOrItem(PyObject *o, PyObject *key) {
   return PyObject_GetItem(o, key);
 }
 
-/*
+/**
  * Allows attribute-like syntax for item assignment
  *
  * `o.key = value` -> `o[key] = value`
@@ -564,7 +591,22 @@ int PyObject_GenericSetAttrAsItem(PyObject *o, PyObject *key, PyObject *value) {
   return PyObject_SetItem(o, key, value);
 }
 
-/*
+/**
+ * Generic getter for member variable pointer at struct byte offset
+ */
+template <typename T, typename S>
+static T* get_member_pointer(S* instance, size_t offset)
+{
+  return reinterpret_cast<T*>(reinterpret_cast<char*>(instance) + offset);
+}
+template <typename T, typename S>
+static T const* get_member_pointer(S const* instance, size_t offset)
+{
+  return reinterpret_cast<T const*>(
+      reinterpret_cast<char const*>(instance) + offset);
+}
+
+/**
  * iterate-family namespace implementation: lookup
  *
  * Raise NameError if state attributes are accessed outside of iterate_state
@@ -576,31 +618,24 @@ PyObject * WrapperObjectSubScript(PyObject *obj, PyObject *key){
   static PyObject * pystr_ATOM          = PyString_InternFromString("ATOM");
   static PyObject * pystr_QuestionMark  = PyString_InternFromString("?");
 
-  WrapperObject *wobj = (WrapperObject*)obj;
+  auto wobj = static_cast<WrapperObject*>(obj);
 
   if (!check_wrapper_scope(wobj))
     return NULL;
 
-  PyMOLGlobals * G = wobj->G;
-  const char *aprop;
-  AtomPropertyInfo *ap;
-  PyObject *ret = NULL;
-  bool borrowed = false;
-  PyObject *keyobj = PyObject_Str(key);
-  aprop = PyString_AS_STRING(keyobj);
-  ap = PyMOL_GetAtomPropertyInfo(wobj->G->PyMOL, aprop);
-  Py_DECREF(keyobj);
-  if (ap){
-#ifdef _PYMOL_IP_EXTRAS
-#ifdef NO_MMLIBS
-    // static -> only show these warnings once
-    static bool warning_shown_text_type = false;
-#endif
+  PyMOLGlobals* G = wobj->G;
+  PyObject* ret = nullptr;
 
+  auto const keyobj = unique_PyObject_ptr(PyObject_Str(key));
+  auto const aprop = PyString_AS_STRING(keyobj.get());
+  auto const ap = PyMOL_GetAtomPropertyInfo(G->PyMOL, aprop);
+
+  if (ap) {
+#ifdef _PYMOL_IP_EXTRAS
     switch (ap->id) {
     case ATOM_PROP_STEREO:
       if (ObjectMoleculeUpdateMMStereoInfoForState(G, wobj->obj, wobj->state - 1) < 0) {
-        PyErr_SetString(PyExc_RuntimeError,
+        PyErr_SetString(P_CmdException,
             "please install rdkit or set SCHRODINGER variable");
         return NULL;
       }
@@ -608,12 +643,6 @@ PyObject * WrapperObjectSubScript(PyObject *obj, PyObject *key){
     case ATOM_PROP_TEXT_TYPE:
 #ifndef NO_MMLIBS
       ObjectMoleculeUpdateAtomTypeInfoForState(G, wobj->obj, wobj->state - 1, 1, 0);
-#else
-      if (!warning_shown_text_type && !(wobj->cs && wobj->cs->validTextType)) {
-        warning_shown_text_type = true;
-        PRINTFB(G, FB_ObjectMolecule, FB_Warnings)
-          " Notice: Automatic 'text_type' assignment feature removed in PyMOL 2.0.\n" ENDFB(G);
-      }
 #endif
       break;
     }
@@ -621,109 +650,89 @@ PyObject * WrapperObjectSubScript(PyObject *obj, PyObject *key){
 
     switch (ap->Ptype){
     case cPType_string:
-      {
-	char *val = (char*)(((char*)wobj->atomInfo) + ap->offset);
-	ret = PyString_FromString(val);
-      }
+      ret = PyUnicode_FromString(
+          get_member_pointer<char>(wobj->atomInfo, ap->offset));
       break;
     case cPType_schar:
-      {
-	signed char val = *(signed char*)(((char*)wobj->atomInfo) + ap->offset);
-	ret = PyInt_FromLong((long)val);
-      }
+      ret = PyLong_FromLong(
+          *get_member_pointer<signed char>(wobj->atomInfo, ap->offset));
       break;
     case cPType_int:
-      {
-	int val = *(int*)(((char*)wobj->atomInfo) + ap->offset);
-	ret = PyInt_FromLong((long)val);
-      }
+      ret =
+          PyLong_FromLong(*get_member_pointer<int>(wobj->atomInfo, ap->offset));
+      break;
+    case cPType_uint32:
+      ret = PyLong_FromUnsignedLong(
+          *get_member_pointer<uint32_t>(wobj->atomInfo, ap->offset));
       break;
     case cPType_int_as_string:
-      {
-        const char *st = LexStr(wobj->G,
-            *reinterpret_cast<lexidx_t*>
-            (((char*)wobj->atomInfo) + ap->offset));
-	ret = PyString_FromString(st);
-      }
+      ret = PyUnicode_FromString(LexStr(wobj->G,
+          *get_member_pointer<lexborrow_t>(wobj->atomInfo, ap->offset)));
       break;
     case cPType_float:
-      {
-	float val = *(float*)(((char*)wobj->atomInfo) + ap->offset);
-	ret = PyFloat_FromDouble(val);
-      }
+      ret = PyFloat_FromDouble(
+          *get_member_pointer<float>(wobj->atomInfo, ap->offset));
       break;
     case cPType_char_as_type:
-      {
-	ret = wobj->atomInfo->hetatm ? pystr_HETATM : pystr_ATOM;
-	borrowed = true;
-      }
+      ret = PIncRef(wobj->atomInfo->hetatm ? pystr_HETATM : pystr_ATOM);
       break;
     case cPType_model:
-      ret = PyString_FromString(wobj->obj->Obj.Name);
+      ret = PyUnicode_FromString(wobj->obj->Name);
       break;
     case cPType_index:
-      {
-	ret = PyInt_FromLong((long)wobj->atm + 1);
-      }
+      ret = PyLong_FromLong(wobj->atm + 1);
       break;
-    case cPType_int_custom_type:
-      {
-	int val = *(int*)(((char*)wobj->atomInfo) + ap->offset);
-	if(val != cAtomInfoNoType){
-	  ret = PyInt_FromLong((long)val);
-	} else {
-	  ret = pystr_QuestionMark;
-	  borrowed = true;
-	}
+    case cPType_int_custom_type: {
+      auto val = *get_member_pointer<int>(wobj->atomInfo, ap->offset);
+      if (val != cAtomInfoNoType) {
+        ret = PyLong_FromLong(val);
+      } else {
+        ret = PIncRef(pystr_QuestionMark);
       }
-      break;
+    } break;
     case cPType_xyz_float:
-      {
-	if (wobj->idx >= 0){
-	  ret = PyFloat_FromDouble(wobj->cs->coordPtr(wobj->idx)[ap->offset]);
-	} else {
-          PyErr_SetString(PyExc_NameError,
-              "x/y/z only available in iterate_state and alter_state");
-	}
+      if (wobj->idx < 0) {
+        PyErr_SetString(PyExc_NameError,
+            "x/y/z only available in iterate_state and alter_state");
+      } else {
+        ret = PyFloat_FromDouble(wobj->cs->coordPtr(wobj->idx)[ap->offset]);
       }
       break;
     case cPType_settings:
       if (!wobj->settingWrapperObject) {
-        wobj->settingWrapperObject = PyType_GenericNew(&settingWrapper_Type, Py_None, Py_None);
-        reinterpret_cast<SettingPropertyWrapperObject *>(wobj->settingWrapperObject)->wobj = wobj;
+        wobj->settingWrapperObject = static_cast<SettingPropertyWrapperObject*>(
+            PyType_GenericNew(&settingWrapper_Type, Py_None, Py_None));
+        wobj->settingWrapperObject->wobj = wobj;
       }
-      ret = wobj->settingWrapperObject;
-      borrowed = true;
+      ret = PIncRef(wobj->settingWrapperObject);
       break;
     case cPType_properties:
-      PyErr_SetString(PyExc_NotImplementedError,
+#ifndef _PYMOL_IP_PROPERTIES
+      PyErr_SetString(P_IncentiveOnlyException,
           "'properties/p' not supported in Open-Source PyMOL");
+#else
+      static_assert(false, "");
+#endif
       break;
     case cPType_state:
-      ret = PyInt_FromLong((long)wobj->state);
+      ret = PyLong_FromLong(wobj->state);
       break;
     default:
       switch (ap->id) {
-      case ATOM_PROP_RESI:
-        {
-          char resi[8];
-          AtomResiFromResv(resi, sizeof(resi), wobj->atomInfo);
-          ret = PyString_FromString(resi);
-        }
-        break;
-      case ATOM_PROP_STEREO:
-        {
-          auto mmstereotype = AtomInfoGetStereoAsStr(wobj->atomInfo);
-          ret = PyString_FromString(mmstereotype);
-        }
-        break;
-      case ATOM_PROP_ONELETTER:
-        {
-          const char * st = LexStr(G, wobj->atomInfo->resn);
-          char abbr[2] = {SeekerGetAbbr(G, st, 'O', 'X'), 0};
-          ret = PyString_FromString(abbr);
-        }
-        break;
+      case ATOM_PROP_RESI: {
+        char resi[8];
+        AtomResiFromResv(resi, sizeof(resi), wobj->atomInfo);
+        ret = PyUnicode_FromString(resi);
+      } break;
+      case ATOM_PROP_STEREO: {
+        auto mmstereotype = AtomInfoGetStereoAsStr(wobj->atomInfo);
+        ret = PyUnicode_FromString(mmstereotype);
+      } break;
+      case ATOM_PROP_ONELETTER: {
+        const char* st = LexStr(G, wobj->atomInfo->resn);
+        char abbr[2] = {SeekerGetAbbr(G, st, 'O', 'X'), 0};
+        ret = PyUnicode_FromString(abbr);
+      } break;
       default:
         PyErr_SetString(PyExc_SystemError, "unhandled atom property type");
       }
@@ -731,203 +740,207 @@ PyObject * WrapperObjectSubScript(PyObject *obj, PyObject *key){
   } else {
     /* if not an atom property, check if local variable in dict */
     if (wobj->dict) {
-      ret = PyDict_GetItem(wobj->dict, key);
+      ret = PyDict_GetItem(wobj->dict, key); // Borrowed reference
     }
     if (ret) {
-      borrowed = true;
+      Py_INCREF(ret);
     } else {
       PyErr_SetNone(PyExc_KeyError);
     }
   }
 
-  if (borrowed)
-    PXIncRef(ret);
   return ret;
 }
 
-/*
+/**
+ * Make IPython happy, which may call f_locals.get("__tracebackhide__", 0) and
+ * crash if there is no get() method (the wrapper object is f_locals).
+ */
+static PyObject* WrapperObject_get(PyObject* self, PyObject* args)
+{
+  auto nargs = PyTuple_Size(args);
+  assert(0 < nargs && nargs < 3);
+
+  // Could call WrapperObjectSubScript here, but we don't really need that. To
+  // fix the IPython issue, it's sufficient to return default or None.
+
+  if (nargs == 2) {
+    return PIncRef(PyTuple_GET_ITEM(args, 1));
+  }
+
+  Py_RETURN_NONE;
+}
+
+static PyMethodDef wrapperMethods[] = {
+    {"get", WrapperObject_get, METH_VARARGS, nullptr},
+    {nullptr},
+};
+
+/**
  * iterate-family namespace implementation: assignment
  *
  * Raise TypeError for read-only variables
  */
 static
 int WrapperObjectAssignSubScript(PyObject *obj, PyObject *key, PyObject *val){
-  WrapperObject *wobj = (WrapperObject*)obj;
+  auto wobj = static_cast<WrapperObject*>(obj);
 
   if (!check_wrapper_scope(wobj)) {
     return -1;
   }
-  {
-    char aprop[16];
-    PyObject *keyobj = PyObject_Str(key);
-    UtilNCopy(aprop, PyString_AS_STRING(keyobj), sizeof(aprop));
-    Py_DECREF(keyobj);
 
-    AtomPropertyInfo *ap = PyMOL_GetAtomPropertyInfo(wobj->G->PyMOL, aprop);
+  auto G = wobj->G;
 
-    if (ap){
+  const auto keyobj = unique_PyObject_ptr(PyObject_Str(key));
+  const char* const aprop = PyString_AS_STRING(keyobj.get());
+  const AtomPropertyInfo* ap = PyMOL_GetAtomPropertyInfo(G->PyMOL, aprop);
+
+  if (ap) {
+    if (wobj->read_only) {
+      PyErr_SetString(
+          PyExc_TypeError, "Use alter/alter_state to modify values");
+      return -1;
+    }
+
 #ifdef _PYMOL_IP_EXTRAS
-      if (wobj->cs) {
-        switch (ap->id) {
-        case ATOM_PROP_STEREO:
-          wobj->cs->validMMStereo = MMPYMOLX_PROP_STATE_USER;
-          break;
-        case ATOM_PROP_TEXT_TYPE:
-          wobj->cs->validTextType = MMPYMOLX_PROP_STATE_USER;
-          break;
-        }
+    if (wobj->cs) {
+      switch (ap->id) {
+      case ATOM_PROP_STEREO:
+        wobj->cs->validMMStereo = MMPYMOLX_PROP_STATE_USER;
+        break;
+      case ATOM_PROP_TEXT_TYPE:
+        wobj->cs->validTextType = MMPYMOLX_PROP_STATE_USER;
+        break;
       }
+    }
 #endif
 
-      short changed = false;
-      if (wobj->read_only){
-        PyErr_SetString(PyExc_TypeError,
-            "Use alter/alter_state to modify values");
-	return -1;
-      }
+    bool changed = false;
 
-      // alter_state: must be setting x/y/z or flags
-      if (wobj->idx >= 0) {
-        if (ap->Ptype == cPType_xyz_float) {
-          float * v = wobj->cs->coordPtr(wobj->idx) + ap->offset;
-          PConvPyObjectToFloat(val, v);
-          return 0;
-        }
+    switch (ap->Ptype) {
+    case cPType_string: {
+      PyObject* valobj = PyObject_Str(val);
+      const char* valstr = PyString_AS_STRING(valobj);
+      char* dest = get_member_pointer<char>(wobj->atomInfo, ap->offset);
+      if (strlen(valstr) > ap->maxlen) {
+        strncpy(dest, valstr, ap->maxlen);
+      } else {
+        strcpy(dest, valstr);
       }
-
-      switch (ap->Ptype){
-      case cPType_string:
-	{
-          PyObject *valobj = PyObject_Str(val);
-	  const char *valstr = PyString_AS_STRING(valobj);
-	  char *dest = (char*)(((char*)wobj->atomInfo) + ap->offset);
-	  if (strlen(valstr) > ap->maxlen){
-	    strncpy(dest, valstr, ap->maxlen);
-	  } else {
-	    strcpy(dest, valstr);
-	  }
-          Py_DECREF(valobj);
-	  changed = true;
-	}
-	break;
-      case cPType_schar:
-	{
-	  int valint = PyInt_AsLong(val);
-	  signed char *dest;
-	  if (valint == -1 && PyErr_Occurred())
-	    break;
-	  dest = (signed char*)(((char*)wobj->atomInfo) + ap->offset);
-	  *dest = valint;
-	  changed = true;
-	}
-        break;
-      case cPType_int:
-	{
-	  int valint = PyInt_AsLong(val);
-	  int *dest;
-	  if (valint == -1 && PyErr_Occurred())
-	    break;
-	  dest = (int*)(((char*)wobj->atomInfo) + ap->offset);
-	  *dest = valint;
-	  changed = true;
-	}
-	break;
-      case cPType_int_as_string:
-	{
-          auto dest = reinterpret_cast<lexidx_t*>
-            (((char*)wobj->atomInfo) + ap->offset);
-          PyObject *valobj = PyObject_Str(val);
-	  const char *valstr = PyString_AS_STRING(valobj);
-	  LexDec(wobj->G, *dest);
-	  *dest = LexIdx(wobj->G, valstr);
-          Py_DECREF(valobj);
-	  changed = true;
-	}
-	break;
-      case cPType_float:
-	{
-	  float *dest = (float*)(((char*)wobj->atomInfo) + ap->offset);
-	  changed = PConvPyObjectToFloat(val, dest);
-	}
-	break;	
-      case cPType_char_as_type:
-	{
-          PyObject *valobj = PyObject_Str(val);
-          const char *valstr = PyString_AS_STRING(valobj);
-          wobj->atomInfo->hetatm = ((valstr[0] == 'h') || (valstr[0] == 'H'));
-          Py_DECREF(valobj);
-	  changed = true;
-	}
-	break;
-      case cPType_int_custom_type:
-	{
-          PyObject *valobj = PyObject_Str(val);
-	  const char *valstr = PyString_AS_STRING(valobj);
-	  int *dest = (int*)(((char*)wobj->atomInfo) + ap->offset);
-	  if (valstr[0] == '?'){
-	    *dest = cAtomInfoNoType;
-	  } else {
-	    int valint = PyInt_AS_LONG(val);
-	    *dest = valint;
-	  }
-          Py_DECREF(valobj);
-	  changed = true;
-	}
-	break;
-      case cPType_xyz_float:
-        PyErr_SetString(PyExc_NameError,
-            "x/y/z only available in alter_state");
+      Py_DECREF(valobj);
+      changed = true;
+    } break;
+    case cPType_schar: {
+      int valint = PyInt_AsLong(val);
+      if (valint == -1 && PyErr_Occurred())
         return -1;
-      default:
-        switch (ap->id) {
-        case ATOM_PROP_RESI:
-          if (PConvPyIntToInt(val, &wobj->atomInfo->resv)) {
-            wobj->atomInfo->inscode = '\0';
-          } else {
-            PyObject *valobj = PyObject_Str(val);
-            wobj->atomInfo->setResi(PyString_AS_STRING(valobj));
-            Py_DECREF(valobj);
-          }
-          break;
-        case ATOM_PROP_STEREO:
-          {
-            PyObject *valobj = PyObject_Str(val);
-            const char *valstr = PyString_AS_STRING(valobj);
-            AtomInfoSetStereo(wobj->atomInfo, valstr);
-            Py_DECREF(valobj);
-          }
-          break;
-        default:
-          PyErr_Format(PyExc_TypeError, "'%s' is read-only", aprop);
+      *get_member_pointer<signed char>(wobj->atomInfo, ap->offset) = valint;
+      changed = true;
+    } break;
+    case cPType_int: {
+      int valint = PyInt_AsLong(val);
+      if (valint == -1 && PyErr_Occurred())
+        return -1;
+      *get_member_pointer<int>(wobj->atomInfo, ap->offset) = valint;
+      changed = true;
+    } break;
+    case cPType_uint32: {
+      auto valint = PyLong_AsUnsignedLong(val);
+      if (valint == -1 && PyErr_Occurred())
+        return -1;
+      *get_member_pointer<uint32_t>(wobj->atomInfo, ap->offset) = valint;
+      changed = true;
+    } break;
+    case cPType_int_as_string: {
+      auto dest = get_member_pointer<lexidx_t>(wobj->atomInfo, ap->offset);
+      const auto valobj = unique_PyObject_ptr(PyObject_Str(val));
+      const char* valstr = PyString_AS_STRING(valobj.get());
+      LexAssign(G, *dest, valstr);
+      changed = true;
+    } break;
+    case cPType_float:
+      if (!PConvPyObjectToFloat(
+              val, get_member_pointer<float>(wobj->atomInfo, ap->offset))) {
+        return -1;
+      }
+      changed = true;
+      break;
+    case cPType_char_as_type: {
+      const auto valobj = unique_PyObject_ptr(PyObject_Str(val));
+      const char* valstr = PyString_AS_STRING(valobj.get());
+      wobj->atomInfo->hetatm = ((valstr[0] == 'h') || (valstr[0] == 'H'));
+      changed = true;
+    } break;
+    case cPType_int_custom_type: {
+      const auto valobj = unique_PyObject_ptr(PyObject_Str(val));
+      const char* valstr = PyString_AS_STRING(valobj.get());
+      auto* dest = get_member_pointer<int>(wobj->atomInfo, ap->offset);
+      if (valstr[0] == '?') {
+        *dest = cAtomInfoNoType;
+      } else {
+        int valint = PyInt_AS_LONG(val);
+        *dest = valint;
+      }
+      changed = true;
+    } break;
+    case cPType_xyz_float:
+      if (wobj->idx < 0) {
+        PyErr_SetString(PyExc_NameError, "x/y/z only available in alter_state");
+        return -1;
+      } else {
+        float* v = wobj->cs->coordPtr(wobj->idx) + ap->offset;
+        if (!PConvPyObjectToFloat(val, v)) {
           return -1;
         }
       }
-      if (changed){
-	switch (ap->id){
-	case ATOM_PROP_ELEM:
-	  wobj->atomInfo->protons = 0;
-	  wobj->atomInfo->vdw = 0;
-	  AtomInfoAssignParameters(wobj->G, wobj->atomInfo);
-	  break;
-	case ATOM_PROP_RESV:
-	  wobj->atomInfo->inscode = '\0';
-	  break;
-	case ATOM_PROP_SS:
-	  wobj->atomInfo->ssType[0] = toupper(wobj->atomInfo->ssType[0]);
-	  break;
-	case ATOM_PROP_FORMAL_CHARGE:
-	  wobj->atomInfo->chemFlag = false;
-	  break;
-	}
+      break;
+    default:
+      switch (ap->id) {
+      case ATOM_PROP_RESI:
+        if (PConvPyIntToInt(val, &wobj->atomInfo->resv)) {
+          wobj->atomInfo->inscode = '\0';
+        } else {
+          const auto valobj = unique_PyObject_ptr(PyObject_Str(val));
+          wobj->atomInfo->setResi(PyString_AS_STRING(valobj.get()));
+        }
+        break;
+      case ATOM_PROP_STEREO: {
+        const auto valobj = unique_PyObject_ptr(PyObject_Str(val));
+        const char* valstr = PyString_AS_STRING(valobj.get());
+        AtomInfoSetStereo(wobj->atomInfo, valstr);
+      } break;
+      default:
+        PyErr_Format(PyExc_TypeError, "'%s' is read-only", aprop);
+        return -1;
       }
-    } else {
-      /* if not an atom property, then its a local variable, store it */
-      if (!wobj->dict) {
-        wobj->dict = PyDict_New();
-      }
-      PyDict_SetItem(wobj->dict, key, val);
     }
+
+    if (changed) {
+      switch (ap->id) {
+      case ATOM_PROP_ELEM:
+        wobj->atomInfo->protons = 0;
+        wobj->atomInfo->vdw = 0;
+        AtomInfoAssignParameters(wobj->G, wobj->atomInfo);
+        break;
+      case ATOM_PROP_RESV:
+        wobj->atomInfo->inscode = '\0';
+        break;
+      case ATOM_PROP_SS:
+        wobj->atomInfo->ssType[0] = toupper(wobj->atomInfo->ssType[0]);
+        break;
+      case ATOM_PROP_FORMAL_CHARGE:
+        wobj->atomInfo->chemFlag = false;
+        break;
+      }
+    }
+  } else {
+    /* if not an atom property, then its a local variable, store it */
+    if (!wobj->dict) {
+      wobj->dict = PyDict_New();
+    }
+    PyDict_SetItem(wobj->dict, key, val);
   }
+
   return 0; /* 0 success, -1 failure */
 }
 
@@ -944,40 +957,61 @@ static void PLockAPIWhileBlocked(PyMOLGlobals * G);
 
 #define P_log_file_str "_log_file"
 
-#define xxxPYMOL_NEW_THREADS 1
-
+/**
+ * Acquire the status lock (blocking)
+ * @pre GIL
+ */
 void PLockStatus(PyMOLGlobals * G)
 {                               /* assumes we have the GIL */
-  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock_status, "O", G->P_inst->cmd));
+  assert(PyGILState_Check());
+
+  PXDecRef(PYOBJECT_CALLMETHOD(G->P_inst->lock_api_status, "acquire", nullptr));
 }
 
+/**
+ * Acquire the status lock (non-blocking)
+ * @return True if lock could be acquired
+ * @pre GIL
+ */
 int PLockStatusAttempt(PyMOLGlobals * G)
 {                               /* assumes we have the GIL */
-  int result = true;
-  PyObject *got_lock =
-    PYOBJECT_CALLFUNCTION(G->P_inst->lock_status_attempt, "O", G->P_inst->cmd);
-  if(got_lock) {
-    if(!PyInt_AsLong(got_lock)) {
-      result = false;
-    }
-    Py_DECREF(got_lock);
-  }
-  return result;
+  assert(PyGILState_Check());
+
+  unique_PyObject_ptr got_lock(
+      PYOBJECT_CALLMETHOD(G->P_inst->lock_api_status, "acquire", "i", 0));
+
+  ASSERT_PYOBJECT_NOT_NULL(got_lock, true);
+
+  return PyObject_IsTrue(got_lock.get());
 }
 
+/**
+ * Release the status lock
+ * @pre GIL
+ */
 void PUnlockStatus(PyMOLGlobals * G)
 {                               /* assumes we have the GIL */
-  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock_status, "O", G->P_inst->cmd));
+  assert(PyGILState_Check());
+
+  PXDecRef(PYOBJECT_CALLMETHOD(G->P_inst->lock_api_status, "release", nullptr));
 }
 
+/**
+ * Acquire GLUT lock
+ * @pre GIL
+ */
 static void PLockGLUT(PyMOLGlobals * G)
 {                               /* assumes we have the GIL */
-  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock_glut, "O", G->P_inst->cmd));
+  PXDecRef(PYOBJECT_CALLMETHOD(G->P_inst->lock_api_glut, "acquire", nullptr));
 }
 
+/**
+ * Release GLUT lock
+ * @pre GIL
+ */
 static void PUnlockGLUT(PyMOLGlobals * G)
 {                               /* assumes we have the GIL */
-  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock_glut, "O", G->P_inst->cmd));
+  PXDecRef(PYOBJECT_CALLMETHOD(G->P_inst->lock_api_glut, "release", nullptr));
 }
 
 static long P_glut_thread_id = -1;
@@ -986,8 +1020,8 @@ static long P_glut_thread_id = -1;
 /* enables us to keep glut out if by chance it grabs the API
  * in the middle of a nested API based operation */
 
+static
 void PCatchInit(void);
-void my_interrupt(int a);
 
 
 /*
@@ -1002,6 +1036,8 @@ void my_interrupt(int a);
 
 PyObject *PGetFontDict(PyMOLGlobals * G, float size, int face, int style)
 {                               /* assumes we have a valid interpreter lock */
+  assert(PyGILState_Check());
+
   PyObject *result = NULL;
 
   if(!P_vfont) {
@@ -1018,6 +1054,8 @@ PyObject *PGetFontDict(PyMOLGlobals * G, float size, int face, int style)
 
 int PComplete(PyMOLGlobals * G, char *str, int buf_size)
 {
+  assert(!PyGILState_Check());
+
   int ret = false;
   PyObject *result;
   const char *st2;
@@ -1039,6 +1077,8 @@ int PComplete(PyMOLGlobals * G, char *str, int buf_size)
 
 int PTruthCallStr0(PyObject * object, const char *method)
 {
+  assert(PyGILState_Check());
+
   int result = false;
   PyObject *tmp;
   tmp = PYOBJECT_CALLMETHOD(object, method, "");
@@ -1052,6 +1092,8 @@ int PTruthCallStr0(PyObject * object, const char *method)
 
 int PTruthCallStr(PyObject * object, const char *method, const char *argument)
 {
+  assert(PyGILState_Check());
+
   int result = false;
   PyObject *tmp;
   tmp = PYOBJECT_CALLMETHOD(object, method, "s", argument);
@@ -1065,6 +1107,8 @@ int PTruthCallStr(PyObject * object, const char *method, const char *argument)
 
 int PTruthCallStr1i(PyObject * object, const char *method, int argument)
 {
+  assert(PyGILState_Check());
+
   int result = false;
   PyObject *tmp;
   tmp = PYOBJECT_CALLMETHOD(object, method, "i", argument);
@@ -1078,6 +1122,8 @@ int PTruthCallStr1i(PyObject * object, const char *method, int argument)
 
 int PTruthCallStr1s(PyObject * object, const char *method, const char *argument)
 {
+  assert(PyGILState_Check());
+
   int result = false;
   PyObject *tmp;
   tmp = PYOBJECT_CALLMETHOD(object, method, "s", argument);
@@ -1091,6 +1137,8 @@ int PTruthCallStr1s(PyObject * object, const char *method, const char *argument)
 
 int PTruthCallStr4i(PyObject * object, const char *method, int a1, int a2, int a3, int a4)
 {
+  assert(PyGILState_Check());
+
   int result = false;
   PyObject *tmp;
   tmp = PYOBJECT_CALLMETHOD(object, method, "iiii", a1, a2, a3, a4);
@@ -1104,6 +1152,8 @@ int PTruthCallStr4i(PyObject * object, const char *method, int a1, int a2, int a
 
 PyObject *PXIncRef(PyObject * obj)
 {
+  assert(PyGILState_Check());
+
   if(!obj)
     obj = Py_None;
   Py_XINCREF(obj);
@@ -1112,11 +1162,15 @@ PyObject *PXIncRef(PyObject * obj)
 
 void PXDecRef(PyObject * obj)
 {
+  assert(PyGILState_Check());
+
   Py_XDECREF(obj);
 }
 
-OV_STATIC ov_status CacheCreateEntry(PyObject ** result, PyObject * input)
+static ov_status CacheCreateEntry(PyObject ** result, PyObject * input)
 {
+  assert(PyGILState_Check());
+
   ov_status status = OV_STATUS_FAILURE;
   if(input && PyTuple_Check(input)) {
     ov_size tuple_size = PyTuple_Size(input);
@@ -1163,6 +1217,8 @@ OV_STATIC ov_status CacheCreateEntry(PyObject ** result, PyObject * input)
 
 ov_status PCacheSet(PyMOLGlobals * G, PyObject * entry, PyObject * output)
 {
+  assert(PyGILState_Check());
+
   ov_status status = OV_STATUS_FAILURE;
   if(G->P_inst->cache && output) {
     ov_size tuple_size = PyTuple_Size(output);
@@ -1192,6 +1248,8 @@ ov_status PCacheSet(PyMOLGlobals * G, PyObject * entry, PyObject * output)
 ov_status PCacheGet(PyMOLGlobals * G,
                     PyObject ** result_output, PyObject ** result_entry, PyObject * input)
 {
+  assert(PyGILState_Check());
+
   ov_status status = OV_STATUS_NO;
   if(G->P_inst->cache) {
     PyObject *entry = NULL;
@@ -1223,6 +1281,8 @@ ov_status PCacheGet(PyMOLGlobals * G,
 
 void PSleepWhileBusy(PyMOLGlobals * G, int usec)
 {
+  assert(!PyGILState_Check());
+
 #ifndef WIN32
   struct timeval tv;
   PRINTFD(G, FB_Threads)
@@ -1243,6 +1303,8 @@ void PSleepWhileBusy(PyMOLGlobals * G, int usec)
 
 void PSleepUnlocked(PyMOLGlobals * G, int usec)
 {                               /* can only be called by the glut process */
+  assert(!PyGILState_Check());
+
 #ifndef WIN32
   struct timeval tv;
   PRINTFD(G, FB_Threads)
@@ -1263,6 +1325,8 @@ void PSleepUnlocked(PyMOLGlobals * G, int usec)
 
 void PSleep(PyMOLGlobals * G, int usec)
 {                               /* can only be called by the glut process */
+  assert(!PyGILState_Check());
+
 #ifndef WIN32
   struct timeval tv;
   PUnlockAPIAsGlut(G);
@@ -1287,6 +1351,7 @@ void PSleep(PyMOLGlobals * G, int usec)
 static PyObject *PCatchWrite(PyObject * self, PyObject * args);
 static PyObject *PCatch_install(PyObject * self, PyObject * args);
 
+static
 void my_interrupt(int a)
 {
   exit(EXIT_FAILURE);
@@ -1294,17 +1359,22 @@ void my_interrupt(int a)
 
 void PDumpTraceback(PyObject * err)
 {
+  assert(PyGILState_Check());
+
   PYOBJECT_CALLMETHOD(P_traceback, "print_tb", "O", err);
 }
 
 void PDumpException()
 {
+  assert(PyGILState_Check());
+
   PYOBJECT_CALLMETHOD(P_traceback, "print_exc", "");
 }
 
 static
 WrapperObject * WrapperObjectNew() {
-  auto wobj = (WrapperObject *)PyType_GenericNew(&Wrapper_Type, Py_None, Py_None);
+  auto wobj = static_cast<WrapperObject*>(
+      PyType_GenericNew(&Wrapper_Type, Py_None, Py_None));
   wobj->dict = NULL;
   wobj->settingWrapperObject = NULL;
 #ifdef _PYMOL_IP_PROPERTIES
@@ -1313,12 +1383,15 @@ WrapperObject * WrapperObjectNew() {
   return wobj;
 }
 
-int PAlterAtomState(PyMOLGlobals * G, PyCodeObject *expr_co, int read_only,
+/**
+ * @pre GIL
+ */
+int PAlterAtomState(PyMOLGlobals * G, PyObject *expr_co, int read_only,
                     ObjectMolecule *obj, CoordSet *cs, int atm, int idx,
                     int state, PyObject * space)
-
-/* assumes Blocked python interpreter */
 {
+  assert(PyGILState_Check());
+
   int result = true;
 
   auto wobj = WrapperObjectNew();
@@ -1331,30 +1404,30 @@ int PAlterAtomState(PyMOLGlobals * G, PyCodeObject *expr_co, int read_only,
   wobj->read_only = read_only;
   wobj->state = state + 1;
 
-  PXDecRef(PyEval_EvalCode(expr_co, space, (PyObject*)wobj));
-  WrapperObjectReset(wobj);
+  PXDecRef(PyEval_EvalCode((PyObject*) expr_co, space, (PyObject*) wobj));
+  Py_DECREF(wobj);
 
   if(PyErr_Occurred()) {
-    PyErr_Print();
     result = false;
   }
   return result;
 }
 
-int PAlterAtom(PyMOLGlobals * G,
-               ObjectMolecule *obj, CoordSet *cs, PyCodeObject *expr_co, int read_only,
-               int atm, PyObject * space)
+int PAlterAtom(PyMOLGlobals* G, ObjectMolecule* obj, CoordSet* cs,
+    PyObject* expr_co, int read_only, int atm, PyObject* space)
 {
   int state = (obj->DiscreteFlag ? obj->AtomInfo[atm].discrete_state : 0) - 1;
   return PAlterAtomState(G, expr_co, read_only, obj, cs, atm, /* idx */ -1, state, space);
 }
 
-/*
+/**
  * String conversion which takes "label_digits" setting into account.
  */
 static
 int PLabelPyObjectToStrMaxLen(PyMOLGlobals * G, PyObject * obj, char *buffer, int maxlen)
 {
+  assert(PyGILState_Check());
+
   if (obj && PyFloat_Check(obj)) {
     snprintf(buffer, maxlen + 1, "%.*f",
         SettingGetGlobal_i(G, cSetting_label_digits),
@@ -1364,11 +1437,12 @@ int PLabelPyObjectToStrMaxLen(PyMOLGlobals * G, PyObject * obj, char *buffer, in
   return PConvPyObjectToStrMaxLen(obj, buffer, maxlen);
 }
 
-int PLabelAtom(PyMOLGlobals * G, ObjectMolecule *obj, CoordSet *cs, PyCodeObject *expr_co, int atm)
+int PLabelAtom(PyMOLGlobals* G, ObjectMolecule* obj, CoordSet* cs,
+    PyObject* expr_co, int atm)
 {
-  int result = true;
+  assert(PyGILState_Check());
+
   PyObject *P_inst_dict = G->P_inst->dict;
-  PyObject *resultPyObject;
   OrthoLineType label;
   AtomInfoType * ai = obj->AtomInfo + atm;
 
@@ -1393,36 +1467,36 @@ int PLabelAtom(PyMOLGlobals * G, ObjectMolecule *obj, CoordSet *cs, PyCodeObject
     wobj->state = 0;
   }
 
-  resultPyObject = PyEval_EvalCode(expr_co, P_inst_dict, (PyObject*)wobj);
-  WrapperObjectReset(wobj);
+  auto resultPyObject =
+      unique_PyObject_ptr(PyEval_EvalCode(expr_co, P_inst_dict, wobj));
 
-  if(PyErr_Occurred()) {
-    PyErr_Print();
-    result = false;
-  } else {
-    result = true;
-    if(!PLabelPyObjectToStrMaxLen(G, resultPyObject,
-                                 label, sizeof(OrthoLineType) - 1))
-      result = false;
-    if(PyErr_Occurred()) {
-      PyErr_Print();
-      result = false;
-    }
-    if(result) {
-      LexAssign(G, ai->label, label);
-    } else {
+  if (PyErr_Occurred()) {
+    return false;
+  }
+
+  if (!PLabelPyObjectToStrMaxLen(
+          G, resultPyObject.get(), label, sizeof(OrthoLineType) - 1)) {
+    if (!PyErr_Occurred()) {
       ErrMessage(G, "Label", "Aborting on error. Labels may be incomplete.");
     }
+
+    return false;
   }
-  PXDecRef(resultPyObject);
-  return (result);
+
+  LexAssign(G, ai->label, label);
+  return true;
 }
 
+/**
+ * - Release API lock with flushing
+ * - Pop valid context
+ * - Release GLUT lock
+ * @pre no GIL
+ */
 void PUnlockAPIAsGlut(PyMOLGlobals * G)
 {                               /* must call with unblocked interpreter */
-  PRINTFD(G, FB_Threads)
-    " PUnlockAPIAsGlut-DEBUG: entered as thread %ld\n", PyThread_get_thread_ident()
-    ENDFD;
+  assert(!PyGILState_Check());
+
   PBlock(G);
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock, "iO", 0, G->P_inst->cmd));  /* NOTE this may flush the command buffer! */
   PLockStatus(G);
@@ -1432,11 +1506,16 @@ void PUnlockAPIAsGlut(PyMOLGlobals * G)
   PUnblock(G);
 }
 
+/**
+ * - Release API lock without flushing
+ * - Pop valid context
+ * - Release GLUT lock
+ * @pre no GIL
+ */
 void PUnlockAPIAsGlutNoFlush(PyMOLGlobals * G)
 {                               /* must call with unblocked interpreter */
-  PRINTFD(G, FB_Threads)
-    " PUnlockAPIAsGlut-DEBUG: entered as thread %ld\n", PyThread_get_thread_ident()
-    ENDFD;
+  assert(!PyGILState_Check());
+
   PBlock(G);
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock, "iO", -1, G->P_inst->cmd)); /* prevents flushing of the buffer */
   PLockStatus(G);
@@ -1446,48 +1525,52 @@ void PUnlockAPIAsGlutNoFlush(PyMOLGlobals * G)
   PUnblock(G);
 }
 
+/**
+ * Acquire API lock
+ * @param block_if_busy If false and PyMOL is busy, do not block
+ * @return False if API lock could not be acquired
+ * @pre GIL
+ */
 static int get_api_lock(PyMOLGlobals * G, int block_if_busy)
 {
-  int result = true;
+  assert(PyGILState_Check());
 
-  if(block_if_busy) {
+  if (!block_if_busy) {
+    unique_PyObject_ptr got_lock(
+        PYOBJECT_CALLFUNCTION(G->P_inst->lock_attempt, "O", G->P_inst->cmd));
 
-    PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock, "O", G->P_inst->cmd));
+    ASSERT_PYOBJECT_NOT_NULL(got_lock, false);
 
-  } else {                      /* not blocking if PyMOL is busy */
+    if (PyObject_IsTrue(got_lock.get())) {
+      return true;
+    }
 
-    PyObject *got_lock =
-      PYOBJECT_CALLFUNCTION(G->P_inst->lock_attempt, "O", G->P_inst->cmd);
+    PLockStatus(G);
+    bool busy = PyMOL_GetBusy(G->PyMOL, false);
+    PUnlockStatus(G);
 
-    if(got_lock) {
-      if(!PyInt_AsLong(got_lock)) {
-        if(!G) {                /* impossible (unless stack trashed?) */
-          result = false;
-        } else {
-          PLockStatus(G);
-          if(PyMOL_GetBusy(G->PyMOL, false))
-            result = false;
-          PUnlockStatus(G);
-          if(!G) {              /* impossible (unless stack trashed?) */
-            result = false;
-          } else {
-            if(result) {        /* didn't get lock, but not busy, so block and wait for lock */
-              PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock, "O", G->P_inst->cmd));
-            }
-          }
-        }
-      }
-      Py_DECREF(got_lock);
+    if (busy) {
+      return false;
     }
   }
-  return result;
+
+  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock, "O", G->P_inst->cmd));
+  return true;
 }
 
+/**
+ * - Acquire GLUT lock
+ * - Push valid context
+ * - Acquire API lock
+ * - Wait for glut_thread_keep_out == 0
+ *
+ * @param block_if_busy If false and PyMOL is busy, API lock is non-blocking
+ * @return False if locks could not be acquired
+ * @pre no GIL
+ */
 int PLockAPIAsGlut(PyMOLGlobals * G, int block_if_busy)
 {
-  PRINTFD(G, FB_Threads)
-    "*PLockAPIAsGlut-DEBUG: entered as thread %ld\n", PyThread_get_thread_ident()
-    ENDFD;
+  assert(!PyGILState_Check());
 
   PBlock(G);
 
@@ -1497,27 +1580,24 @@ int PLockAPIAsGlut(PyMOLGlobals * G, int block_if_busy)
   PyMOL_PushValidContext(G->PyMOL);
   PUnlockStatus(G);
 
-  PRINTFD(G, FB_Threads)
-    "#PLockAPIAsGlut-DEBUG: acquiring lock as thread %ld\n", PyThread_get_thread_ident()
-    ENDFD;
+  while (true) {
+    if(!get_api_lock(G, block_if_busy)) {
+      PLockStatus(G);
+      PyMOL_PopValidContext(G->PyMOL);
+      PUnlockStatus(G);
+      PUnlockGLUT(G);
+      PUnblock(G);
+      return false;               /* busy -- so allow main to update busy status display (if any) */
+    }
 
-  if(!get_api_lock(G, block_if_busy)) {
-    PLockStatus(G);
-    PyMOL_PopValidContext(G->PyMOL);
-    PUnlockStatus(G);
-    PUnlockGLUT(G);
-    PUnblock(G);
-    return false;               /* busy -- so allow main to update busy status display (if any) */
-  }
+    if (G->P_inst->glut_thread_keep_out == 0) {
+      break;
+    }
 
-  while(G->P_inst->glut_thread_keep_out) {
     /* IMPORTANT: keeps the glut thread out of an API operation... */
     /* NOTE: the keep_out variable can only be changed or read by the thread
        holding the API lock, therefore it is safe even through increment
        isn't atomic. */
-    PRINTFD(G, FB_Threads)
-      "-PLockAPIAsGlut-DEBUG: glut_thread_keep_out %ld\n", PyThread_get_thread_ident()
-      ENDFD;
 
     PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock, "iO", -1, G->P_inst->cmd));       /* prevent buffer flushing */
 #ifndef WIN32
@@ -1535,22 +1615,10 @@ int PLockAPIAsGlut(PyMOLGlobals * G, int block_if_busy)
     PXDecRef(PYOBJECT_CALLFUNCTION(P_sleep, "f", 0.050));
     /* END PROPRIETARY CODE SEGMENT */
 #endif
-
-    if(!get_api_lock(G, block_if_busy)) {
-      /* return false-- allow main to update busy status display (if any) */
-      PLockStatus(G);
-      PyMOL_PopValidContext(G->PyMOL);
-      PUnlockStatus(G);
-      PUnlockGLUT(G);
-      PUnblock(G);
-      return false;
-    }
   }
 
   PUnblock(G);                  /* API is now locked, so we can free up Python... */
 
-  PRINTFD(G, FB_Threads)
-    "=PLockAPIAsGlut-DEBUG: acquired\n" ENDFD;
   return true;
 }
 
@@ -1614,409 +1682,10 @@ void init_pyomm(void);
 #endif
 
 
-/* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
-#if 0 // def WIN32
-static int IsSecurityRequired()
-{
-  DWORD WindowsVersion = GetVersion();
-  DWORD WindowsMajorVersion = (DWORD) (LOBYTE(LOWORD(WindowsVersion)));
-  DWORD WindowsMinorVersion = (DWORD) (HIBYTE(LOWORD(WindowsVersion)));
-
-  if(WindowsVersion >= 0x80000000)
-    return FALSE;
-
-  return TRUE;
-}
-#endif
-
-/* END PROPRIETARY CODE SEGMENT */
-
-void PSetupEmbedded(PyMOLGlobals * G, int argc, char **argv)
-{
-  /* This routine is called if we are running with an embedded Python interpreter */
-  PyObject *args;
-
-  /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
-#if 0 // def WIN32
-
-  /* Windows PyMOL now ships with Python 2.5 for both
-     32 and 64 bit */
-
-#ifndef EMBEDDED_PYTHONHOME
-#define EMBEDDED_PYTHONHOME "\\py27"
-#endif
-
-  {                             /* Automatically hide the window if this process was started as a
-                                   vanilla console application (by double-clicking).
-                                   Conveniently, this doesn't hide the window when launched from a
-                                   command window. */
-    HWND hwndFound;
-    if(hwndFound = FindWindowA(NULL, argv[0])) {
-      ShowWindow(hwndFound, SW_HIDE);
-    }
-  }
-
-  {                             /* if PYMOL_PATH and/or PYTHONHOME isn't in the environment coming
-                                   in, then the user may simply have clicked PyMOL.exe, in which
-                                   case we need to consult the registry regarding the location of
-                                   the install */
-
-    static char line1[8092];
-    static char line2[8092];
-
-    {                           /* If no PYMOL_PATH specific, but we were launched with an
-                                 * absolute path, then try using that path first.  With embedded
-                                 * builds, the .EXE should always be located at the root of
-                                 * $PYMOL_PATH */
-
-      char *pymol_path = getenv("PYMOL_PATH");
-      if((!pymol_path) && (argc > 0) && argv[0][0] && (argv[0][1] == ':')
-         && (argv[0][2] == '\\')) {
-
-        char *p;
-        strcpy(line1, "PYMOL_PATH=");
-        strcat(line1, argv[0]);
-        p = line1 + strlen(line1);
-        while(*p != '\\') {
-          *p = 0;
-          p--;
-        }
-        *p = 0;
-        putenv(line1);
-      }
-    }
-
-    {
-      OrthoLineType path_buffer;
-      HKEY phkResult;
-      DWORD lpcbData;
-      DWORD lpType = REG_SZ;
-      int r1, r2;
-      char *pymol_path;
-      char *pythonhome;
-      int pythonhome_set = false;
-      int restart_flag = false;
-
-      pymol_path = getenv("PYMOL_PATH");
-      pythonhome = getenv("PYTHONHOME");
-      if((!pymol_path) || (!pythonhome)) {
-        lpcbData = sizeof(OrthoLineType) - 1;
-        r1 = RegOpenKeyExA(HKEY_CLASSES_ROOT,
-#ifdef PYMOL_EVAL
-			"Software\\PyMOL\\PyMOL Eval\\PYMOL_PATH",
-#else
-			"Software\\PyMOL\\PyMOL\\PYMOL_PATH",
-#endif
-                          0, KEY_EXECUTE, &phkResult);
-        if(r1 != ERROR_SUCCESS) {
-          r1 = RegOpenKeyExA(HKEY_CURRENT_USER,
-#ifdef PYMOL_EVAL
-			"Software\\PyMOL\\PyMOL Eval\\PYMOL_PATH",
-#else
-			"Software\\PyMOL\\PyMOL\\PYMOL_PATH",
-#endif
-                            0, KEY_EXECUTE, &phkResult);
-        }
-        if(r1 == ERROR_SUCCESS) {
-          r2 = RegQueryValueExA(phkResult, "", NULL, &lpType, (LPBYTE) path_buffer, &lpcbData);
-          if(r2 == ERROR_SUCCESS) {
-            /* use environment variable PYMOL_PATH first, registry entry
-               second */
-            if(!pymol_path) {
-              strcpy(line1, "PYMOL_PATH=");
-              strcat(line1, path_buffer);
-              _putenv(line1);
-              if(!pythonhome) { /* only set PYTHONHOME if already
-                                   setting new PYMOL_PATH */
-                pythonhome_set = true;
-                strcpy(line2, "PYTHONHOME=");
-                strcat(line2, path_buffer);
-                strcat(line2, EMBEDDED_PYTHONHOME);
-                restart_flag = true;
-                _putenv(line2);
-              }
-            }
-          }
-          RegCloseKey(phkResult);
-        }
-        /* this allows us to just specify PYMOL_PATH with no registry entries */
-        if((!pythonhome_set) && (pymol_path) && (!pythonhome)) {
-          strcpy(line2, "PYTHONHOME=");
-          strcat(line2, pymol_path);
-          strcat(line2, EMBEDDED_PYTHONHOME);
-          _putenv(line2);
-          restart_flag = true;
-        }
-      }
-      if(restart_flag && getenv("PYMOL_PATH") && getenv("PYTHONHOME")) {
-
-        /* now that we have the environment defined, restart the process
-         * so that Python can use the new environment.  If we don't do
-         * this, then Python won't see the new environment vars. Why not? */
-
-        /* note that we use CreateProcesss to launch the console
-         * application instead of exec or spawn in order to hide the
-         * console window. Otherwise a console window might appear, and
-         * that would suck. */
-
-        char command[8092];
-        static char cmd_line[8092];
-        char *p, *q;
-        int a;
-
-        /* copy arguments, installing quotes around them */
-
-        sprintf(command, "%s\\pymol.exe", getenv("PYMOL_PATH"));
-        p = cmd_line;
-
-        sprintf(p, "\"%s\"", command);
-        p += strlen(p);
-        *(p++) = ' ';
-        *p = 0;
-
-        for(a = 1; a <= argc; a++) {
-          q = argv[a];
-          if(q) {
-            if(*q != '"') {     /* add quotes if not present */
-              *(p++) = '"';
-              while(*q) {
-                *(p++) = *(q++);
-              }
-              *(p++) = '"';
-            } else {
-              while(*q) {
-                *(p++) = *(q++);
-              }
-            }
-            *(p++) = 32;
-            *p = 0;
-          }
-        }
-
-        {
-          LPSECURITY_ATTRIBUTES lpSA = NULL;
-          PSECURITY_DESCRIPTOR lpSD = NULL;
-          STARTUPINFOA si;
-          PROCESS_INFORMATION pi;
-          HANDLE hProcess = GetCurrentProcess();
-
-          ZeroMemory(&si, sizeof(STARTUPINFOA));
-          si.cb = sizeof(STARTUPINFOA);
-          si.dwFlags = STARTF_USESHOWWINDOW;
-          si.wShowWindow = SW_HIDE;
-
-          if(IsSecurityRequired()) {
-            lpSD = GlobalAlloc(GPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
-            InitializeSecurityDescriptor(lpSD, SECURITY_DESCRIPTOR_REVISION);
-            SetSecurityDescriptorDacl(lpSD, -1, 0, 0);
-
-            lpSA = (LPSECURITY_ATTRIBUTES) GlobalAlloc(GPTR, sizeof(SECURITY_ATTRIBUTES));
-            lpSA->nLength = sizeof(SECURITY_ATTRIBUTES);
-            lpSA->lpSecurityDescriptor = lpSD;
-            lpSA->bInheritHandle = TRUE;
-          }
-
-          if(CreateProcessA(NULL, (LPSTR) cmd_line, lpSA, NULL, TRUE,
-                            0, NULL, NULL, &si, &pi)) {
-
-            WaitForSingleObject(pi.hProcess, INFINITE);
-          } else {
-            printf("ERROR: Unable to restart PyMOL process with new environment:\n");
-            system("set");      /* dump the environment. */
-            printf("CreateProcess failed, code %d: %s\n", GetLastError(), cmd_line);
-            printf("PyMOL will now terminate.\n");
-          }
-
-          if(lpSA != NULL)
-            GlobalFree(lpSA);
-          if(lpSD != NULL)
-            GlobalFree(lpSD);
-          _exit(0);
-        }
-      }
-    }
-  }
-#endif
-  /* END PROPRIETARY CODE SEGMENT */
-
-  /* compatibility for old compile-time defines */
-
-#ifdef _PYMOL_SETUP_PY21
-#ifndef _PYMOL_SETUP_PY_EXT
-#define _PYMOL_SETUP_PY_EXT
-#endif
-#endif
-#ifdef _PYMOL_SETUP_PY22
-#ifndef _PYMOL_SETUP_PY_EXT
-#define _PYMOL_SETUP_PY_EXT
-#endif
-#endif
-#ifdef _PYMOL_SETUP_PY23
-#ifndef _PYMOL_SETUP_PY_EXT
-#define _PYMOL_SETUP_PY_EXT
-#endif
-#endif
-#ifdef _PYMOL_SETUP_PY24
-#ifndef _PYMOL_SETUP_PY_EXT
-#define _PYMOL_SETUP_PY_EXT
-#endif
-#endif
-#ifdef _PYMOL_SETUP_PY25
-#ifndef _PYMOL_SETUP_PY_EXT
-#define _PYMOL_SETUP_PY_EXT
-#endif
-#endif
-#ifdef _PYMOL_SETUP_PY26
-#ifndef _PYMOL_SETUP_PY_EXT
-#define _PYMOL_SETUP_PY_EXT
-#endif
-#endif
-
-  /* should we set up PYTHONHOME in the ext directory? */
-
-#ifdef _PYMOL_SETUP_PY_EXT
-  {
-    static char line1[8092];
-    static char line2[8092];
-    if(!getenv("PYMOL_PATH")) { /* if PYMOL_PATH isn't defined... */
-
-      /* was our startup path absolute? */
-
-      if((argc > 0) && (argv[0][0] == '/')) {
-        /* PYMOL was started with an absolute path, so try using that... */
-        char *p;
-        strcpy(line1, "PYMOL_PATH=");
-        strcat(line1, argv[0]);
-        p = line1 + strlen(line1);
-        while(*p != '/') {
-          *p = 0;
-          p--;
-        }
-        *p = 0;
-        putenv(line1);
-      } else if((argc > 0) && getenv("PWD")
-                && ((argv[0][0] == '.') || (strstr(argv[0], "/")))) {
-        /* was the path relative? */
-        char *p;
-        strcpy(line1, "PYMOL_PATH=");
-        strcat(line1, getenv("PWD"));
-        strcat(line1, "/");
-        strcat(line1, argv[0]);
-        p = line1 + strlen(line1);
-        while(*p != '/') {
-          *p = 0;
-          p--;
-        }
-        *p = 0;
-        putenv(line1);
-      } else {                  /* otherwise, just try using the current working directory */
-        if(getenv("PWD")) {
-          strcpy(line1, "PYMOL_PATH=");
-          strcat(line1, getenv("PWD"));
-          putenv(line1);
-        }
-      }
-    }
-
-    /* now set PYTHONHOME so that we use the right binary libraries for
-       this executable */
-
-    if(getenv("PYMOL_PATH")) {
-      strcpy(line2, "PYTHONHOME=");
-      strcat(line2, getenv("PYMOL_PATH"));
-      strcat(line2, "/ext");
-      putenv(line2);
-    }
-  }
-#endif
-
-#ifndef _PYMOL_EMBEDDED
-  Py_Initialize();
-  PyEval_InitThreads();
-#endif
-
-  init_cmd();
-
-#ifdef _PYMOL_MONOLITHIC
-#ifndef _PYMOL_EMBEDDED
-  /*
-   * initExtensionClass();
-   * initsglite();
-   */
-  /* initialize champ */
-  init_champ();
-
-#ifdef _PYMOL_PYOMM
-  init_pyomm();
-#endif
-
-  /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
-#ifdef WIN32
-#ifdef _PYMOL_NUMPY_INIT
-  /* initialize numeric python */
-  init_numpy();
-  initmultiarray();
-  initarrayfns();
-  initlapack_lite();
-  initumath();
-  initranlib();
-#endif
-#endif
-
-  /* END PROPRIETARY CODE SEGMENT */
-#endif
-#endif
-
-  PyRun_SimpleString("import os\n");
-  PyRun_SimpleString("import sys\n");
-  /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
-#ifdef WIN32
-  {
-    /* getenv('PYMOL_PATH') and os.environ['PYMOL_PATH'] aren't
-       automatically synchronized on Windows, so here we do the job
-       manually... */
-
-    char *pymol_path = getenv("PYMOL_PATH");
-    if(pymol_path) {
-      PyObject *os = PyImport_AddModule("os");  /* borrowed ref */
-      char *buffer = Alloc(char, strlen(pymol_path) + 100);
-      if(os && buffer) {
-        PyObject *envir = PyObject_GetAttrString(os, "environ");
-        if(envir) {
-          if(!PTruthCallStr1s(envir, "__contains__", "PYMOL_PATH")) {
-            sprintf(buffer, "os.environ['PYMOL_PATH']=r'''%s'''\n", pymol_path);
-            PyRun_SimpleString(buffer);
-          }
-        }
-        PXDecRef(envir);
-      }
-      FreeP(buffer);
-    }
-  }
-  /* ultimate fallback -- try using the current working directory */
-  PyRun_SimpleString
-    ("if 'PYMOL_PATH' not in os.environ: os.environ['PYMOL_PATH']=os.getcwd()\n");
-#endif
-  /* END PROPRIETARY CODE SEGMENT */
-
-  P_main = PyImport_AddModule("__main__");
-  if(!P_main)
-    ErrFatal(G, "PyMOL", "can't find '__main__'");
-
-  args = PConvStringListToPyList(argc, argv);   /* prepare our argument list */
-  if(!args)
-    ErrFatal(G, "PyMOL", "can't process arguments.");
-
-  /* copy arguments to __main__.pymol_argv */
-  PyObject_SetAttrString(P_main, "pymol_argv", args);
-  PyRun_SimpleString
-    ("import __main__\nif not hasattr(sys,'argv'): sys.argv=__main__.pymol_argv");
-
-  PyRun_SimpleString("if (os.environ['PYMOL_PATH']+'/modules') not in sys.path: sys.path.insert(0,os.environ['PYMOL_PATH']+'/modules')\n");     /* needed for semistatic pymol */
-}
-
 void PConvertOptions(CPyMOLOptions * rec, PyObject * options)
 {
+  assert(PyGILState_Check());
+
   const char *load_str;
 
   rec->pmgui = !PyInt_AsLong(PyObject_GetAttrString(options, "no_gui"));
@@ -2060,9 +1729,9 @@ void PConvertOptions(CPyMOLOptions * rec, PyObject * options)
   rec->stereo_mode = PyInt_AsLong(PyObject_GetAttrString(options, "stereo_mode"));
   rec->zoom_mode = PyInt_AsLong(PyObject_GetAttrString(options, "zoom_mode"));
   rec->no_quit = PyInt_AsLong(PyObject_GetAttrString(options, "no_quit"));
-  rec->retina = PyInt_AsLong(PyObject_GetAttrString(options, "retina"));
   rec->launch_status = PyInt_AsLong(PyObject_GetAttrString(options, "launch_status"));
   rec->gldebug = PyInt_AsLong(PyObject_GetAttrString(options, "gldebug"));
+  rec->openvr_stub = PyInt_AsLong(PyObject_GetAttrString(options, "openvr_stub"));
 
   if(load_str) {
     if(load_str[0]) {
@@ -2076,6 +1745,8 @@ void PConvertOptions(CPyMOLOptions * rec, PyObject * options)
 
 void PGetOptions(CPyMOLOptions * rec)
 {
+  assert(PyGILState_Check());
+
   PyObject *pymol, *invocation, *options;
 
   pymol = PImportModuleOrFatal("pymol");
@@ -2088,36 +1759,42 @@ void PGetOptions(CPyMOLOptions * rec)
   Py_XDECREF(pymol);
 }
 
+/**
+ * Runs a string in the namespace of the pymol global module
+ * @pre GIL
+ */
 void PRunStringModule(PyMOLGlobals * G, const char *str)
-{                               /* runs a string in the namespace of the pymol global module */
+{
+  assert(PyGILState_Check());
+
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->exec, "Os", P_pymol, str));
 }
 
+/**
+ * Runs a string in the namespace of the pymol instance
+ * @pre GIL
+ */
 void PRunStringInstance(PyMOLGlobals * G, const char *str)
-{                               /* runs a string in the namespace of the pymol instance */
+{
+  assert(PyGILState_Check());
+
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->exec, "Os", G->P_inst->obj, str));
 }
 
-void WrapperObjectReset(WrapperObject *wo){
-  if (wo->settingWrapperObject) {
-    reinterpret_cast<SettingPropertyWrapperObject *>(wo->settingWrapperObject)->wobj = NULL;
-    Py_DECREF(wo->settingWrapperObject);
-  }
+static void WrapperObjectDealloc(PyObject* self)
+{
+  auto wo = static_cast<WrapperObject*>(self);
+  Py_XDECREF(wo->settingWrapperObject);
 #ifdef _PYMOL_IP_PROPERTIES
-  if (wo->propertyWrapperObject) {
-    reinterpret_cast<SettingPropertyWrapperObject *>(wo->propertyWrapperObject)->wobj = NULL;
-    Py_DECREF(wo->propertyWrapperObject);
-  }
+  Py_XDECREF(wo->propertyWrapperObject);
 #endif
   Py_XDECREF(wo->dict);
-  Py_DECREF(wo);
+  self->ob_type->tp_free(self);
 }
 
 void PInit(PyMOLGlobals * G, int global_instance)
 {
-#ifdef PYMOL_NEW_THREADS
-  PyEval_InitThreads();
-#endif
+  assert(PyGILState_Check());
 
   /* BEGIN PROPRIETARY CODE SEGMENT (see disclaimer in "os_proprietary.h") */
 #ifdef WIN32
@@ -2152,13 +1829,6 @@ void PInit(PyMOLGlobals * G, int global_instance)
   /* initialize PyOpenGL */
 #endif
 
-#if PY_MAJOR_VERSION < 3
-  // Support implicit utf-8 encoding (important for labeling!)
-  //   str(u"...unicode...") -> b"...utf-8..."
-  //   PyString_AsString(unicodeobj) -> "...utf-8..."
-  PyUnicode_SetDefaultEncoding("utf-8");
-#endif
-
   if(true /* global_instance */) {
     PCatchInit();               /* setup standard-output catch routine */
   }
@@ -2170,7 +1840,7 @@ void PInit(PyMOLGlobals * G, int global_instance)
     ErrFatal(G, "PyMOL", "can't find globals for 'pymol'");
 
   if(global_instance) {         /* if global singleton PyMOL... */
-    G->P_inst = Calloc(CP_inst, 1);
+    G->P_inst = pymol::calloc<CP_inst>(1);
     G->P_inst->obj = P_pymol;
     G->P_inst->dict = P_pymol_dict;
     {
@@ -2193,10 +1863,10 @@ void PInit(PyMOLGlobals * G, int global_instance)
     P_cmd = PImportModuleOrFatal("pymol.cmd");
 
     if(global_instance) {
+      assert(SingletonPyMOLGlobals);
       /* implies global singleton pymol, so set up the global handle */
       PyObject_SetAttrString(P_cmd, "_COb",
-                             PyCObject_FromVoidPtr((void *) &SingletonPyMOLGlobals,
-                                                   NULL));
+          PyCapsule_New(&SingletonPyMOLGlobals, nullptr, nullptr));
 
       /* cmd module is itself the api for the global PyMOL instance */
       G->P_inst->cmd = P_cmd;
@@ -2208,14 +1878,8 @@ void PInit(PyMOLGlobals * G, int global_instance)
     G->P_inst->lock = PGetAttrOrFatal(G->P_inst->cmd, "lock");
     G->P_inst->lock_attempt = PGetAttrOrFatal(G->P_inst->cmd, "lock_attempt");
     G->P_inst->unlock = PGetAttrOrFatal(G->P_inst->cmd, "unlock");
-    G->P_inst->lock_c = PGetAttrOrFatal(G->P_inst->cmd, "lock_c");
-    G->P_inst->unlock_c = PGetAttrOrFatal(G->P_inst->cmd, "unlock_c");
-    G->P_inst->lock_status = PGetAttrOrFatal(G->P_inst->cmd, "lock_status");
-    G->P_inst->lock_status_attempt =
-      PGetAttrOrFatal(G->P_inst->cmd, "lock_status_attempt");
-    G->P_inst->unlock_status = PGetAttrOrFatal(G->P_inst->cmd, "unlock_status");
-    G->P_inst->lock_glut = PGetAttrOrFatal(G->P_inst->cmd, "lock_glut");
-    G->P_inst->unlock_glut = PGetAttrOrFatal(G->P_inst->cmd, "unlock_glut");
+    G->P_inst->lock_api_status = PGetAttrOrFatal(G->P_inst->cmd, "lock_api_status");
+    G->P_inst->lock_api_glut = PGetAttrOrFatal(G->P_inst->cmd, "lock_api_glut");
 
     /* 'do' command */
 
@@ -2267,6 +1931,9 @@ void PInit(PyMOLGlobals * G, int global_instance)
 
     P_chempy = PImportModuleOrFatal("chempy");
     P_models = PImportModuleOrFatal("chempy.models");
+    P_CmdException = PGetAttrOrFatal(P_pymol, "CmdException");
+    P_QuietException = PGetAttrOrFatal(P_cmd, "QuietException");
+    P_IncentiveOnlyException = PGetAttrOrFatal(P_pymol, "IncentiveOnlyException");
 
     /* backwards compatibility */
 
@@ -2282,11 +1949,13 @@ void PInit(PyMOLGlobals * G, int global_instance)
 
   if (!Wrapper_Type.tp_basicsize) {
     Wrapper_Type.tp_basicsize = sizeof(WrapperObject);
+    Wrapper_Type.tp_dealloc = &WrapperObjectDealloc;
     Wrapper_Type.tp_flags = Py_TPFLAGS_DEFAULT;
     wrapperMappingMethods.mp_length = NULL;
     wrapperMappingMethods.mp_subscript = &WrapperObjectSubScript;
     wrapperMappingMethods.mp_ass_subscript = &WrapperObjectAssignSubScript;
     Wrapper_Type.tp_as_mapping = &wrapperMappingMethods;
+    Wrapper_Type.tp_methods = wrapperMethods;
     
     settingWrapper_Type.tp_basicsize = sizeof(SettingPropertyWrapperObject);
     settingWrapper_Type.tp_flags = Py_TPFLAGS_DEFAULT;
@@ -2297,6 +1966,9 @@ void PInit(PyMOLGlobals * G, int global_instance)
     settingWrapper_Type.tp_as_mapping = &settingMappingMethods;
     settingWrapper_Type.tp_getattro = PyObject_GenericGetAttrOrItem;
     settingWrapper_Type.tp_setattro = PyObject_GenericSetAttrAsItem;
+    
+#ifdef _PYMOL_IP_PROPERTIES
+#endif
 
     if (PyType_Ready(&Wrapper_Type) < 0
         || PyType_Ready(&settingWrapper_Type) < 0
@@ -2322,6 +1994,8 @@ void PInit(PyMOLGlobals * G, int global_instance)
 int PPovrayRender(PyMOLGlobals * G, const char *header, const char *inp, const char *file, int width,
                   int height, int antialias)
 {
+  assert(!PyGILState_Check());
+
   PyObject *result;
   int ok;
   PBlock(G);
@@ -2334,27 +2008,22 @@ int PPovrayRender(PyMOLGlobals * G, const char *header, const char *inp, const c
   return (ok);
 }
 
-void PSGIStereo(PyMOLGlobals * G, int flag)
-{
-  int blocked;
-  blocked = PAutoBlock(G);
-  if(flag)
-    PRunStringModule(G, "cmd._sgi_stereo(1)");
-  else
-    PRunStringModule(G, "cmd._sgi_stereo(0)");
-  if(blocked)
-    PUnblock(G);
-}
-
 void PFree(PyMOLGlobals * G)
 {
+  assert(PyGILState_Check());
+
   PXDecRef(G->P_inst->parse);
   PXDecRef(G->P_inst->complete);
   PXDecRef(G->P_inst->colortype);
 }
 
+/**
+ * Terminates the application with a call to `exit(code)`.
+ */
 void PExit(PyMOLGlobals * G, int code)
 {
+  assert(!PyGILState_Check());
+
   ExecutiveDelete(G, "all");
   PBlock(G);
 
@@ -2382,11 +2051,19 @@ void PExit(PyMOLGlobals * G, int code)
 #endif
 }
 
-void PParse(PyMOLGlobals * G, const char *str)
+/**
+ * Add `str` to the command queue
+ */
+void PParse(PyMOLGlobals * G, pymol::zstring_view str_view)
 {
-  OrthoCommandIn(G, str);
+  OrthoCommandIn(G, str_view.c_str());
 }
 
+/**
+ * Call `cmd.do(str)`
+ *
+ * Effectively calls `PParse(str.splitlines())` with logging and echo.
+ */
 void PDo(PyMOLGlobals * G, const char *str)
 {                               /* assumes we already hold the re-entrant API lock */
   int blocked;
@@ -2397,7 +2074,7 @@ void PDo(PyMOLGlobals * G, const char *str)
   PAutoUnblock(G, blocked);
 }
 
-/*
+/**
  * Write `str` to the log file (if one is open).
  *
  * str: command or expression to log
@@ -2408,12 +2085,13 @@ void PDo(PyMOLGlobals * G, const char *str)
  *
  * See also equivalent Python impelemtation: cmd.log()
  */
-void PLog(PyMOLGlobals * G, const char *str, int format)
+void PLog(PyMOLGlobals * G, pymol::zstring_view str_view, int format)
 {
   int mode;
   int a = sizeof(OrthoLineType) - 15;
   int blocked;
   PyObject *log;
+  auto str = str_view.c_str();
   OrthoLineType buffer = "";
   mode = SettingGetGlobal_i(G, cSetting_logging);
   if(mode) {
@@ -2473,6 +2151,9 @@ void PLog(PyMOLGlobals * G, const char *str, int format)
   }
 }
 
+/**
+ * Call flush() on the open log file handle
+ */
 void PLogFlush(PyMOLGlobals * G)
 {
   int mode;
@@ -2489,14 +2170,26 @@ void PLogFlush(PyMOLGlobals * G)
   }
 }
 
+#define PFLUSH_REPORT_UNCAUGHT_EXCEPTIONS(G)                                   \
+  if (PyErr_Occurred()) {                                                      \
+    PyErr_Print();                                                             \
+    PRINTFB(G, FB_Python, FB_Errors)                                           \
+    " %s: Uncaught exception.  PyMOL may have a bug.\n", __func__ ENDFB(G);    \
+  }
+
+/**
+ * Execute commands from the command queue.
+ * If the current thread holds the GIL, do nothing. Otherwise the queue will
+ * be empty after this call.
+ * @return False if the queue was empty
+ */
 int PFlush(PyMOLGlobals * G)
 {
   /* NOTE: ASSUMES unblocked Python threads and a locked API */
-  PyObject *err;
-  int did_work = false;
-  if(OrthoCommandWaiting(G)) {
-    did_work = true;
-    PBlock(G);
+  if(!OrthoCommandWaiting(G))
+    return false;
+
+  if (PAutoBlock(G)) {
     if(!(PIsGlutThread() && G->P_inst->glut_thread_keep_out)) {
       /* don't run if we're currently banned */
       auto ortho = G->Ortho;
@@ -2504,20 +2197,21 @@ int PFlush(PyMOLGlobals * G)
         auto buffer = OrthoCommandOut(*ortho);
         OrthoCommandSetBusy(G, true);
         OrthoCommandNest(G, 1);
-        PUnlockAPIWhileBlocked(G);
-        if(PyErr_Occurred()) {
-          PyErr_Print();
-          PRINTFB(G, FB_Python, FB_Errors)
-            " PFlush: Uncaught exception.  PyMOL may have a bug.\n" ENDFB(G);
-        }
+
+        // TODO if we release here, another thread might acquire the API lock
+        // and block us when we try to lock again. (see PYMOL-3249)
+        // Example: set_key F1, ray async=1
+        //          => hitting F1 will block GUI updates, even though ray
+        //             is running async
+        // PUnlockAPIWhileBlocked(G);
+
+        PFLUSH_REPORT_UNCAUGHT_EXCEPTIONS(G);
         PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->parse, "si", buffer.c_str(), 0));
-        err = PyErr_Occurred();
-        if(err) {
-          PyErr_Print();
-          PRINTFB(G, FB_Python, FB_Errors)
-            " PFlush: Uncaught exception.  PyMOL may have a bug.\n" ENDFB(G);
-        }
-        PLockAPIWhileBlocked(G);
+        PFLUSH_REPORT_UNCAUGHT_EXCEPTIONS(G);
+
+        // TODO see above
+        // PLockAPIWhileBlocked(G);
+
         OrthoCommandSetBusy(G, false);
         /* make sure no commands left at this level */
         while(OrthoCommandWaiting(G))
@@ -2527,13 +2221,20 @@ int PFlush(PyMOLGlobals * G)
     }
     PUnblock(G);
   }
-  return did_work;
+  return true;
 }
 
+/**
+ * Execute commands from the command queue.
+ * @return False if the queue was empty
+ * @pre GIL
+ * @post queue is empty
+ */
 int PFlushFast(PyMOLGlobals * G)
 {
+  assert(PyGILState_Check());
+
   /* NOTE: ASSUMES we currently have blocked Python threads and an unlocked API */
-  PyObject *err;
   int did_work = false;
   auto ortho = G->Ortho;
   while(!OrthoCommandIsEmpty(*ortho)){
@@ -2541,22 +2242,11 @@ int PFlushFast(PyMOLGlobals * G)
     OrthoCommandSetBusy(G, true);
     OrthoCommandNest(G, 1);
     did_work = true;
-    PRINTFD(G, FB_Threads)
-      " PFlushFast-DEBUG: executing '%s' as thread %ld\n", buffer.c_str(),
-      PyThread_get_thread_ident()
-      ENDFD;
-    if(PyErr_Occurred()) {
-      PyErr_Print();
-      PRINTFB(G, FB_Python, FB_Errors)
-        " PFlushFast: Uncaught exception.  PyMOL may have a bug.\n" ENDFB(G);
-    }
+
+    PFLUSH_REPORT_UNCAUGHT_EXCEPTIONS(G);
     PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->parse, "si", buffer.c_str(), 0));
-    err = PyErr_Occurred();
-    if(err) {
-      PyErr_Print();
-      PRINTFB(G, FB_Python, FB_Errors)
-        " PFlushFast: Uncaught exception.  PyMOL may have a bug.\n" ENDFB(G);
-    }
+    PFLUSH_REPORT_UNCAUGHT_EXCEPTIONS(G);
+
     OrthoCommandSetBusy(G, false);
     /* make sure no commands left at this level */
     while(OrthoCommandWaiting(G))
@@ -2566,148 +2256,120 @@ int PFlushFast(PyMOLGlobals * G)
   return did_work;
 }
 
-void PBlockLegacy()
-{
-  PBlock(SingletonPyMOLGlobals);
-}
-
-void PUnblockLegacy()
-{
-  PUnblock(SingletonPyMOLGlobals);
-}
-
+/**
+ * Acquire the GIL.
+ * @pre no GIL
+ * @post GIL
+ */
 void PBlock(PyMOLGlobals * G)
 {
+  assert(!PyGILState_Check());
 
   if(!PAutoBlock(G)) {
-    // int *p = 0;
-    //  *p = 0;
     ErrFatal(G, "PBlock", "Threading error detected.  Terminating...");
   }
+
+  assert(PyGILState_Check());
 }
 
+/**
+ * Acquire the GIL.
+ * Return false if the current thread already holds the GIL.
+ * @post GIL
+ */
 int PAutoBlock(PyMOLGlobals * G)
 {
 #ifndef _PYMOL_EMBEDDED
-  int a;
-  long id;
   SavedThreadRec *SavedThread = G->P_inst->savedThread;
-  /* synchronize python */
 
-  id = PyThread_get_thread_ident();
+  auto id = PyThread_get_thread_ident();
 
-  PRINTFD(G, FB_Threads)
-    " PAutoBlock-DEBUG: search %ld (%ld, %ld, %ld)\n", id,
-    SavedThread[MAX_SAVED_THREAD - 1].id,
-    SavedThread[MAX_SAVED_THREAD - 2].id, SavedThread[MAX_SAVED_THREAD - 3].id ENDFD;
-  a = MAX_SAVED_THREAD - 1;
-  while(a) {
-    if(!((SavedThread + a)->id - id)) {
-      /* astoundingly, equality test fails on ALPHA even 
-       * though the ints are equal. Must be some kind of optimizer bug
-       * or mis-assumption */
+  for (auto a = MAX_SAVED_THREAD - 1; a; --a) {
+    if (SavedThread[a].id == id) {
+      assert(!PyGILState_Check());
 
-      PRINTFD(G, FB_Threads)
-        " PAutoBlock-DEBUG: seeking global lock %ld\n", id ENDFD;
+      // Aquire GIL
+      PyEval_RestoreThread(SavedThread[a].state);
 
-#ifdef PYMOL_NEW_THREADS
-
-      PyEval_AcquireLock();
-
-      PRINTFD(G, FB_Threads)
-        " PAutoBlock-DEBUG (NewThreads): restoring %ld\n", id ENDFD;
-
-      PyThreadState_Swap((SavedThread + a)->state);
-
-#else
-      PRINTFD(G, FB_Threads)
-        " PAutoBlock-DEBUG: restoring %ld\n", id ENDFD;
-
-      PyEval_RestoreThread((SavedThread + a)->state);
-#endif
-
-      PRINTFD(G, FB_Threads)
-        " PAutoBlock-DEBUG: restored %ld\n", id ENDFD;
-
-      PRINTFD(G, FB_Threads)
-        " PAutoBlock-DEBUG: clearing %ld\n", id ENDFD;
-
-      PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock_c, "O", G->P_inst->cmd));
       SavedThread[a].id = -1;
-      /* this is the only safe time we can change things */
-      PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock_c, "O", G->P_inst->cmd));
 
-      PRINTFD(G, FB_Threads)
-        " PAutoBlock-DEBUG: blocked %ld (%ld, %ld, %ld)\n",
-        PyThread_get_thread_ident(), SavedThread[MAX_SAVED_THREAD - 1].id,
-        SavedThread[MAX_SAVED_THREAD - 2].id, SavedThread[MAX_SAVED_THREAD - 3].id ENDFD;
-
+      assert(PyGILState_Check());
       return 1;
     }
-    a--;
   }
-  PRINTFD(G, FB_Threads)
-    " PAutoBlock-DEBUG: %ld not found, thus already blocked.\n",
-    PyThread_get_thread_ident()
-    ENDFD;
+
+  assert(PyGILState_Check());
   return 0;
 #else
   return 1;
 #endif
 }
 
+/**
+ * Can be called anytime, no lock conditions
+ * @return True if the current thread is the GUI thread
+ */
 int PIsGlutThread(void)
 {
   return (PyThread_get_thread_ident() == P_glut_thread_id);
 }
 
+/**
+ * Release GIL
+ * @pre GIL
+ * @post no GIL
+ */
 void PUnblock(PyMOLGlobals * G)
 {
 #ifndef _PYMOL_EMBEDDED
-  int a;
+  assert(PyGILState_Check());
+
   SavedThreadRec *SavedThread = G->P_inst->savedThread;
+  auto a = MAX_SAVED_THREAD - 1;
   /* NOTE: ASSUMES a locked API */
-  PRINTFD(G, FB_Threads)
-    " PUnblock-DEBUG: entered as thread %ld\n", PyThread_get_thread_ident()
-    ENDFD;
 
   /* reserve a space while we have a lock */
-  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock_c, "O", G->P_inst->cmd));
-  a = MAX_SAVED_THREAD - 1;
-  while(a) {
-    if((SavedThread + a)->id == -1) {
-      (SavedThread + a)->id = PyThread_get_thread_ident();
-#ifdef PYMOL_NEW_THREADS
-      (SavedThread + a)->state = PyThreadState_Get();
-#endif
+  for (; a; --a) {
+    if (SavedThread[a].id == -1) {
+      SavedThread[a].id = PyThread_get_thread_ident();
       break;
     }
-    a--;
   }
-  PRINTFD(G, FB_Threads)
-    " PUnblock-DEBUG: %ld stored in slot %d\n", (SavedThread + a)->id, a ENDFD;
-  PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock_c, "O", G->P_inst->cmd));
-#ifdef PYMOL_NEW_THREADS
-  PyThreadState_Swap(NULL);
-  PyEval_ReleaseLock();
-#else
-  (SavedThread + a)->state = PyEval_SaveThread();
-#endif
+
+  // Release GIL
+  SavedThread[a].state = PyEval_SaveThread();
+
+  assert(!PyGILState_Check());
 #endif
 }
 
+/**
+ * Release GIL if flag=true
+ */
 void PAutoUnblock(PyMOLGlobals * G, int flag)
 {
   if(flag)
     PUnblock(G);
 }
 
+/**
+ * Acquire GIL, release API lock and flush
+ * @pre no GIL
+ * @post GIL
+ * @post no API lock
+ */
 void PBlockAndUnlockAPI(PyMOLGlobals * G)
 {
   PBlock(G);
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock, "iO", 0, G->P_inst->cmd));
 }
 
+/**
+ * Acquire API lock
+ * @param block_if_busy If false and PyMOL is busy, do not block
+ * @return False if API lock could not be acquired
+ * @pre no GIL
+ */
 int PLockAPI(PyMOLGlobals * G, int block_if_busy)
 {
   int result = true;
@@ -2728,6 +2390,11 @@ int PLockAPI(PyMOLGlobals * G, int block_if_busy)
   return result;
 }
 
+/**
+ * Release API lock with flushing
+ * @pre no GIL
+ * @pre API lock
+ */
 void PUnlockAPI(PyMOLGlobals * G)
 {
   PBlock(G);
@@ -2735,16 +2402,34 @@ void PUnlockAPI(PyMOLGlobals * G)
   PUnblock(G);
 }
 
+/**
+ * Release API lock without flushing
+ * @pre GIL
+ * @pre API lock
+ * @post no API lock
+ */
 static void PUnlockAPIWhileBlocked(PyMOLGlobals * G)
 {
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->unlock, "iO", -1, G->P_inst->cmd));
 }
 
+/**
+ * Acquire API lock
+ * @pre GIL
+ * @post GIL
+ * @post API lock
+ */
 static void PLockAPIWhileBlocked(PyMOLGlobals * G)
 {
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock, "O", G->P_inst->cmd));
 }
 
+/**
+ * Try to acquire API lock (non-blocking if busy) and release GIL
+ * @return False if API lock could not be acquired
+ * @pre GIL
+ * @post no GIL if API lock could be acquired
+ */
 int PTryLockAPIAndUnblock(PyMOLGlobals * G)
 {
   int result = get_api_lock(G, false);
@@ -2754,14 +2439,32 @@ int PTryLockAPIAndUnblock(PyMOLGlobals * G)
   return result;
 }
 
+/**
+ * Acquire API lock and release the GIL
+ * @pre GIL
+ * @post no GIL
+ * @post API Lock
+ */
 void PLockAPIAndUnblock(PyMOLGlobals * G)
 {
+  assert(PyGILState_Check());
+
   PXDecRef(PYOBJECT_CALLFUNCTION(G->P_inst->lock, "O", G->P_inst->cmd));
   PUnblock(G);
 }
 
+/**
+ * Assign a variable in the pymol namespace, like
+ * @verbatim
+   import pymol
+   setattr(pymol, name, value)
+   @endverbatim
+ * @pre no GIL
+ */
 void PDefineFloat(PyMOLGlobals * G, const char *name, float value)
 {
+  assert(!PyGILState_Check());
+
   char buffer[OrthoLineLength];
   sprintf(buffer, "%s = %f\n", name, value);
   PBlock(G);
@@ -2769,7 +2472,47 @@ void PDefineFloat(PyMOLGlobals * G, const char *name, float value)
   PUnblock(G);
 }
 
+/**
+ * If the error indicator is set (means: If a Python exception was raised),
+ * then clear it and print the traceback.
+ *
+ * Special case is CmdException, which will be printed without a traceback.
+ */
+void PErrPrintIfOccurred(PyMOLGlobals* G)
+{
+  assert(PyGILState_Check());
 
+  PyObject *type = nullptr, *value = nullptr, *traceback = nullptr;
+  PyErr_Fetch(&type, &value, &traceback);
+
+  if (!type) {
+    return;
+  }
+
+  if (!value || !PyErr_GivenExceptionMatches(type, P_CmdException)) {
+    PyErr_Restore(type, value, traceback);
+    PyErr_Print();
+    return;
+  }
+
+  Py_XDECREF(traceback);
+
+  if (PyObject* strobj = PyObject_Str(value)) {
+    const char* str = PyUnicode_AsUTF8(strobj);
+    assert(str);
+
+    G->Feedback->addColored(str, FB_Errors);
+    G->Feedback->add("\n");
+
+    Py_DECREF(strobj);
+  } else {
+    assert(PyErr_Occurred());
+    PyErr_Print();
+  }
+
+  Py_DECREF(type);
+  Py_DECREF(value);
+}
 
 /* A static module */
 
@@ -2846,10 +2589,8 @@ static PyMethodDef PCatch_methods[] = {
 
 void PCatchInit(void)
 {
-#if PY_MAJOR_VERSION < 3
-  PyImport_AddModule("pcatch");
-  Py_InitModule("pcatch", PCatch_methods);
-#else
+  assert(PyGILState_Check());
+
   static struct PyModuleDef moduledef = { PyModuleDef_HEAD_INIT,
     "pcatch", NULL, -1, PCatch_methods };
   PyObject * pcatch = PyModule_Create(&moduledef);
@@ -2857,6 +2598,17 @@ void PCatchInit(void)
     PyDict_SetItemString(PyImport_GetModuleDict(), "pcatch", pcatch);
     Py_DECREF(pcatch);
   }
-#endif
 }
+
+namespace pymol
+{
+GIL_Ensure::GIL_Ensure() {
+  state = PyGILState_Ensure();
+}
+GIL_Ensure::~GIL_Ensure()
+{
+  PyGILState_Release(state);
+}
+} // namespace pymol
+
 #endif
