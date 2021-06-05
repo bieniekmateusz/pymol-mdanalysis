@@ -93,11 +93,21 @@ SEE ALSO
                 int(enable),
                 int(merge))
 
+    def mda_select(label, MDAnalysis_selection, new_label):
+        '''
+             DESCRIPTION
+                 "mda_select" selects atoms using the MDAnalysis language.
 
-    def mda_select(label, selection, selection_label):
+             USAGE
+                 mda_select label, MDAnalysis_selection, new_label
+
+             PYMOL API
+                 cmd.mda_select(label, selection='backbone')
+                 cmd.mda_select(label, MDAnalysis_selection, new_label)
+        '''
         # apply on label
         from .mdanalysis_manager import MDAnalysisManager
-        MDAnalysisManager.select(label, selection_label, selection)
+        MDAnalysisManager.select(label, new_label, MDAnalysis_selection)
 
 
     def pop(name, source, enable=-1, quiet=1, _self=cmd):
