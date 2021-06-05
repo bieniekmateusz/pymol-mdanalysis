@@ -6,7 +6,8 @@
 # It may assume that all of PyMOL's external dependencies are
 # pre-installed into the system.
 
-from distutils.core import setup, Extension
+from distutils.core import setup
+from setuptools import Extension
 from distutils.util import change_root
 from glob import glob
 import shutil
@@ -254,7 +255,7 @@ create_shadertext.create_all(generated_dir)
 prefix_path = get_prefix_path()
 
 inc_dirs = [
-    "include",
+    "include", "include/mmtf-cpp"
 ]
 
 pymol_src_dirs = [
@@ -523,11 +524,11 @@ datafiles = [(d, [os.path.join(d,f) for f in files])
     for d, folders, files in os.walk('data')]
 
 distribution = setup ( # Distribution meta-data
-    cmdclass  = {
-        'build_ext': build_ext_pymol,
-        'build_py': build_py_pymol,
-        'install': install_pymol,
-    },
+    # cmdclass  = {
+    #     'build_ext': build_ext_pymol,
+    #     'build_py': build_py_pymol,
+    #     'install': install_pymol,
+    # },
     name      = "pymol",
     version   = get_pymol_version(),
     author    = "Schrodinger",
@@ -547,7 +548,7 @@ distribution = setup ( # Distribution meta-data
 
     entry_points={
         'console_scripts': [
-            'pymol = pymol:pymol.launch'
+            'pymol = pymol:pymol.start_pymol'
         ]
     },
 
