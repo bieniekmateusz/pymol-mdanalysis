@@ -3,6 +3,8 @@
 This is an exploratory project started as a PyMOL Fellowship in 2019 
 which combines PyMOL and MDAnalysis together. 
 
+If you need any help, feel free to create an issue. 
+
 
 ## Installation
 
