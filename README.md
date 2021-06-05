@@ -11,7 +11,7 @@ which might be lacking in various ways.
 ### Windows
 It is easiest to use conda to install some necessary dependencies.
 ```
-conda install -c conda-forge glew glm libpng freetype libxml2
+conda install -c conda-forge glew glm libpng freetype libxml2 netcdf4
 ```
 
 Download the repository, e.g. with git:
