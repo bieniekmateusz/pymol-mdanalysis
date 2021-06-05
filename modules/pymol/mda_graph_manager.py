@@ -42,6 +42,7 @@ from matplotlib.widgets import SpanSelector
 from . import cmd
 import re
 import hashlib
+import pathlib
 
 from .mdanalysis_manager import MDAnalysisManager
 from enum import Enum, auto
@@ -49,7 +50,7 @@ from enum import Enum, auto
 
 class GraphManager():
     # fixme - should in the configuration file
-    TEMPLATE_DIR = os.path.join(os.environ['PYMOL_DATA'], 'plotting_templates', 'original')
+    TEMPLATE_DIR = os.path.join(pathlib.Path(__file__).parent, 'data', 'plotting_templates', 'original')
     PLOTS_DIR = os.path.join(os.path.expanduser('~'), '.pymol', 'plotting')
 
     # these map directly to the directory names in the plotting directory
