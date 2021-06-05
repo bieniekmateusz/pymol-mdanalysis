@@ -553,6 +553,6 @@ distribution = setup ( # Distribution meta-data
     },
 
     ext_modules = ext_modules,
-    data_files  = datafiles, # data_files
+    # data_files  = datafiles, # data_files
     include_package_data=True
 )
