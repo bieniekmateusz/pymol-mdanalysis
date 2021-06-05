@@ -3,12 +3,18 @@
 This is an exploratory project started as a PyMOL Fellowship in 2019 
 which combines PyMOL and MDAnalysis together. 
 
+
 ## Installation
 
 This fork uses a dumbed-down version of the installation file setup.py 
 which might be lacking in various ways. 
 
-### Windows
+If you have a problem with missing dependencies, 
+check the official instructions: please see [INSTALL](INSTALL) 
+and the parent github page. 
+
+
+### CONDA
 It is easiest to use conda to install some necessary dependencies.
 ```
 conda install -c conda-forge glew glm libpng freetype libxml2 netcdf4
@@ -26,18 +32,6 @@ with the command `where pip`.
 From now on, whenever your conda environment is active, 
 type `pymol` to start the application. 
 
-If you would like to use a startmenu shortcut PymolMda, after
-installation is complete, use the following script:
-```
-python make_pymol_shortcut.py 
-```
-
-However, the startmenu shortcut feature only works currently 
-with conda base environment. 
-
-If you have a problem with missing dependencies, 
-check the official instructions: please see [INSTALL](INSTALL) 
-and the parent github page. 
 
 ### Linux
 
@@ -45,19 +39,31 @@ Installation follows the same process as Windows.
 Similarly to Windows, you might need to install 
 glew, glm or other implementing binaries.  
 
+An example on ubuntu:
 ```
-pip install .
-```
-If you would like a shortcut (added to the user space):
-```
-python make_pymol_shortcut.py
+apt-get install build-essential python3-dev libglew-dev \
+  libpng-dev libfreetype6-dev libxml2-dev \
+  libmsgpack-dev python3-pyqt5.qtopengl libglm-dev libnetcdf-dev
 ```
 
-### MacOS
+Then the pip/conda instructions are applicable. 
 
-Installation on MacOS is not tested but should also be
-possible via the same process described for Windows and
-Linux.
+
+## Errors / Debugging
+
+A good test is to use `python setup.py build` and check the errors in the output. 
+
+In a conda environment, gcc version 10 was tested and works fine. However, gcc 11.2 led to the following error:
+```
+ImportError: ... _cmd.cpython-39-x86_64-linux-gnu.so: undefined symbol: _ZSt28__throw_bad_array_new_lengthv
+```
+You can switch to an older compiler in that case by configuirng CC and CXX:
+```
+export CC=gcc-10
+export CXX=g++-10
+```
+Then clear the files from build/* and then reinstall. 
+
 
 ## Citations
 
