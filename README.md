@@ -13,7 +13,7 @@ which might be lacking in various ways.
 
 If you have a problem with missing dependencies, 
 check the official instructions: please see [INSTALL](INSTALL) 
-and the parent github page. 
+and the upstream github page. 
 
 
 ### CONDA
@@ -35,11 +35,7 @@ From now on, whenever your conda environment is active,
 type `pymol` to start the application. 
 
 
-### Linux
-
-Installation follows the same process as Windows. 
-Similarly to Windows, you might need to install 
-glew, glm or other implementing binaries.  
+### Linux Ubuntu example
 
 An example on ubuntu:
 ```
@@ -47,15 +43,16 @@ apt-get install build-essential python3-dev libglew-dev \
   libpng-dev libfreetype6-dev libxml2-dev \
   libmsgpack-dev python3-pyqt5.qtopengl libglm-dev libnetcdf-dev
 ```
+Then download the directory and use `pip install .`
 
-Then the pip/conda instructions are applicable. 
+Test the installation with `python -c "import pymol ; pymol.start_pymol()"`
 
 
 ## Errors / Debugging
 
-A good test is to use `python setup.py build` and check the errors in the output. 
+You might use `python setup.py build` and check the errors in the output. 
 
-In a conda environment, gcc version 10 was tested and works fine. However, gcc 11.2 led to the following error:
+In a conda environment, gcc version 10 works fine. However, gcc 11.2 led to the following error:
 ```
 ImportError: ... _cmd.cpython-39-x86_64-linux-gnu.so: undefined symbol: _ZSt28__throw_bad_array_new_lengthv
 ```
@@ -64,7 +61,7 @@ You can switch to an older compiler in that case by configuirng CC and CXX:
 export CC=gcc-10
 export CXX=g++-10
 ```
-Then clear the files from build/* and then reinstall. 
+Remember to empty the `build` directory before reattempting the installation. 
 
 
 ## Citations
