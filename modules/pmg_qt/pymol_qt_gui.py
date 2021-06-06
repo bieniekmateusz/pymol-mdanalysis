@@ -7,6 +7,7 @@ from collections import defaultdict
 import os
 import re
 import sys
+import pathlib
 
 import pymol
 import pymol._gui
@@ -403,7 +404,9 @@ PyMOL> color ye<TAB>    (will autocomplete "yellow")
 
         # Apply PyMOL stylesheet
         try:
-            with open(cmd.exp_path('$PYMOL_DATA/pmg_qt/styles/pymol.sty')) as f:
+            import pmg_qt
+            with open(pathlib.Path(pmg_qt.__file__).parent / 'data' / 'styles' / 'pymol.sty') as f:
+            # with open(cmd.exp_path('$PYMOL_DATA/pmg_qt/styles/pymol.sty')) as f:
                 style = f.read()
         except IOError:
             print('Could not read PyMOL stylesheet.')
