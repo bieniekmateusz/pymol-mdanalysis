@@ -322,6 +322,7 @@ def get_command_keywords(self_cmd=cmd):
         'movie.zoom'    : [ self_cmd.movie.zoom        , 0 , 0 , ''  , parsing.STRICT ],
         # MDAnalysis
         'mda_rmsd': [self_cmd.mda_rmsd, 0, 0, '', parsing.STRICT],
+        'mda_rmsf': [self_cmd.mda_rmsf, 0, 0, '', parsing.STRICT],
         'mda_load': [self_cmd.mda_load, 0, 0, '', parsing.STRICT],
         'mda_load_traj': [self_cmd.mda_load_traj, 0, 0, '', parsing.STRICT],
         'mda_select': [self_cmd.mda_select, 0, 0, '', parsing.STRICT],

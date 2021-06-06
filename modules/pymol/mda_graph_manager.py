@@ -178,13 +178,13 @@ class GraphManager():
 
 
     @staticmethod
-    def save_graph(label, rmsd_data, category):
+    def save_graph(label, data, category):
         """
 
         :param label: PyMOL label
+        :param data: data to be saved for visualisation
         :param category: a str, e.g. 'rmsd', 'rmsf'
         :param atom_group: used for the filename information
-        :param rmsd_data: rmsd results from MDAnalysis
         :return:
         """
 
@@ -197,7 +197,7 @@ class GraphManager():
         os.makedirs(datafile_dir, exist_ok=True)
 
         # save the data in a file
-        numpy.savetxt(datafile_name, rmsd_data)
+        numpy.savetxt(datafile_name, data)
 
         # copy the plotting file from the templates
         template_rmsd_plotter = os.path.join(GraphManager.TEMPLATE_DIR, '%s.py' % category)

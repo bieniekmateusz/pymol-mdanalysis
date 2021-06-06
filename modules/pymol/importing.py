@@ -548,27 +548,19 @@ SEE ALSO
         return None
 
 
-    # MPP
     def mda_rmsd(label, selection="backbone", pylustrator=False):
-        '''
-     DESCRIPTION
+        """
+        DESCRIPTION
+            "mda_rmsd" computes RMSD for the label, saves and plots the data. If the selection is not provided,
+            all atoms are used for both, the finding and quantification of the RMSD.
 
-         "mda_rmsd" computes RMSD for the label, saves and plots the data. If the selection is not provided,
-         all atoms are used for both, the finding and quantification of the RMSD.
+        USAGE
+            mda_rmsd label, [selection]
 
-     USAGE
-
-         mda_rmsd label, [selection]
-
-     PYMOL API
-
-         cmd.mda_rmsd(label)
-         cmd.mda_rmsd(label, selection='backbone')
-
-     NOTES
-
-         This is a prototype that relies on MDAnalysis.
-        '''
+        PYMOL API
+            cmd.mda_rmsd(label)
+            cmd.mda_rmsd(label, selection='backbone')
+        """
 
         from MDAnalysis.analysis.rms import RMSD
         from .mda_graph_manager import GraphManager
@@ -591,6 +583,59 @@ SEE ALSO
         GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSD.name, pylustrator)
 
         return None
+
+
+    def mda_rmsf(label, _self=cmd):
+        '''
+        DESCRIPTION
+            "mda_rmsf" computes RMSF for the label, and visualises it.
+            Backbone atoms are used.
+        USAGE
+            mda_rmsf label
+        PYMOL API
+            cmd.mda_rmsf(label)
+        '''
+        selection = "backbone"
+        pylustrator = False,
+
+        from MDAnalysis.analysis.rms import RMSF
+        from .mda_graph_manager import GraphManager
+
+        # if MDAnalysisManager.SESSION is None:
+        #     print('Error: session not saved. ')
+        #     print('Please use mda_save to create a session first. ')
+        #     print('Otherwise the graphs cannot be saved. ')
+        #     return
+
+        atom_group = MDAnalysisManager.getSystem(label)
+        sel = atom_group.select_atoms(selection)
+        rmsfer = RMSF(sel, verbose=True)
+        rmsfer.run()
+
+        # import matplotlib.pyplot as plt
+        # plt.plot(sel.resnums, rmsfer.rmsf)
+        # plt.show()
+        # data = np.column_stack((sel.resnums, rmsfer.rmsf))
+        # GraphManager.save_graph(label, data, GraphManager.GRAPH_TYPES.RMSF.name)
+        # GraphManager.plot_graph(label, GraphManager.GRAPH_TYPES.RMSF.name, pylustrator)
+
+        # cmd.alter("%s and resi %s and n. CA"%(mol,counter), "b=%s"%bfact)
+        for resid, b in zip(sel.resnums, rmsfer.rmsf):
+            _self.alter(f'resid {resid}', f'b={b}')
+
+        obj = cmd.get_object_list()[0]
+        _self.cmd.show_as("cartoon")
+        _self.cmd.cartoon("putty")
+        _self.cmd.set("cartoon_putty_scale_min", min(rmsfer.rmsf), obj)
+        _self.cmd.set("cartoon_putty_scale_max", max(rmsfer.rmsf), obj)
+        _self.cmd.set("cartoon_putty_transform", 0, obj)
+        _self.cmd.set("cartoon_putty_radius", 0.2, obj)
+        _self.cmd.spectrum("b", "rainbow") #, "%s and n. CA " % mol)
+        _self.cmd.ramp_new("count", obj, [min(rmsfer.rmsf), max(rmsfer.rmsf)], "rainbow")
+        _self.cmd.recolor()
+
+        return None
+
 
 
 

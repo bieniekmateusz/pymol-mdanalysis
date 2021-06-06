@@ -27,7 +27,8 @@ from .importing import \
       fetch,              \
       mda_load,\
       mda_load_traj,\
-      mda_rmsd
+      mda_rmsd, \
+      mda_rmsf
 # MPP ^
 
 #--------------------------------------------------------------------
