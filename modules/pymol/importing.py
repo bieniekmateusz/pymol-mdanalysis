@@ -585,7 +585,7 @@ SEE ALSO
         return None
 
 
-    def mda_rmsf(label, selection = "backbone", _self=cmd):
+    def mda_rmsf(label, selection = "name CA", _self=cmd):
         '''
         DESCRIPTION
             "mda_rmsf" computes RMSF for the label, and visualises it.
