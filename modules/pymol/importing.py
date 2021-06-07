@@ -585,7 +585,7 @@ SEE ALSO
         return None
 
 
-    def mda_rmsf(label, _self=cmd):
+    def mda_rmsf(label, selection = "backbone", _self=cmd):
         '''
         DESCRIPTION
             "mda_rmsf" computes RMSF for the label, and visualises it.
@@ -595,7 +595,6 @@ SEE ALSO
         PYMOL API
             cmd.mda_rmsf(label)
         '''
-        selection = "backbone"
         pylustrator = False,
 
         from MDAnalysis.analysis.rms import RMSF
